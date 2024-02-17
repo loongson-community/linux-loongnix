@@ -2464,6 +2464,8 @@ static void set_usb_port_removable(struct usb_device *udev)
  */
 int usb_new_device(struct usb_device *udev)
 {
+	struct usb_host_config *config;
+	int ncfg;
 	int err;
 
 	if (udev->parent) {
@@ -2494,6 +2496,20 @@ int usb_new_device(struct usb_device *udev)
 	/* export the usbdev device-node for libusb */
 	udev->dev.devt = MKDEV(USB_DEVICE_MAJOR,
 			(((udev->bus->busnum-1) * 128) + (udev->devnum-1)));
+
+#ifdef CONFIG_PM
+	for (ncfg = 0; ncfg < udev->descriptor.bNumConfigurations; ncfg++) {
+		config = &udev->config[ncfg];
+		if ((config->desc.bmAttributes & (1 << 5)) == 0)
+			break;
+		if (ncfg + 1 == udev->descriptor.bNumConfigurations) {
+			err = usb_enable_remote_wakeup(udev);
+			if (err)
+				dev_dbg(&udev->dev,
+				      "won't remote wakeup, err %d\n", err);
+		}
+	}
+#endif
 
 	/* Tell the world! */
 	announce_device(udev);
@@ -3125,7 +3141,7 @@ EXPORT_SYMBOL_GPL(usb_enable_ltm);
  * enable remote wake for the first interface.  FIXME if the interface
  * association descriptor shows there's more than one function.
  */
-static int usb_enable_remote_wakeup(struct usb_device *udev)
+int usb_enable_remote_wakeup(struct usb_device *udev)
 {
 	if (udev->speed < USB_SPEED_SUPER)
 		return usb_control_msg(udev, usb_sndctrlpipe(udev, 0),
@@ -3140,6 +3156,7 @@ static int usb_enable_remote_wakeup(struct usb_device *udev)
 					USB_INTRF_FUNC_SUSPEND_LP,
 				NULL, 0, USB_CTRL_SET_TIMEOUT);
 }
+EXPORT_SYMBOL_GPL(usb_enable_remote_wakeup);
 
 /*
  * usb_disable_remote_wakeup - disable remote wakeup for a device
@@ -3151,7 +3168,7 @@ static int usb_enable_remote_wakeup(struct usb_device *udev)
  * disable remote wake for the first interface.  FIXME if the interface
  * association descriptor shows there's more than one function.
  */
-static int usb_disable_remote_wakeup(struct usb_device *udev)
+int usb_disable_remote_wakeup(struct usb_device *udev)
 {
 	if (udev->speed < USB_SPEED_SUPER)
 		return usb_control_msg(udev, usb_sndctrlpipe(udev, 0),
@@ -3164,6 +3181,7 @@ static int usb_disable_remote_wakeup(struct usb_device *udev)
 				USB_INTRF_FUNC_SUSPEND,	0, NULL, 0,
 				USB_CTRL_SET_TIMEOUT);
 }
+EXPORT_SYMBOL_GPL(usb_disable_remote_wakeup);
 
 /* Count of wakeup-enabled devices at or below udev */
 static unsigned wakeup_enabled_descendants(struct usb_device *udev)

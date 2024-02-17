@@ -165,7 +165,6 @@ syscall_exit_work:
 	beqz	t0, work_pending	# trace bit set?
 	local_irq_enable		# could let syscall_trace_leave()
 					# call schedule() instead
-	TRACE_IRQS_ON
 	move	a0, sp
 	jal	syscall_trace_leave
 	b	resume_userspace

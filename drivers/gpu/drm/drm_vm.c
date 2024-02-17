@@ -73,7 +73,7 @@ static pgprot_t drm_io_prot(struct drm_local_map *map,
 		tmp = pgprot_writecombine(tmp);
 	else
 		tmp = pgprot_noncached(tmp);
-#elif defined(__sparc__) || defined(__arm__) || defined(__mips__)
+#elif defined(__sparc__) || defined(__arm__) || defined(__mips__) || defined(__loongarch__)
 	tmp = pgprot_noncached(tmp);
 #endif
 	return tmp;

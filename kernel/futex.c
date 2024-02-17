@@ -751,10 +751,21 @@ static int fault_in_user_writeable(u32 __user *uaddr)
 {
 	struct mm_struct *mm = current->mm;
 	int ret;
+	struct vm_area_struct __maybe_unused *vma;
 
 	down_read(&mm->mmap_sem);
 	ret = fixup_user_fault(current, mm, (unsigned long)uaddr,
 			       FAULT_FLAG_WRITE, NULL);
+#ifdef CONFIG_LOONGARCH
+	if (!ret) {
+		/* LoongArch has writeonly access permission,
+		 * so to verify RW access, VM_READ should be checked.
+		 */
+		vma = find_vma(mm, (unsigned long)uaddr);
+		if (!(vma->vm_flags & VM_READ))
+			ret = -EFAULT;
+	}
+#endif
 	up_read(&mm->mmap_sem);
 
 	return ret < 0 ? ret : 0;

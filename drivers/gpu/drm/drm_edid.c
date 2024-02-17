@@ -1757,6 +1757,10 @@ drm_probe_ddc(struct i2c_adapter *adapter)
 }
 EXPORT_SYMBOL(drm_probe_ddc);
 
+#if defined(CONFIG_LOONGSON_EA_LAPTOP)
+extern int is_ea_laptop(void);
+#endif
+
 /**
  * drm_get_edid - get EDID data, if available
  * @connector: connector we're probing
@@ -1772,6 +1776,10 @@ struct edid *drm_get_edid(struct drm_connector *connector,
 {
 	struct edid *edid;
 
+#if defined(CONFIG_LOONGSON_EA_LAPTOP)
+	if(is_ea_laptop())
+		mdelay(500);
+#endif
 	if (connector->force == DRM_FORCE_OFF)
 		return NULL;
 

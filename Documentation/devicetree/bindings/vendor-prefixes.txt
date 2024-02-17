@@ -215,6 +215,7 @@ linux	Linux-specific binding
 linx	Linx Technologies
 lltc	Linear Technology Corporation
 logicpd	Logic PD, Inc.
+loongson	Loongson Technology Co., Ltd
 lsi	LSI Corp. (LSI Logic)
 lwn	Liebherr-Werk Nenzing GmbH
 macnica	Macnica Americas

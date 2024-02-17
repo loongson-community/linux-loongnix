@@ -28,6 +28,10 @@
 #include "i8042-x86ia64io.h"
 #elif defined(CONFIG_UNICORE32)
 #include "i8042-unicore32io.h"
+#elif defined(CONFIG_MIPS)
+#include "i8042-mipsio.h"
+#elif defined(CONFIG_LOONGARCH)
+#include "i8042-loongarchio.h"
 #else
 #include "i8042-io.h"
 #endif

@@ -363,6 +363,8 @@ NESTED(ejtag_debug_handler, PT_SIZE, sp)
 	beqz	k0, 1b
 # ifdef CONFIG_WEAK_REORDERING_BEYOND_LLSC
 	sync
+# else
+	nop
 # endif
 
 	PTR_LA	k0, ejtag_debug_buffer
@@ -499,6 +501,12 @@ NESTED(nmi_handler, PT_SIZE, sp)
 	KMODE
 	.endm
 
+	.macro	__build_clear_gsex
+	MFC0	a1, CP0_GSCAUSE
+	TRACE_IRQS_ON
+	STI
+	.endm
+
 	.macro	__BUILD_silent exception
 	.endm
 
@@ -554,7 +562,11 @@ NESTED(nmi_handler, PT_SIZE, sp)
 	BUILD_HANDLER tr tr sti silent			/* #13 */
 	BUILD_HANDLER msa_fpe msa_fpe msa_fpe silent	/* #14 */
 	BUILD_HANDLER fpe fpe fpe silent		/* #15 */
+#ifdef CONFIG_CPU_LOONGSON3
+	BUILD_HANDLER gsex gsex gsex silent		/* #16 */
+#else
 	BUILD_HANDLER ftlb ftlb none silent		/* #16 */
+#endif
 	BUILD_HANDLER msa msa sti silent		/* #21 */
 	BUILD_HANDLER mdmx mdmx sti silent		/* #22 */
 #ifdef	CONFIG_HARDWARE_WATCHPOINTS

@@ -169,26 +169,33 @@ static inline int own_fpu(int restore)
 
 static inline void lose_fpu_inatomic(int save, struct task_struct *tsk)
 {
-	if (is_msa_enabled()) {
-		if (save) {
-			save_msa(tsk);
-			tsk->thread.fpu.fcr31 =
+	if (is_fpu_owner()) {
+		if (is_msa_enabled()) {
+			if (save) {
+#ifdef CONFIG_CPU_HAS_LASX
+				if (is_lasx_enabled())
+					save_lasx(tsk);
+				else
+#endif
+					save_msa(tsk);
+
+				tsk->thread.fpu.fcr31 =
 					read_32bit_cp1_register(CP1_STATUS);
+			}
+			disable_msa();
+			clear_tsk_thread_flag(tsk, TIF_USEDMSA);
+			__disable_fpu();
+#ifdef CONFIG_CPU_HAS_LASX
+			disable_lasx();
+#endif
+		} else {
+			if (save)
+				_save_fp(tsk);
+			__disable_fpu();
 		}
-		disable_msa();
-		clear_tsk_thread_flag(tsk, TIF_USEDMSA);
-		__disable_fpu();
-	} else if (is_fpu_owner()) {
-		if (save)
-			_save_fp(tsk);
-		__disable_fpu();
-	} else {
-		/* FPU should not have been left enabled with no owner */
-		WARN(read_c0_status() & ST0_CU1,
-		     "Orphaned FPU left enabled");
+		clear_tsk_thread_flag(tsk, TIF_USEDFPU);
 	}
 	KSTK_STATUS(tsk) &= ~ST0_CU1;
-	clear_tsk_thread_flag(tsk, TIF_USEDFPU);
 }
 
 static inline void lose_fpu(int save)

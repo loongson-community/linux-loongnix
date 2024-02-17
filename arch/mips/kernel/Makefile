@@ -8,13 +8,14 @@ extra-y		:= head.o vmlinux.lds
 obj-y		+= cmpxchg.o cpu-probe.o branch.o elf.o entry.o genex.o idle.o irq.o \
 		   process.o prom.o ptrace.o reset.o setup.o signal.o \
 		   syscall.o time.o topology.o traps.o unaligned.o watch.o \
-		   vdso.o cacheinfo.o
+		   vdso.o cacheinfo.o alternative.o bugs.o
 
 ifdef CONFIG_FUNCTION_TRACER
-CFLAGS_REMOVE_ftrace.o = -pg
-CFLAGS_REMOVE_early_printk.o = -pg
-CFLAGS_REMOVE_perf_event.o = -pg
-CFLAGS_REMOVE_perf_event_mipsxx.o = -pg
+CFLAGS_REMOVE_ftrace.o = $(CC_FLAGS_FTRACE)
+CFLAGS_REMOVE_early_printk.o =  $(CC_FLAGS_FTRACE)
+CFLAGS_REMOVE_perf_event.o = $(CC_FLAGS_FTRACE)
+CFLAGS_REMOVE_perf_event_mipsxx.o = $(CC_FLAGS_FTRACE)
+CFLAGS_REMOVE_ftrace-regs.o = $(CC_FLAGS_FTRACE)
 endif
 
 obj-$(CONFIG_CEVT_BCM1480)	+= cevt-bcm1480.o
@@ -33,8 +34,9 @@ obj-$(CONFIG_DEBUG_FS)		+= segment.o
 obj-$(CONFIG_STACKTRACE)	+= stacktrace.o
 obj-$(CONFIG_MODULES)		+= module.o
 
-obj-$(CONFIG_FTRACE_SYSCALLS)	+= ftrace.o
-obj-$(CONFIG_FUNCTION_TRACER)	+= mcount.o ftrace.o
+ft-$(CONFIG_FUNCTION_TRACER)	:= mcount.o ftrace.o
+ft-$(CONFIG_DYNAMIC_FTRACE_WITH_REGS)	:= entry-ftrace-regs.o ftrace-regs.o
+obj-y				+= $(ft-y)
 
 sw-y				:= r4k_switch.o
 sw-$(CONFIG_CPU_R3000)		:= r2300_switch.o
@@ -46,6 +48,7 @@ obj-$(CONFIG_CPU_R4K_FPU)	+= r4k_fpu.o
 obj-$(CONFIG_CPU_R3000)		+= r2300_fpu.o
 obj-$(CONFIG_CPU_TX39XX)	+= r2300_fpu.o
 
+obj-y				+= acpi/
 obj-$(CONFIG_SMP)		+= smp.o
 obj-$(CONFIG_SMP_UP)		+= smp-up.o
 obj-$(CONFIG_CPU_BMIPS)		+= smp-bmips.o bmips_vec.o bmips_5xxx_init.o
@@ -101,11 +104,15 @@ CFLAGS_cpu-bugs64.o	= $(shell if $(CC) $(KBUILD_CFLAGS) -Wa,-mdaddi -c -o /dev/n
 
 obj-$(CONFIG_HAVE_STD_PC_SERIAL_PORT)	+= 8250-platform.o
 
-obj-$(CONFIG_PERF_EVENTS)	+= perf_event.o
+obj-$(CONFIG_PERF_EVENTS)	+= perf_event.o perf_regs.o
 obj-$(CONFIG_HW_PERF_EVENTS)	+= perf_event_mipsxx.o
 
 obj-$(CONFIG_JUMP_LABEL)	+= jump_label.o
 obj-$(CONFIG_UPROBES)		+= uprobes.o
+
+obj-$(CONFIG_AUDITSYSCALL_O32)	+= audit-o32.o
+obj-$(CONFIG_AUDITSYSCALL_N32)	+= audit-n32.o
+obj-$(CONFIG_AUDITSYSCALL)	+= audit-native.o
 
 obj-$(CONFIG_MIPS_CM)		+= mips-cm.o
 obj-$(CONFIG_MIPS_CPC)		+= mips-cpc.o

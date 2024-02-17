@@ -41,6 +41,17 @@ config PINCTRL_ARTPEC6
           strength configuration. Device tree integration instructions can be
           found in Documentation/devicetree/bindings/pinctrl/axis,artpec6-pinctrl.txt
 
+config PINCTRL_LS2K
+        bool "LOONSON2K pin controller driver"
+        depends on CPU_LOONGSON2K || CPU_LOONGSON64
+        select PINMUX
+        select GENERIC_PINCONF
+        help
+          This is the driver for loongson-2k pin controller. This driver supports
+          pin function multiplexing for loongson-2k.GPIO pin pull-up and pull-down
+          functions are not supported.
+          Say yes to enable pinctrl for Loongson-2k SOC.
+
 config PINCTRL_AS3722
 	tristate "Pinctrl and GPIO driver for ams AS3722 PMIC"
 	depends on MFD_AS3722 && GPIOLIB

@@ -93,6 +93,10 @@
 #define _Q_PENDING_LOOPS	1
 #endif
 
+#if defined(CONFIG_CPU_LOONGSON3) ||  defined(CONFIG_CPU_LOONGSON2K) || defined(CONFIG_LOONGARCH)
+#define TRYLOCK_LOOPS		100
+#define XCHG_TAIL_LOCKED	((unsigned)0xffffffff)
+#endif
 /*
  * Per-CPU queue node structures; we can never have more than 4 nested
  * contexts: task, softirq, hardirq, nmi.
@@ -156,6 +160,32 @@ static __always_inline void clear_pending_set_locked(struct qspinlock *lock)
 	WRITE_ONCE(lock->locked_pending, _Q_LOCKED_VAL);
 }
 
+#if defined(CONFIG_CPU_LOONGSON3) ||  defined(CONFIG_CPU_LOONGSON2K) || defined(CONFIG_LOONGARCH)
+static __always_inline u32 xchg_tail(struct qspinlock *lock, u32 tail)
+{
+	u32 old, new, val = atomic_read(&lock->val);
+
+	int trylock_times = TRYLOCK_LOOPS;
+	for (;;) {
+		new = (val & _Q_LOCKED_PENDING_MASK) | tail;
+		/*
+		 * We can use relaxed semantics since the caller ensures that
+		 * the MCS node is properly initialized before updating the
+		 * tail.
+		 */
+		old = atomic_cmpxchg_relaxed(&lock->val, val, new);
+		if (old == val)
+			break;
+
+		val = old;
+		if (val == 0)
+			while (trylock_times-- > 0)
+				if (queued_spin_trylock(lock))
+					return XCHG_TAIL_LOCKED;
+	}
+	return old;
+}
+#else
 /*
  * xchg_tail - Put in the new queue tail code word & retrieve previous one
  * @lock : Pointer to queued spinlock structure
@@ -176,6 +206,7 @@ static __always_inline u32 xchg_tail(struct qspinlock *lock, u32 tail)
 				 tail >> _Q_TAIL_OFFSET) << _Q_TAIL_OFFSET;
 }
 
+#endif
 #else /* _Q_PENDING_BITS == 8 */
 
 /**
@@ -424,6 +455,10 @@ pv_queue:
 	 * p,*,* -> n,*,*
 	 */
 	old = xchg_tail(lock, tail);
+#if defined(CONFIG_CPU_LOONGSON3) ||  defined(CONFIG_CPU_LOONGSON2K) || defined(CONFIG_LOONGARCH)
+	if (old == XCHG_TAIL_LOCKED)
+		goto release;
+#endif
 	next = NULL;
 
 	/*

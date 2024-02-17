@@ -2387,6 +2387,18 @@
 			with memmap= to avoid physical address space collisions.
 			Without memmap= PCI devices could be placed at addresses
 			belonging to unused RAM.
+	mem=nn[KMG]@ss[KMG]
+			[LOONGARCH] - override the memory layout reported
+			by firmware.
+			Define a memory region of size nn[KMG] starting at
+			ss[KMG].
+			Multiple different regions can be specified with
+			multiple mem= parameters on the command line.
+			For example on LOONGARCH:
+			If using 2G memory starting from 0xff000000, then the parameter
+			should be mem=2G@0xff000000 mem=238M@2M
+
+
 
 	mem=nopentium	[BUGS=X86-32] Disable usage of 4MB pages for kernel
 			memory.

@@ -155,6 +155,10 @@ static int read_symbol(FILE *in, struct sym_entry *s)
 	/* exclude s390 kasan local symbols */
 	else if (!strncmp(sym, ".LASANPC", 8))
 		return -1;
+	/* exclude LoongArch relocation symbols */
+	else if (!strncmp(sym, ".L", 2) || !strncmp(sym, "L0", 2))
+		return -1;
+
 
 	/* include the type field in the symbol name, so that it gets
 	 * compressed together */

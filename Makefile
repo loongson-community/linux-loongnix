@@ -5,6 +5,8 @@ SUBLEVEL = 190
 EXTRAVERSION =
 NAME = "People's Front"
 
+LOONGSON_RELEASE = 8.6
+
 # *DOCUMENTATION*
 # To see a list of typical targets execute "make help"
 # More info can be located in ./README

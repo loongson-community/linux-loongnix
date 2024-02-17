@@ -580,6 +580,14 @@ long ksys_msgctl(int msqid, int cmd, struct msqid_ds __user *buf)
 	version = ipc_parse_version(&cmd);
 	ns = current->nsproxy->ipc_ns;
 
+#ifdef CONFIG_LOONGARCH
+	/* FIXME: remove this workaround after userspace programs updated */
+	if (cmd & ~0xff) {
+		cmd = cmd & 0xff;
+		printk("cmd is invalid, please recompile %s with new glibc\n", current->comm);
+	}
+#endif
+
 	switch (cmd) {
 	case IPC_INFO:
 	case MSG_INFO: {

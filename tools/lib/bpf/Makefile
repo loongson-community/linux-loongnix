@@ -65,28 +65,7 @@ ifndef VERBOSE
   VERBOSE = 0
 endif
 
-FEATURE_USER = .libbpf
-FEATURE_TESTS = libelf libelf-mmap bpf reallocarray
-FEATURE_DISPLAY = libelf bpf
-
 INCLUDES = -I. -I$(srctree)/tools/include -I$(srctree)/tools/arch/$(ARCH)/include/uapi -I$(srctree)/tools/include/uapi -I$(srctree)/tools/perf
-FEATURE_CHECK_CFLAGS-bpf = $(INCLUDES)
-
-check_feat := 1
-NON_CHECK_FEAT_TARGETS := clean TAGS tags cscope help
-ifdef MAKECMDGOALS
-ifeq ($(filter-out $(NON_CHECK_FEAT_TARGETS),$(MAKECMDGOALS)),)
-  check_feat := 0
-endif
-endif
-
-ifeq ($(check_feat),1)
-ifeq ($(FEATURES_DUMP),)
-include $(srctree)/tools/build/Makefile.feature
-else
-include $(FEATURES_DUMP)
-endif
-endif
 
 export prefix libdir src obj
 
@@ -154,7 +133,7 @@ all: fixdep
 
 all_cmd: $(CMD_TARGETS)
 
-$(BPF_IN): force elfdep bpfdep
+$(BPF_IN): force
 	@(test -f ../../include/uapi/linux/bpf.h -a -f ../../../include/uapi/linux/bpf.h && ( \
 	(diff -B ../../include/uapi/linux/bpf.h ../../../include/uapi/linux/bpf.h >/dev/null) || \
 	echo "Warning: Kernel ABI header at 'tools/include/uapi/linux/bpf.h' differs from latest version at 'include/uapi/linux/bpf.h'" >&2 )) || true
@@ -194,27 +173,12 @@ install_headers:
 
 install: install_lib
 
-### Cleaning rules
-
-config-clean:
-	$(call QUIET_CLEAN, config)
-	$(Q)$(MAKE) -C $(srctree)/tools/build/feature/ clean >/dev/null
-
 clean:
 	$(call QUIET_CLEAN, libbpf) $(RM) *.o *~ $(TARGETS) *.a *.so .*.d .*.cmd \
 		$(RM) LIBBPF-CFLAGS
-	$(call QUIET_CLEAN, core-gen) $(RM) $(OUTPUT)FEATURE-DUMP.libbpf
 
-
-
-PHONY += force elfdep bpfdep
+PHONY += force
 force:
-
-elfdep:
-	@if [ "$(feature-libelf)" != "1" ]; then echo "No libelf found"; exit 1 ; fi
-
-bpfdep:
-	@if [ "$(feature-bpf)" != "1" ]; then echo "BPF API too old"; exit 1 ; fi
 
 # Declare the contents of the .PHONY variable as phony.  We keep that
 # information in a variable so we can use it in if_changed and friends.

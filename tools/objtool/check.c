@@ -19,10 +19,10 @@
 #include <stdlib.h>
 
 #include "builtin.h"
-#include "check.h"
-#include "elf.h"
-#include "special.h"
+#include "cfi.h"
 #include "arch.h"
+#include "check.h"
+#include "special.h"
 #include "warn.h"
 
 #include <linux/hashtable.h>
@@ -30,13 +30,9 @@
 
 #define FAKE_JUMP_OFFSET -1
 
-struct alternative {
-	struct list_head list;
-	struct instruction *insn;
-};
-
 const char *objname;
 struct cfi_state initial_func_cfi;
+struct list_head orbit_list;
 
 struct instruction *find_insn(struct objtool_file *file,
 			      struct section *sec, unsigned long offset)
@@ -50,7 +46,7 @@ struct instruction *find_insn(struct objtool_file *file,
 	return NULL;
 }
 
-static struct instruction *next_insn_same_sec(struct objtool_file *file,
+struct instruction *next_insn_same_sec(struct objtool_file *file,
 					      struct instruction *insn)
 {
 	struct instruction *next = list_next_entry(insn, list);
@@ -61,7 +57,7 @@ static struct instruction *next_insn_same_sec(struct objtool_file *file,
 	return next;
 }
 
-static struct instruction *next_insn_same_func(struct objtool_file *file,
+struct instruction *next_insn_same_func(struct objtool_file *file,
 					       struct instruction *insn)
 {
 	struct instruction *next = list_next_entry(insn, list);
@@ -80,31 +76,6 @@ static struct instruction *next_insn_same_func(struct objtool_file *file,
 	/* Move to the subfunction: */
 	return find_insn(file, func->cfunc->sec, func->cfunc->offset);
 }
-
-#define func_for_each_insn_all(file, func, insn)			\
-	for (insn = find_insn(file, func->sec, func->offset);		\
-	     insn;							\
-	     insn = next_insn_same_func(file, insn))
-
-#define func_for_each_insn(file, func, insn)				\
-	for (insn = find_insn(file, func->sec, func->offset);		\
-	     insn && &insn->list != &file->insn_list &&			\
-		insn->sec == func->sec &&				\
-		insn->offset < func->offset + func->len;		\
-	     insn = list_next_entry(insn, list))
-
-#define func_for_each_insn_continue_reverse(file, func, insn)		\
-	for (insn = list_prev_entry(insn, list);			\
-	     &insn->list != &file->insn_list &&				\
-		insn->sec == func->sec && insn->offset >= func->offset;	\
-	     insn = list_prev_entry(insn, list))
-
-#define sec_for_each_insn_from(file, insn)				\
-	for (; insn; insn = next_insn_same_sec(file, insn))
-
-#define sec_for_each_insn_continue(file, insn)				\
-	for (insn = next_insn_same_sec(file, insn); insn;		\
-	     insn = next_insn_same_sec(file, insn))
 
 /*
  * Check if the function has been manually whitelisted with the
@@ -131,6 +102,7 @@ static bool ignore_func(struct objtool_file *file, struct symbol *func)
 
 /*
  * This checks to see if the given function is a "noreturn" function.
+ *
  *
  * For global functions which are outside the scope of this object file, we
  * have to keep a manual list of them.
@@ -170,18 +142,27 @@ static int __dead_end_function(struct objtool_file *file, struct symbol *func,
 		"rewind_stack_do_exit",
 	};
 
+	if (!func)
+		return 0;
+
 	if (func->bind == STB_WEAK)
 		return 0;
 
-	if (func->bind == STB_GLOBAL)
+	if (func->bind == STB_GLOBAL) {
 		for (i = 0; i < ARRAY_SIZE(global_noreturns); i++)
 			if (!strcmp(func->name, global_noreturns[i]))
 				return 1;
+
+		for (i = 0; i < arch_noreturns_size; i++)
+			if (!strcmp(func->name, arch_noreturns[i]))
+				return 1;
+	}
 
 	if (!func->len)
 		return 0;
 
 	insn = find_insn(file, func->sec, func->offset);
+
 	if (!insn->func)
 		return 0;
 
@@ -356,14 +337,26 @@ static int add_dead_ends(struct objtool_file *file)
 		goto reachable;
 
 	list_for_each_entry(rela, &sec->rela_list, list) {
+#ifdef __loongarch__
+		if (!rela->next || rela->type != R_LARCH_ADD32 || rela->next->type != R_LARCH_SUB32) {
+#else
 		if (rela->sym->type != STT_SECTION) {
+#endif
 			WARN("unexpected relocation symbol type in %s", sec->name);
 			return -1;
 		}
+#ifdef __loongarch__
+		insn = find_insn(file, rela->sym->sec, rela->sym->offset);
+#else
 		insn = find_insn(file, rela->sym->sec, rela->addend);
+#endif
 		if (insn)
 			insn = list_prev_entry(insn, list);
+#ifdef __loongarch__
+		else if (rela->sym->offset == rela->sym->sec->len) {
+#else
 		else if (rela->addend == rela->sym->sec->len) {
+#endif
 			found = false;
 			list_for_each_entry_reverse(insn, &file->insn_list, list) {
 				if (insn->sec == rela->sym->sec) {
@@ -398,14 +391,26 @@ reachable:
 		return 0;
 
 	list_for_each_entry(rela, &sec->rela_list, list) {
+#ifdef __loongarch__
+		if (!rela->next || rela->type != R_LARCH_ADD32 || rela->next->type != R_LARCH_SUB32) {
+#else
 		if (rela->sym->type != STT_SECTION) {
+#endif
 			WARN("unexpected relocation symbol type in %s", sec->name);
 			return -1;
 		}
+#ifdef __loongarch__
+		insn = find_insn(file, rela->sym->sec, rela->sym->offset);
+#else
 		insn = find_insn(file, rela->sym->sec, rela->addend);
+#endif
 		if (insn)
 			insn = list_prev_entry(insn, list);
+#ifdef __loongarch__
+		else if (rela->sym->offset == rela->sym->sec->len) {
+#else
 		else if (rela->addend == rela->sym->sec->len) {
+#endif
 			found = false;
 			list_for_each_entry_reverse(insn, &file->insn_list, list) {
 				if (insn->sec == rela->sym->sec) {
@@ -426,6 +431,46 @@ reachable:
 		}
 
 		insn->dead_end = false;
+	}
+
+	return 0;
+}
+
+/*
+ * Mark not sibling call instructions.
+ */
+static int add_not_sibling_call(struct objtool_file *file)
+{
+	struct section *sec;
+	struct rela *rela;
+	struct instruction *insn;
+
+	sec = find_section_by_name(file->elf, ".rela.discard.not_sibling_call");
+	if (!sec)
+		return 0;
+
+	list_for_each_entry(rela, &sec->rela_list, list) {
+#ifdef __loongarch__
+		if (!rela->next || rela->type != R_LARCH_ADD32 || rela->next->type != R_LARCH_SUB32) {
+#else
+		if (rela->sym->type != STT_SECTION) {
+#endif
+			WARN("unexpected relocation symbol type in %s", sec->name);
+			return -1;
+		}
+
+#ifdef __loongarch__
+		insn = find_insn(file, rela->sym->sec, rela->sym->offset);
+#else
+		insn = find_insn(file, rela->sym->sec, rela->addend);
+#endif
+
+		if (!insn) {
+			WARN("unexpected relocation symbol offset at %s: %lx",
+				rela->sym->sec->name, rela->sym->offset);
+			return -1;
+		}
+		insn->not_sibling_call = true;
 	}
 
 	return 0;
@@ -510,13 +555,24 @@ static int add_jump_destinations(struct objtool_file *file)
 					       insn->len);
 		if (!rela) {
 			dest_sec = insn->sec;
-			dest_off = insn->offset + insn->len + insn->immediate;
+			dest_off = arch_jump_destination(insn);
 		} else if (rela->sym->type == STT_SECTION) {
 			dest_sec = rela->sym->sec;
-			dest_off = rela->addend + 4;
+			dest_off = arch_dest_rela_offset(rela->addend);
+#ifdef __loongarch__
+		} else if (!strncmp(rela->sym->name, ".L", 2)) {
+			/* '.L' in LA compiler means target name prefix */
+			dest_sec = rela->sym->sec;
+			dest_off = rela->sym->offset + rela->addend;
+			/* In asm file, jump dest maybe a label without '.L' prefix */
+		} else if (rela->sym->type == STT_NOTYPE && rela->sym->bind == STB_LOCAL) {
+			dest_sec = rela->sym->sec;
+			dest_off = rela->sym->offset + rela->addend;
+#endif
 		} else if (rela->sym->sec->idx) {
 			dest_sec = rela->sym->sec;
-			dest_off = rela->sym->sym.st_value + rela->addend + 4;
+			dest_off = rela->sym->sym.st_value +
+				   arch_dest_rela_offset(rela->addend);
 		} else if (strstr(rela->sym->name, "_indirect_thunk_")) {
 			/*
 			 * Retpoline jumps are really dynamic jumps in
@@ -590,7 +646,7 @@ static int add_call_destinations(struct objtool_file *file)
 		rela = find_rela_by_dest_range(insn->sec, insn->offset,
 					       insn->len);
 		if (!rela) {
-			dest_off = insn->offset + insn->len + insn->immediate;
+			dest_off = arch_jump_destination(insn);
 			insn->call_dest = find_symbol_by_offset(insn->sec,
 								dest_off);
 
@@ -603,14 +659,15 @@ static int add_call_destinations(struct objtool_file *file)
 			}
 
 		} else if (rela->sym->type == STT_SECTION) {
+			dest_off = arch_dest_rela_offset(rela->addend);
 			insn->call_dest = find_symbol_by_offset(rela->sym->sec,
-								rela->addend+4);
+								dest_off);
 			if (!insn->call_dest ||
 			    insn->call_dest->type != STT_FUNC) {
-				WARN_FUNC("can't find call dest symbol at %s+0x%x",
+				WARN_FUNC("can't find call dest symbol at %s+0x%lx",
 					  insn->sec, insn->offset,
 					  rela->sym->sec->name,
-					  rela->addend + 4);
+					  dest_off);
 				return -1;
 			}
 		} else
@@ -706,7 +763,7 @@ static int handle_group_alt(struct objtool_file *file,
 		if (!insn->immediate)
 			continue;
 
-		dest_off = insn->offset + insn->len + insn->immediate;
+		dest_off = arch_jump_destination(insn);
 		if (dest_off == special_alt->new_off + special_alt->new_len) {
 			if (!fake_jump) {
 				WARN("%s: alternative jump to end of section",
@@ -837,7 +894,7 @@ out:
 }
 
 static int add_switch_table(struct objtool_file *file, struct instruction *insn,
-			    struct rela *table, struct rela *next_table)
+			    struct rela *table)
 {
 	struct rela *rela = table;
 	struct instruction *alt_insn;
@@ -846,7 +903,9 @@ static int add_switch_table(struct objtool_file *file, struct instruction *insn,
 	unsigned int prev_offset = 0;
 
 	list_for_each_entry_from(rela, &table->rela_sec->rela_list, list) {
-		if (rela == next_table)
+
+		/* Check for the end of the table: */
+		if (rela != table && rela->jump_table_start)
 			break;
 
 		/* Make sure the switch table entries are consecutive: */
@@ -886,164 +945,17 @@ static int add_switch_table(struct objtool_file *file, struct instruction *insn,
 	return 0;
 }
 
-/*
- * find_switch_table() - Given a dynamic jump, find the switch jump table in
- * .rodata associated with it.
- *
- * There are 3 basic patterns:
- *
- * 1. jmpq *[rodata addr](,%reg,8)
- *
- *    This is the most common case by far.  It jumps to an address in a simple
- *    jump table which is stored in .rodata.
- *
- * 2. jmpq *[rodata addr](%rip)
- *
- *    This is caused by a rare GCC quirk, currently only seen in three driver
- *    functions in the kernel, only with certain obscure non-distro configs.
- *
- *    As part of an optimization, GCC makes a copy of an existing switch jump
- *    table, modifies it, and then hard-codes the jump (albeit with an indirect
- *    jump) to use a single entry in the table.  The rest of the jump table and
- *    some of its jump targets remain as dead code.
- *
- *    In such a case we can just crudely ignore all unreachable instruction
- *    warnings for the entire object file.  Ideally we would just ignore them
- *    for the function, but that would require redesigning the code quite a
- *    bit.  And honestly that's just not worth doing: unreachable instruction
- *    warnings are of questionable value anyway, and this is such a rare issue.
- *
- * 3. mov [rodata addr],%reg1
- *    ... some instructions ...
- *    jmpq *(%reg1,%reg2,8)
- *
- *    This is a fairly uncommon pattern which is new for GCC 6.  As of this
- *    writing, there are 11 occurrences of it in the allmodconfig kernel.
- *
- *    As of GCC 7 there are quite a few more of these and the 'in between' code
- *    is significant. Esp. with KASAN enabled some of the code between the mov
- *    and jmpq uses .rodata itself, which can confuse things.
- *
- *    TODO: Once we have DWARF CFI and smarter instruction decoding logic,
- *    ensure the same register is used in the mov and jump instructions.
- *
- *    NOTE: RETPOLINE made it harder still to decode dynamic jumps.
- */
-static struct rela *find_switch_table(struct objtool_file *file,
-				      struct symbol *func,
-				      struct instruction *insn)
-{
-	struct rela *text_rela, *rodata_rela;
-	struct instruction *orig_insn = insn;
-	struct section *rodata_sec;
-	unsigned long table_offset;
-
-	/*
-	 * Backward search using the @first_jump_src links, these help avoid
-	 * much of the 'in between' code. Which avoids us getting confused by
-	 * it.
-	 */
-	for (;
-	     &insn->list != &file->insn_list && insn->func && insn->func->pfunc == func;
-	     insn = insn->first_jump_src ?: list_prev_entry(insn, list)) {
-
-		if (insn != orig_insn && insn->type == INSN_JUMP_DYNAMIC)
-			break;
-
-		/* allow small jumps within the range */
-		if (insn->type == INSN_JUMP_UNCONDITIONAL &&
-		    insn->jump_dest &&
-		    (insn->jump_dest->offset <= insn->offset ||
-		     insn->jump_dest->offset > orig_insn->offset))
-		    break;
-
-		/* look for a relocation which references .rodata */
-		text_rela = find_rela_by_dest_range(insn->sec, insn->offset,
-						    insn->len);
-		if (!text_rela || text_rela->sym->type != STT_SECTION ||
-		    !text_rela->sym->sec->rodata)
-			continue;
-
-		table_offset = text_rela->addend;
-		rodata_sec = text_rela->sym->sec;
-
-		if (text_rela->type == R_X86_64_PC32)
-			table_offset += 4;
-
-		/*
-		 * Make sure the .rodata address isn't associated with a
-		 * symbol.  gcc jump tables are anonymous data.
-		 */
-		if (find_symbol_containing(rodata_sec, table_offset))
-			continue;
-
-		rodata_rela = find_rela_by_dest(rodata_sec, table_offset);
-		if (rodata_rela) {
-			/*
-			 * Use of RIP-relative switch jumps is quite rare, and
-			 * indicates a rare GCC quirk/bug which can leave dead
-			 * code behind.
-			 */
-			if (text_rela->type == R_X86_64_PC32)
-				file->ignore_unreachables = true;
-
-			return rodata_rela;
-		}
-	}
-
-	return NULL;
-}
-
-
 static int add_func_switch_tables(struct objtool_file *file,
 				  struct symbol *func)
 {
-	struct instruction *insn, *last = NULL, *prev_jump = NULL;
-	struct rela *rela, *prev_rela = NULL;
+	struct instruction *insn;
 	int ret;
 
 	func_for_each_insn_all(file, func, insn) {
-		if (!last)
-			last = insn;
-
-		/*
-		 * Store back-pointers for unconditional forward jumps such
-		 * that find_switch_table() can back-track using those and
-		 * avoid some potentially confusing code.
-		 */
-		if (insn->type == INSN_JUMP_UNCONDITIONAL && insn->jump_dest &&
-		    insn->offset > last->offset &&
-		    insn->jump_dest->offset > insn->offset &&
-		    !insn->jump_dest->first_jump_src) {
-
-			insn->jump_dest->first_jump_src = insn;
-			last = insn->jump_dest;
-		}
-
-		if (insn->type != INSN_JUMP_DYNAMIC)
+		if (!insn->jump_table)
 			continue;
 
-		rela = find_switch_table(file, func, insn);
-		if (!rela)
-			continue;
-
-		/*
-		 * We found a switch table, but we don't know yet how big it
-		 * is.  Don't add it until we reach the end of the function or
-		 * the beginning of another switch table in the same function.
-		 */
-		if (prev_jump) {
-			ret = add_switch_table(file, prev_jump, prev_rela, rela);
-			if (ret)
-				return ret;
-		}
-
-		prev_jump = insn;
-		prev_rela = rela;
-	}
-
-	if (prev_jump) {
-		ret = add_switch_table(file, prev_jump, prev_rela, NULL);
+		ret = add_switch_table(file, insn, insn->jump_table);
 		if (ret)
 			return ret;
 	}
@@ -1070,6 +982,7 @@ static int add_switch_table_alts(struct objtool_file *file)
 			if (func->type != STT_FUNC)
 				continue;
 
+			arch_mark_func_jump_tables(file, func);
 			ret = add_func_switch_tables(file, func);
 			if (ret)
 				return ret;
@@ -1114,7 +1027,11 @@ static int read_unwind_hints(struct objtool_file *file)
 			return -1;
 		}
 
+#ifdef __loongarch__
+		insn = find_insn(file, rela->sym->sec, rela->sym->offset);
+#else
 		insn = find_insn(file, rela->sym->sec, rela->addend);
+#endif
 		if (!insn) {
 			WARN("can't find insn for unwind_hints[%d]", i);
 			return -1;
@@ -1134,32 +1051,7 @@ static int read_unwind_hints(struct objtool_file *file)
 
 		insn->hint = true;
 
-		switch (hint->sp_reg) {
-		case ORC_REG_UNDEFINED:
-			cfa->base = CFI_UNDEFINED;
-			break;
-		case ORC_REG_SP:
-			cfa->base = CFI_SP;
-			break;
-		case ORC_REG_BP:
-			cfa->base = CFI_BP;
-			break;
-		case ORC_REG_SP_INDIRECT:
-			cfa->base = CFI_SP_INDIRECT;
-			break;
-		case ORC_REG_R10:
-			cfa->base = CFI_R10;
-			break;
-		case ORC_REG_R13:
-			cfa->base = CFI_R13;
-			break;
-		case ORC_REG_DI:
-			cfa->base = CFI_DI;
-			break;
-		case ORC_REG_DX:
-			cfa->base = CFI_DX;
-			break;
-		default:
+		if (arch_decode_hint_reg(cfa, hint->sp_reg)) {
 			WARN_FUNC("unsupported unwind_hint sp base reg %d",
 				  insn->sec, insn->offset, hint->sp_reg);
 			return -1;
@@ -1243,6 +1135,10 @@ static int decode_sections(struct objtool_file *file)
 	if (ret)
 		return ret;
 
+	ret = add_not_sibling_call(file);
+	if (ret)
+		return ret;
+
 	add_ignores(file);
 
 	ret = add_nospec_ignores(file);
@@ -1304,464 +1200,6 @@ static bool has_modified_stack_frame(struct insn_state *state)
 	return false;
 }
 
-static bool has_valid_stack_frame(struct insn_state *state)
-{
-	if (state->cfa.base == CFI_BP && state->regs[CFI_BP].base == CFI_CFA &&
-	    state->regs[CFI_BP].offset == -16)
-		return true;
-
-	if (state->drap && state->regs[CFI_BP].base == CFI_BP)
-		return true;
-
-	return false;
-}
-
-static int update_insn_state_regs(struct instruction *insn, struct insn_state *state)
-{
-	struct cfi_reg *cfa = &state->cfa;
-	struct stack_op *op = &insn->stack_op;
-
-	if (cfa->base != CFI_SP && cfa->base != CFI_SP_INDIRECT)
-		return 0;
-
-	/* push */
-	if (op->dest.type == OP_DEST_PUSH)
-		cfa->offset += 8;
-
-	/* pop */
-	if (op->src.type == OP_SRC_POP)
-		cfa->offset -= 8;
-
-	/* add immediate to sp */
-	if (op->dest.type == OP_DEST_REG && op->src.type == OP_SRC_ADD &&
-	    op->dest.reg == CFI_SP && op->src.reg == CFI_SP)
-		cfa->offset -= op->src.offset;
-
-	return 0;
-}
-
-static void save_reg(struct insn_state *state, unsigned char reg, int base,
-		     int offset)
-{
-	if (arch_callee_saved_reg(reg) &&
-	    state->regs[reg].base == CFI_UNDEFINED) {
-		state->regs[reg].base = base;
-		state->regs[reg].offset = offset;
-	}
-}
-
-static void restore_reg(struct insn_state *state, unsigned char reg)
-{
-	state->regs[reg].base = CFI_UNDEFINED;
-	state->regs[reg].offset = 0;
-}
-
-/*
- * A note about DRAP stack alignment:
- *
- * GCC has the concept of a DRAP register, which is used to help keep track of
- * the stack pointer when aligning the stack.  r10 or r13 is used as the DRAP
- * register.  The typical DRAP pattern is:
- *
- *   4c 8d 54 24 08		lea    0x8(%rsp),%r10
- *   48 83 e4 c0		and    $0xffffffffffffffc0,%rsp
- *   41 ff 72 f8		pushq  -0x8(%r10)
- *   55				push   %rbp
- *   48 89 e5			mov    %rsp,%rbp
- *				(more pushes)
- *   41 52			push   %r10
- *				...
- *   41 5a			pop    %r10
- *				(more pops)
- *   5d				pop    %rbp
- *   49 8d 62 f8		lea    -0x8(%r10),%rsp
- *   c3				retq
- *
- * There are some variations in the epilogues, like:
- *
- *   5b				pop    %rbx
- *   41 5a			pop    %r10
- *   41 5c			pop    %r12
- *   41 5d			pop    %r13
- *   41 5e			pop    %r14
- *   c9				leaveq
- *   49 8d 62 f8		lea    -0x8(%r10),%rsp
- *   c3				retq
- *
- * and:
- *
- *   4c 8b 55 e8		mov    -0x18(%rbp),%r10
- *   48 8b 5d e0		mov    -0x20(%rbp),%rbx
- *   4c 8b 65 f0		mov    -0x10(%rbp),%r12
- *   4c 8b 6d f8		mov    -0x8(%rbp),%r13
- *   c9				leaveq
- *   49 8d 62 f8		lea    -0x8(%r10),%rsp
- *   c3				retq
- *
- * Sometimes r13 is used as the DRAP register, in which case it's saved and
- * restored beforehand:
- *
- *   41 55			push   %r13
- *   4c 8d 6c 24 10		lea    0x10(%rsp),%r13
- *   48 83 e4 f0		and    $0xfffffffffffffff0,%rsp
- *				...
- *   49 8d 65 f0		lea    -0x10(%r13),%rsp
- *   41 5d			pop    %r13
- *   c3				retq
- */
-static int update_insn_state(struct instruction *insn, struct insn_state *state)
-{
-	struct stack_op *op = &insn->stack_op;
-	struct cfi_reg *cfa = &state->cfa;
-	struct cfi_reg *regs = state->regs;
-
-	/* stack operations don't make sense with an undefined CFA */
-	if (cfa->base == CFI_UNDEFINED) {
-		if (insn->func) {
-			WARN_FUNC("undefined stack state", insn->sec, insn->offset);
-			return -1;
-		}
-		return 0;
-	}
-
-	if (state->type == ORC_TYPE_REGS || state->type == ORC_TYPE_REGS_IRET)
-		return update_insn_state_regs(insn, state);
-
-	switch (op->dest.type) {
-
-	case OP_DEST_REG:
-		switch (op->src.type) {
-
-		case OP_SRC_REG:
-			if (op->src.reg == CFI_SP && op->dest.reg == CFI_BP &&
-			    cfa->base == CFI_SP &&
-			    regs[CFI_BP].base == CFI_CFA &&
-			    regs[CFI_BP].offset == -cfa->offset) {
-
-				/* mov %rsp, %rbp */
-				cfa->base = op->dest.reg;
-				state->bp_scratch = false;
-			}
-
-			else if (op->src.reg == CFI_SP &&
-				 op->dest.reg == CFI_BP && state->drap) {
-
-				/* drap: mov %rsp, %rbp */
-				regs[CFI_BP].base = CFI_BP;
-				regs[CFI_BP].offset = -state->stack_size;
-				state->bp_scratch = false;
-			}
-
-			else if (op->src.reg == CFI_SP && cfa->base == CFI_SP) {
-
-				/*
-				 * mov %rsp, %reg
-				 *
-				 * This is needed for the rare case where GCC
-				 * does:
-				 *
-				 *   mov    %rsp, %rax
-				 *   ...
-				 *   mov    %rax, %rsp
-				 */
-				state->vals[op->dest.reg].base = CFI_CFA;
-				state->vals[op->dest.reg].offset = -state->stack_size;
-			}
-
-			else if (op->src.reg == CFI_BP && op->dest.reg == CFI_SP &&
-				 cfa->base == CFI_BP) {
-
-				/*
-				 * mov %rbp, %rsp
-				 *
-				 * Restore the original stack pointer (Clang).
-				 */
-				state->stack_size = -state->regs[CFI_BP].offset;
-			}
-
-			else if (op->dest.reg == cfa->base) {
-
-				/* mov %reg, %rsp */
-				if (cfa->base == CFI_SP &&
-				    state->vals[op->src.reg].base == CFI_CFA) {
-
-					/*
-					 * This is needed for the rare case
-					 * where GCC does something dumb like:
-					 *
-					 *   lea    0x8(%rsp), %rcx
-					 *   ...
-					 *   mov    %rcx, %rsp
-					 */
-					cfa->offset = -state->vals[op->src.reg].offset;
-					state->stack_size = cfa->offset;
-
-				} else {
-					cfa->base = CFI_UNDEFINED;
-					cfa->offset = 0;
-				}
-			}
-
-			break;
-
-		case OP_SRC_ADD:
-			if (op->dest.reg == CFI_SP && op->src.reg == CFI_SP) {
-
-				/* add imm, %rsp */
-				state->stack_size -= op->src.offset;
-				if (cfa->base == CFI_SP)
-					cfa->offset -= op->src.offset;
-				break;
-			}
-
-			if (op->dest.reg == CFI_SP && op->src.reg == CFI_BP) {
-
-				/* lea disp(%rbp), %rsp */
-				state->stack_size = -(op->src.offset + regs[CFI_BP].offset);
-				break;
-			}
-
-			if (op->src.reg == CFI_SP && cfa->base == CFI_SP) {
-
-				/* drap: lea disp(%rsp), %drap */
-				state->drap_reg = op->dest.reg;
-
-				/*
-				 * lea disp(%rsp), %reg
-				 *
-				 * This is needed for the rare case where GCC
-				 * does something dumb like:
-				 *
-				 *   lea    0x8(%rsp), %rcx
-				 *   ...
-				 *   mov    %rcx, %rsp
-				 */
-				state->vals[op->dest.reg].base = CFI_CFA;
-				state->vals[op->dest.reg].offset = \
-					-state->stack_size + op->src.offset;
-
-				break;
-			}
-
-			if (state->drap && op->dest.reg == CFI_SP &&
-			    op->src.reg == state->drap_reg) {
-
-				 /* drap: lea disp(%drap), %rsp */
-				cfa->base = CFI_SP;
-				cfa->offset = state->stack_size = -op->src.offset;
-				state->drap_reg = CFI_UNDEFINED;
-				state->drap = false;
-				break;
-			}
-
-			if (op->dest.reg == state->cfa.base) {
-				WARN_FUNC("unsupported stack register modification",
-					  insn->sec, insn->offset);
-				return -1;
-			}
-
-			break;
-
-		case OP_SRC_AND:
-			if (op->dest.reg != CFI_SP ||
-			    (state->drap_reg != CFI_UNDEFINED && cfa->base != CFI_SP) ||
-			    (state->drap_reg == CFI_UNDEFINED && cfa->base != CFI_BP)) {
-				WARN_FUNC("unsupported stack pointer realignment",
-					  insn->sec, insn->offset);
-				return -1;
-			}
-
-			if (state->drap_reg != CFI_UNDEFINED) {
-				/* drap: and imm, %rsp */
-				cfa->base = state->drap_reg;
-				cfa->offset = state->stack_size = 0;
-				state->drap = true;
-			}
-
-			/*
-			 * Older versions of GCC (4.8ish) realign the stack
-			 * without DRAP, with a frame pointer.
-			 */
-
-			break;
-
-		case OP_SRC_POP:
-			if (!state->drap && op->dest.type == OP_DEST_REG &&
-			    op->dest.reg == cfa->base) {
-
-				/* pop %rbp */
-				cfa->base = CFI_SP;
-			}
-
-			if (state->drap && cfa->base == CFI_BP_INDIRECT &&
-			    op->dest.type == OP_DEST_REG &&
-			    op->dest.reg == state->drap_reg &&
-			    state->drap_offset == -state->stack_size) {
-
-				/* drap: pop %drap */
-				cfa->base = state->drap_reg;
-				cfa->offset = 0;
-				state->drap_offset = -1;
-
-			} else if (regs[op->dest.reg].offset == -state->stack_size) {
-
-				/* pop %reg */
-				restore_reg(state, op->dest.reg);
-			}
-
-			state->stack_size -= 8;
-			if (cfa->base == CFI_SP)
-				cfa->offset -= 8;
-
-			break;
-
-		case OP_SRC_REG_INDIRECT:
-			if (state->drap && op->src.reg == CFI_BP &&
-			    op->src.offset == state->drap_offset) {
-
-				/* drap: mov disp(%rbp), %drap */
-				cfa->base = state->drap_reg;
-				cfa->offset = 0;
-				state->drap_offset = -1;
-			}
-
-			if (state->drap && op->src.reg == CFI_BP &&
-			    op->src.offset == regs[op->dest.reg].offset) {
-
-				/* drap: mov disp(%rbp), %reg */
-				restore_reg(state, op->dest.reg);
-
-			} else if (op->src.reg == cfa->base &&
-			    op->src.offset == regs[op->dest.reg].offset + cfa->offset) {
-
-				/* mov disp(%rbp), %reg */
-				/* mov disp(%rsp), %reg */
-				restore_reg(state, op->dest.reg);
-			}
-
-			break;
-
-		default:
-			WARN_FUNC("unknown stack-related instruction",
-				  insn->sec, insn->offset);
-			return -1;
-		}
-
-		break;
-
-	case OP_DEST_PUSH:
-		state->stack_size += 8;
-		if (cfa->base == CFI_SP)
-			cfa->offset += 8;
-
-		if (op->src.type != OP_SRC_REG)
-			break;
-
-		if (state->drap) {
-			if (op->src.reg == cfa->base && op->src.reg == state->drap_reg) {
-
-				/* drap: push %drap */
-				cfa->base = CFI_BP_INDIRECT;
-				cfa->offset = -state->stack_size;
-
-				/* save drap so we know when to restore it */
-				state->drap_offset = -state->stack_size;
-
-			} else if (op->src.reg == CFI_BP && cfa->base == state->drap_reg) {
-
-				/* drap: push %rbp */
-				state->stack_size = 0;
-
-			} else if (regs[op->src.reg].base == CFI_UNDEFINED) {
-
-				/* drap: push %reg */
-				save_reg(state, op->src.reg, CFI_BP, -state->stack_size);
-			}
-
-		} else {
-
-			/* push %reg */
-			save_reg(state, op->src.reg, CFI_CFA, -state->stack_size);
-		}
-
-		/* detect when asm code uses rbp as a scratch register */
-		if (!no_fp && insn->func && op->src.reg == CFI_BP &&
-		    cfa->base != CFI_BP)
-			state->bp_scratch = true;
-		break;
-
-	case OP_DEST_REG_INDIRECT:
-
-		if (state->drap) {
-			if (op->src.reg == cfa->base && op->src.reg == state->drap_reg) {
-
-				/* drap: mov %drap, disp(%rbp) */
-				cfa->base = CFI_BP_INDIRECT;
-				cfa->offset = op->dest.offset;
-
-				/* save drap offset so we know when to restore it */
-				state->drap_offset = op->dest.offset;
-			}
-
-			else if (regs[op->src.reg].base == CFI_UNDEFINED) {
-
-				/* drap: mov reg, disp(%rbp) */
-				save_reg(state, op->src.reg, CFI_BP, op->dest.offset);
-			}
-
-		} else if (op->dest.reg == cfa->base) {
-
-			/* mov reg, disp(%rbp) */
-			/* mov reg, disp(%rsp) */
-			save_reg(state, op->src.reg, CFI_CFA,
-				 op->dest.offset - state->cfa.offset);
-		}
-
-		break;
-
-	case OP_DEST_LEAVE:
-		if ((!state->drap && cfa->base != CFI_BP) ||
-		    (state->drap && cfa->base != state->drap_reg)) {
-			WARN_FUNC("leave instruction with modified stack frame",
-				  insn->sec, insn->offset);
-			return -1;
-		}
-
-		/* leave (mov %rbp, %rsp; pop %rbp) */
-
-		state->stack_size = -state->regs[CFI_BP].offset - 8;
-		restore_reg(state, CFI_BP);
-
-		if (!state->drap) {
-			cfa->base = CFI_SP;
-			cfa->offset -= 8;
-		}
-
-		break;
-
-	case OP_DEST_MEM:
-		if (op->src.type != OP_SRC_POP) {
-			WARN_FUNC("unknown stack-related memory operation",
-				  insn->sec, insn->offset);
-			return -1;
-		}
-
-		/* pop mem */
-		state->stack_size -= 8;
-		if (cfa->base == CFI_SP)
-			cfa->offset -= 8;
-
-		break;
-
-	default:
-		WARN_FUNC("unknown stack-related instruction",
-			  insn->sec, insn->offset);
-		return -1;
-	}
-
-	return 0;
-}
-
 static bool insn_state_match(struct instruction *insn, struct insn_state *state)
 {
 	struct insn_state *state1 = &insn->state, *state2 = state;
@@ -1810,13 +1248,12 @@ static bool insn_state_match(struct instruction *insn, struct insn_state *state)
  * each instruction and validate all the rules described in
  * tools/objtool/Documentation/stack-validation.txt.
  */
-static int validate_branch(struct objtool_file *file, struct instruction *first,
-			   struct insn_state state)
+static int validate_branch(struct objtool_file *file, struct symbol *func,
+			   struct instruction *first, struct insn_state state)
 {
 	struct alternative *alt;
 	struct instruction *insn, *next_insn;
 	struct section *sec;
-	struct symbol *func = NULL;
 	int ret;
 
 	insn = first;
@@ -1837,9 +1274,6 @@ static int validate_branch(struct objtool_file *file, struct instruction *first,
 			return 1;
 		}
 
-		if (insn->func)
-			func = insn->func->pfunc;
-
 		if (func && insn->ignore) {
 			WARN_FUNC("BUG: why am I validating an ignored function?",
 				  sec, insn->offset);
@@ -1859,7 +1293,7 @@ static int validate_branch(struct objtool_file *file, struct instruction *first,
 
 				i = insn;
 				save_insn = NULL;
-				func_for_each_insn_continue_reverse(file, insn->func, i) {
+				func_for_each_insn_continue_reverse(file, func, i) {
 					if (i->save) {
 						save_insn = i;
 						break;
@@ -1898,11 +1332,24 @@ static int validate_branch(struct objtool_file *file, struct instruction *first,
 
 		insn->visited = true;
 
-		if (!insn->ignore_alts) {
+		list_add(&insn->orbit_node, &orbit_list);
+
+		if (insn->type == INSN_JUMP_DYNAMIC &&
+		      arch_dynamic_add_jump_table_alts(&orbit_list, file, func, insn))
+			return 1;
+
+		if (!insn->ignore_alts && !list_empty(&insn->alts)) {
 			list_for_each_entry(alt, &insn->alts, list) {
-				ret = validate_branch(file, alt->insn, state);
-				if (ret)
-					return 1;
+				ret = validate_branch(file, func, alt->insn, state);
+				if (ret) {
+					if (backtrace)
+						BT_FUNC("(alt)", insn);
+					return ret;
+				}
+				while (func_last_orbit(&orbit_list) &&
+					func_last_orbit(&orbit_list)->offset != insn->offset) {
+					list_del(&func_last_orbit(&orbit_list)->orbit_node);
+				}
 			}
 		}
 
@@ -1917,13 +1364,17 @@ static int validate_branch(struct objtool_file *file, struct instruction *first,
 
 			if (state.bp_scratch) {
 				WARN("%s uses BP as a scratch register",
-				     insn->func->name);
+				     func->name);
 				return 1;
 			}
 
 			return 0;
 
 		case INSN_CALL:
+		case INSN_CALL_DYNAMIC:
+			if (insn->type == INSN_CALL_DYNAMIC)
+				arch_try_find_call(&orbit_list, file, func, insn);
+
 			if (is_fentry_call(insn))
 				break;
 
@@ -1933,9 +1384,7 @@ static int validate_branch(struct objtool_file *file, struct instruction *first,
 			if (ret == -1)
 				return 1;
 
-			/* fallthrough */
-		case INSN_CALL_DYNAMIC:
-			if (!no_fp && func && !has_valid_stack_frame(&state)) {
+			if (!no_fp && func && !arch_has_valid_stack_frame(&state)) {
 				WARN_FUNC("call without frame pointer save/setup",
 					  sec, insn->offset);
 				return 1;
@@ -1947,12 +1396,21 @@ static int validate_branch(struct objtool_file *file, struct instruction *first,
 			if (insn->jump_dest &&
 			    (!func || !insn->jump_dest->func ||
 			     insn->jump_dest->func->pfunc == func)) {
-				ret = validate_branch(file, insn->jump_dest,
-						      state);
-				if (ret)
-					return 1;
+				ret = validate_branch(file, func,
+						      insn->jump_dest, state);
+				if (ret) {
+					if (backtrace)
+						BT_FUNC("(branch)", insn);
+					return ret;
+				}
 
-			} else if (func && has_modified_stack_frame(&state)) {
+				while (func_last_orbit(&orbit_list) &&
+					func_last_orbit(&orbit_list)->offset != insn->offset) {
+					list_del(&func_last_orbit(&orbit_list)->orbit_node);
+				}
+
+			} else if (!insn->not_sibling_call && func
+					&& has_modified_stack_frame(&state)) {
 				WARN_FUNC("sibling call from callable instruction with modified stack frame",
 					  sec, insn->offset);
 				return 1;
@@ -1982,7 +1440,7 @@ static int validate_branch(struct objtool_file *file, struct instruction *first,
 			return 0;
 
 		case INSN_STACK:
-			if (update_insn_state(insn, &state))
+			if (arch_update_insn_state(insn, &state, no_fp))
 				return 1;
 
 			break;
@@ -2020,8 +1478,13 @@ static int validate_unwind_hints(struct objtool_file *file)
 
 	for_each_insn(file, insn) {
 		if (insn->hint && !insn->visited) {
-			ret = validate_branch(file, insn, state);
+			ret = validate_branch(file, insn->func, insn, state);
+			if (ret && backtrace)
+				BT_FUNC("<=== (hint)", insn);
 			warnings += ret;
+			while (!list_empty(&orbit_list)) {
+				list_del(&func_last_orbit(&orbit_list)->orbit_node);
+			}
 		}
 	}
 
@@ -2092,6 +1555,9 @@ static bool ignore_unreachable_insn(struct instruction *insn)
 	    !strcmp(insn->sec->name, ".altinstr_aux"))
 		return true;
 
+	if (insn->type == INSN_JUMP_UNCONDITIONAL && insn->offset == FAKE_JUMP_OFFSET)
+		return true;
+
 	if (!insn->func)
 		return false;
 
@@ -2158,11 +1624,16 @@ static int validate_functions(struct objtool_file *file)
 				continue;
 
 			insn = find_insn(file, sec, func->offset);
-			if (!insn || insn->ignore)
+			if (!insn || insn->ignore || insn->visited)
 				continue;
 
-			ret = validate_branch(file, insn, state);
+			ret = validate_branch(file, func, insn, state);
+			if (ret && backtrace)
+				BT_FUNC("<=== (func)", insn);
 			warnings += ret;
+			while (!list_empty(&orbit_list)) {
+				list_del(&func_last_orbit(&orbit_list)->orbit_node);
+			}
 		}
 	}
 
@@ -2217,6 +1688,7 @@ int check(const char *_objname, bool orc)
 		return 1;
 
 	INIT_LIST_HEAD(&file.insn_list);
+	INIT_LIST_HEAD(&orbit_list);
 	hash_init(file.insn_hash);
 	file.whitelist = find_section_by_name(file.elf, ".discard.func_stack_frame_non_standard");
 	file.c_file = find_section_by_name(file.elf, ".comment");

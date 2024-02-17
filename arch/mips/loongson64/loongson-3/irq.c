@@ -1,82 +1,137 @@
 // SPDX-License-Identifier: GPL-2.0
 #include <loongson.h>
 #include <irq.h>
-#include <linux/interrupt.h>
 #include <linux/init.h>
+#include <linux/interrupt.h>
+#include <linux/irqdomain.h>
 
 #include <asm/irq_cpu.h>
 #include <asm/i8259.h>
 #include <asm/mipsregs.h>
-
+#include <asm/setup.h>
+#include <boot_param.h>
+#include <loongson-pch.h>
+#include <loongson.h>
 #include "smp.h"
 
-extern void loongson3_send_irq_by_ipi(int cpu, int irqs);
+void do_dispatch(void);
+void do_cpu_cascade(void);
+void (*do_cascade)(void) = do_dispatch;
+void (*do_liointc)(void) = do_cpu_cascade;
 
-unsigned int irq_cpu[16] = {[0 ... 15] = -1};
-unsigned int ht_irq[] = {0, 1, 3, 4, 5, 6, 7, 8, 12, 14, 15};
-unsigned int local_irq = 1<<0 | 1<<1 | 1<<2 | 1<<7 | 1<<8 | 1<<12;
+DEFINE_SPINLOCK(bitmap_lock);
+DECLARE_BITMAP(ipi_irq_in_use, MAX_DIRQS);
 
-int plat_set_irq_affinity(struct irq_data *d, const struct cpumask *affinity,
+unsigned int irq_cpu[MAX_IRQS] = {[0 ... MAX_IRQS-1] = -1};
+unsigned int ipi_irq2pos[MAX_IRQS] = { [0 ... MAX_IRQS-1] = -1 };
+unsigned int ipi_pos2irq[MAX_DIRQS] = { [0 ... MAX_DIRQS-1] = -1 };
+
+void do_cpu_cascade(void)
+{
+	do_IRQ(LOONGSON_LINTC_IRQ);
+}
+
+void do_cpu_dispatch(void)
+{
+	unsigned int irq = LOONGSON_INT_ROUTER_INTSTS;
+	if (irq & (1 << LOONGSON_CPU_UART0_VEC))
+		do_IRQ(LOONGSON_LINTC_IRQ);
+	if (irq & (1 << LOONGSON_CPU_THSENS_VEC))
+		do_IRQ(LOONGSON_THSENS_IRQ);
+}
+
+void do_dispatch(void)
+{
+	loongson_pch->irq_dispatch();
+}
+
+void do_pch(void)
+{
+	do_IRQ(LOONGSON_BRIDGE_IRQ);
+}
+
+int create_ipi_dirq(unsigned int irq)
+{
+	int pos;
+
+	pos = find_first_zero_bit(ipi_irq_in_use, MAX_DIRQS);
+
+	if (pos == MAX_DIRQS)
+		return -ENOSPC;
+
+	ipi_pos2irq[pos] = irq;
+	ipi_irq2pos[irq] = pos;
+	set_bit(pos, ipi_irq_in_use);
+	return 0;
+}
+
+void destroy_ipi_dirq(unsigned int irq)
+{
+	int pos;
+
+	pos = ipi_irq2pos[irq];
+
+	if (pos < 0)
+		return;
+
+	ipi_irq2pos[irq] = -1;
+	ipi_pos2irq[pos] = -1;
+	clear_bit(pos, ipi_irq_in_use);
+}
+
+static DEFINE_SPINLOCK(affinity_lock);
+
+int def_set_irq_affinity(struct irq_data *d, const struct cpumask *affinity,
 			  bool force)
 {
-	unsigned int cpu;
 	struct cpumask new_affinity;
+	unsigned long flags;
 
-	/* I/O devices are connected on package-0 */
-	cpumask_copy(&new_affinity, affinity);
-	for_each_cpu(cpu, affinity)
-		if (cpu_data[cpu].package > 0)
-			cpumask_clear_cpu(cpu, &new_affinity);
+	if (!IS_ENABLED(CONFIG_SMP))
+		return -EPERM;
 
-	if (cpumask_empty(&new_affinity))
+	if(ipi_irq2pos[d->irq] == -1)
 		return -EINVAL;
+
+	spin_lock_irqsave(&affinity_lock, flags);
+
+	if (!cpumask_intersects(affinity, cpu_online_mask)) {
+		spin_unlock_irqrestore(&affinity_lock, flags);
+		return -EINVAL;
+	} else {
+		cpumask_and(&new_affinity, affinity, cpu_online_mask);
+	}
 
 	cpumask_copy(d->common->affinity, &new_affinity);
 
+	spin_unlock_irqrestore(&affinity_lock, flags);
+	irq_data_update_effective_affinity(d, &new_affinity);
 	return IRQ_SET_MASK_OK_NOCOPY;
 }
 
-static void ht_irqdispatch(void)
+#define UNUSED_IPS_GUEST (CAUSEF_IP0)
+#define UNUSED_IPS (CAUSEF_IP5 | CAUSEF_IP4 | CAUSEF_IP0)
+static void ip2_irqdispatch(void)
 {
-	unsigned int i, irq;
-	struct irq_data *irqd;
-	struct cpumask affinity;
-
-	irq = LOONGSON_HT1_INT_VECTOR(0);
-	LOONGSON_HT1_INT_VECTOR(0) = irq; /* Acknowledge the IRQs */
-
-	for (i = 0; i < ARRAY_SIZE(ht_irq); i++) {
-		if (!(irq & (0x1 << ht_irq[i])))
-			continue;
-
-		/* handled by local core */
-		if (local_irq & (0x1 << ht_irq[i])) {
-			do_IRQ(ht_irq[i]);
-			continue;
-		}
-
-		irqd = irq_get_irq_data(ht_irq[i]);
-		cpumask_and(&affinity, irqd->common->affinity, cpu_active_mask);
-		if (cpumask_empty(&affinity)) {
-			do_IRQ(ht_irq[i]);
-			continue;
-		}
-
-		irq_cpu[ht_irq[i]] = cpumask_next(irq_cpu[ht_irq[i]], &affinity);
-		if (irq_cpu[ht_irq[i]] >= nr_cpu_ids)
-			irq_cpu[ht_irq[i]] = cpumask_first(&affinity);
-
-		if (irq_cpu[ht_irq[i]] == 0) {
-			do_IRQ(ht_irq[i]);
-			continue;
-		}
-
-		/* balanced by other cores */
-		loongson3_send_irq_by_ipi(irq_cpu[ht_irq[i]], (0x1 << ht_irq[i]));
-	}
+	do_liointc();
 }
 
-#define UNUSED_IPS (CAUSEF_IP5 | CAUSEF_IP4 | CAUSEF_IP1 | CAUSEF_IP0)
+static void ip3_irqdispatch(void)
+{
+	do_cascade();
+}
+
+#ifdef CONFIG_SMP
+static void ip6_irqdispatch(void)
+{
+	loongson3_ipi_interrupt(NULL);
+}
+#endif
+
+static void ip7_irqdispatch(void)
+{
+	do_IRQ(LOONGSON_TIMER_IRQ);
+}
 
 void mach_irq_dispatch(unsigned int pending)
 {
@@ -87,70 +142,71 @@ void mach_irq_dispatch(unsigned int pending)
 		loongson3_ipi_interrupt(NULL);
 #endif
 	if (pending & CAUSEF_IP3)
-		ht_irqdispatch();
+		do_cascade();
 	if (pending & CAUSEF_IP2)
-		do_IRQ(LOONGSON_UART_IRQ);
+		do_liointc();
 	if (pending & UNUSED_IPS) {
 		pr_err("%s : spurious interrupt\n", __func__);
 		spurious_interrupt();
 	}
 }
 
-static inline void mask_loongson_irq(struct irq_data *d) { }
-static inline void unmask_loongson_irq(struct irq_data *d) { }
-
- /* For MIPS IRQs which shared by all cores */
-static struct irq_chip loongson_irq_chip = {
-	.name		= "Loongson",
-	.irq_ack	= mask_loongson_irq,
-	.irq_mask	= mask_loongson_irq,
-	.irq_mask_ack	= mask_loongson_irq,
-	.irq_unmask	= unmask_loongson_irq,
-	.irq_eoi	= unmask_loongson_irq,
-};
-
-void irq_router_init(void)
-{
-	int i;
-
-	/* route LPC int to cpu core0 int 0 */
-	LOONGSON_INT_ROUTER_LPC =
-		LOONGSON_INT_COREx_INTy(loongson_sysconf.boot_cpu_id, 0);
-	/* route HT1 int0 ~ int7 to cpu core0 INT1*/
-	for (i = 0; i < 8; i++)
-		LOONGSON_INT_ROUTER_HT1(i) =
-			LOONGSON_INT_COREx_INTy(loongson_sysconf.boot_cpu_id, 1);
-	/* enable HT1 interrupt */
-	LOONGSON_HT1_INTN_EN(0) = 0xffffffff;
-	/* enable router interrupt intenset */
-	LOONGSON_INT_ROUTER_INTENSET =
-		LOONGSON_INT_ROUTER_INTEN | (0xffff << 16) | 0x1 << 10;
-}
-
 void __init mach_init_irq(void)
 {
-	struct irq_chip *chip;
+	loongson_pch->init_irq();
 
-	clear_c0_status(ST0_IM | ST0_BEV);
+	if (cpu_has_vint) {
+		pr_info("Setting up vectored interrupts\n");
+		set_vi_handler(2, ip2_irqdispatch);
+		set_vi_handler(3, ip3_irqdispatch);
+#ifdef CONFIG_SMP
+		set_vi_handler(6, ip6_irqdispatch);
+#endif
+		set_vi_handler(7, ip7_irqdispatch);
+	}
 
-	irq_router_init();
-	mips_cpu_irq_init();
-	init_i8259_irqs();
-	chip = irq_get_chip(I8259A_IRQ_BASE);
-	chip->irq_set_affinity = plat_set_irq_affinity;
-
-	irq_set_chip_and_handler(LOONGSON_UART_IRQ,
-			&loongson_irq_chip, handle_percpu_irq);
-	irq_set_chip_and_handler(LOONGSON_BRIDGE_IRQ,
-			&loongson_irq_chip, handle_percpu_irq);
-
-	set_c0_status(STATUSF_IP2 | STATUSF_IP3 | STATUSF_IP6);
+	if (cpu_guestmode)
+		set_c0_status(STATUSF_IP2 | STATUSF_IP3 |
+					STATUSF_IP1 | STATUSF_IP6);
+	else {
+		set_c0_status(STATUSF_IP2 | STATUSF_IP3 | STATUSF_IP6);
+		if (current_cpu_type() == CPU_LOONGSON3_COMP) {
+			if (((*(volatile unsigned int *)0x900000003ff00404) & 0xf00000) != 0xf00000)
+				(*(volatile unsigned int *)0x900000003ff00404) |= 0xf00000;
+		}
+	}
 }
 
 #ifdef CONFIG_HOTPLUG_CPU
+void handle_irq_affinity(void)
+{
+	struct irq_desc *desc;
+	struct irq_chip *chip;
+	unsigned int irq;
+	unsigned long flags;
+	struct cpumask *affinity;
+
+	for_each_active_irq(irq) {
+		desc = irq_to_desc(irq);
+		if (!desc)
+			continue;
+
+		raw_spin_lock_irqsave(&desc->lock, flags);
+
+		affinity = desc->irq_data.common->affinity;
+		if (!cpumask_intersects(affinity, cpu_online_mask))
+			cpumask_copy(affinity, cpu_online_mask);
+
+		chip = irq_data_get_irq_chip(&desc->irq_data);
+		if (chip && chip->irq_set_affinity)
+			chip->irq_set_affinity(&desc->irq_data, desc->irq_data.common->affinity, true);
+		raw_spin_unlock_irqrestore(&desc->lock, flags);
+	}
+}
 
 void fixup_irqs(void)
 {
+	handle_irq_affinity();
 	irq_cpu_offline();
 	clear_c0_status(ST0_IM);
 }

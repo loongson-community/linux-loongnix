@@ -19,7 +19,7 @@
 static int dwmac_generic_probe(struct platform_device *pdev)
 {
 	struct plat_stmmacenet_data *plat_dat;
-	struct stmmac_resources stmmac_res;
+	struct stmmac_resources stmmac_res = {0};
 	int ret;
 
 	ret = stmmac_get_platform_resources(pdev, &stmmac_res);
@@ -69,6 +69,16 @@ err_remove_config_dt:
 	return ret;
 }
 
+static void stmmac_pltfr_shutdown(struct platform_device *pdev)
+{
+	struct net_device *ndev = platform_get_drvdata(pdev);
+	struct stmmac_priv *priv = netdev_priv(ndev);
+
+	if (device_may_wakeup(priv->device)) {
+		priv->hw->mac->pmt(priv->hw, priv->wolopts);
+	}
+}
+
 static const struct of_device_id dwmac_generic_match[] = {
 	{ .compatible = "st,spear600-gmac"},
 	{ .compatible = "snps,dwmac-3.50a"},
@@ -87,6 +97,7 @@ MODULE_DEVICE_TABLE(of, dwmac_generic_match);
 static struct platform_driver dwmac_generic_driver = {
 	.probe  = dwmac_generic_probe,
 	.remove = stmmac_pltfr_remove,
+	.shutdown = stmmac_pltfr_shutdown,
 	.driver = {
 		.name           = STMMAC_RESOURCE_NAME,
 		.pm		= &stmmac_pltfr_pm_ops,

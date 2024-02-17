@@ -31,6 +31,12 @@ void prom_putchar(char c)
 	int timeout;
 	unsigned char *uart_base;
 
+	if (_loongson_uart_base[0] == 0)
+#ifdef CONFIG_CPU_LOONGSON3
+		_loongson_uart_base[0] = 0xffffffffbfe001e0;
+#else
+		return;
+#endif
 	uart_base = (unsigned char *)_loongson_uart_base[0];
 	timeout = 1024;
 
@@ -40,3 +46,32 @@ void prom_putchar(char c)
 
 	serial_out(uart_base, UART_TX, c);
 }
+
+void prom_printf(char *fmt, ...)
+{
+	va_list args;
+	/*
+	 * * CONFIG_FRAME_WARN is set to 1024 for Loongson3 platforms. It's
+	 * * value can be modified by the following menuconfig selection:
+	 * *    Kernel Hacking --->
+	 * *       (1024) Warn for stack frames larger than (needs gcc 4.4)
+	 * * We avoid this build check error by forcing stack size under 1024.
+	 * */
+	char ppbuf[1024 - 16];
+	char *bptr;
+
+	va_start(args, fmt);
+	vsprintf(ppbuf, fmt, args);
+
+	bptr = ppbuf;
+
+	while (*bptr != 0) {
+	if (*bptr == '\n')
+		prom_putchar('\r');
+
+	prom_putchar(*bptr++);
+}
+va_end(args);
+}
+EXPORT_SYMBOL_GPL(prom_printf);
+

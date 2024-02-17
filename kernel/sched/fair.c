@@ -6438,11 +6438,37 @@ select_task_rq_fair(struct task_struct *p, int prev_cpu, int sd_flag, int wake_f
 	int new_cpu = prev_cpu;
 	int want_affine = 0;
 	int sync = (wake_flags & WF_SYNC) && !(current->flags & PF_EXITING);
+#ifdef __loongarch__
+	struct thread_info *thread;
+#endif
+
+#ifdef __loongarch__
+	if ((sd_flag & SD_BALANCE_FORK) && current_thread_info()->will_wait) {
+		if (cpumask_test_cpu(cpu, &p->cpus_allowed))
+			return cpu;
+	}
+#endif
 
 	if (sd_flag & SD_BALANCE_WAKE) {
 		record_wakee(p);
 		want_affine = !wake_wide(p) && !wake_cap(p, cpu, prev_cpu)
 			      && cpumask_test_cpu(cpu, &p->cpus_allowed);
+#ifdef __loongarch__
+		task_thread_info(p)->last_waker = current;
+		thread = current_thread_info();
+		if ((p->last_wakee == current) && cpumask_test_cpu(cpu, &p->cpus_allowed) && (thread->last_waker == p)) {
+			thread->wakee_times++;
+			if (time_after_eq(jiffies, thread->last_waketime + 2)) {
+				thread->last_waketime = jiffies;
+				thread->wakee_times = 0;
+			}
+
+			if ((p->se.exec_start < (current->se.exec_start + 1000)) && (thread->wakee_times > 80) && (task_thread_info(p)->wakee_times > 80)) {
+				return cpu;
+			}
+		}
+#endif
+
 	}
 
 	rcu_read_lock();
@@ -9786,6 +9812,48 @@ static void rq_offline_fair(struct rq *rq)
 
 #endif /* CONFIG_SMP */
 
+#ifdef CONFIG_NODE_CACHE_THRASH_OPTIMIZATION
+void do_set_to_all_node(struct callback_head *work)
+{
+	if (in_task()) {
+		sched_setaffinity(current->pid, cpu_active_mask);
+		current->pinned = -1;
+		smp_mb();
+	}
+	atomic_set(&current->in_progress, 0);
+
+#ifdef CONFIG_DEBUG_AVOID_NODE_THRASH
+	printk("all, jiffies: %lu pid: %d comm: %s\n", jiffies, current->pid, current->comm);
+#endif
+
+	return;
+}
+
+static inline void set_to_all_node(struct task_struct *p, struct callback_head *work)
+{
+	init_task_work(work, do_set_to_all_node);
+	task_work_add(p, work, true);
+
+	return;
+}
+
+static inline void cancel_fixed(struct task_struct *curr, struct callback_head *work)
+{
+	if (curr->pinned == -1 || jiffies < curr->fixed_stamp + 4 * HZ
+		|| atomic_cmpxchg(&curr->in_progress, 0, 1) != 0)
+		return;
+
+	set_to_all_node(curr, work);
+
+	return;
+}
+#else
+static inline void cancel_fixed(struct task_struct *curr, struct callback_head *work)
+{
+	return;
+}
+#endif
+
 /*
  * scheduler tick hitting a task of our scheduling class.
  *
@@ -9798,6 +9866,11 @@ static void task_tick_fair(struct rq *rq, struct task_struct *curr, int queued)
 {
 	struct cfs_rq *cfs_rq;
 	struct sched_entity *se = &curr->se;
+
+#ifdef CONFIG_NODE_CACHE_THRASH_OPTIMIZATION
+	struct callback_head *work = &curr->affinity_work;
+	cancel_fixed(curr, work);
+#endif
 
 	for_each_sched_entity(se) {
 		cfs_rq = cfs_rq_of(se);

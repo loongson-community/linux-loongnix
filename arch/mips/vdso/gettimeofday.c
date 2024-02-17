@@ -18,6 +18,38 @@
 #include <asm/unistd.h>
 #include <asm/vdso.h>
 
+static __always_inline long getpid_fallback(void)
+{
+	register long ret asm("v0");
+	register long nr asm("v0") = __NR_getpid;
+	register long error asm("a3");
+
+	asm volatile(
+	"       syscall\n"
+	: "=r" (ret), "=r" (error)
+	: "r" (nr)
+	: "$1", "$3", "$8", "$9", "$10", "$11", "$12", "$13",
+	  "$14", "$15", "$24", "$25", "hi", "lo", "memory");
+
+	return ret;
+}
+
+static __always_inline long getuid_fallback(void)
+{
+	register long ret asm("v0");
+	register long nr asm("v0") = __NR_getuid;
+	register long error asm("a3");
+
+	asm volatile(
+	"       syscall\n"
+	: "=r" (ret), "=r" (error)
+	: "r" (nr)
+	: "$1", "$3", "$8", "$9", "$10", "$11", "$12", "$13",
+	  "$14", "$15", "$24", "$25", "hi", "lo", "memory");
+
+	return ret;
+}
+
 #if MIPS_ISA_REV < 6
 #define VDSO_SYSCALL_CLOBBERS "hi", "lo",
 #else
@@ -126,11 +158,58 @@ static __always_inline u64 read_r4k_count(void)
 
 #endif
 
+static __always_inline u32 read_cpu_id(void)
+{
+	unsigned long cpu_id;
+
+	__asm__ __volatile__(
+	"	.set push\n"
+	"	.set mips64r2\n"
+	"	rdhwr	%0, $0\n"
+	"	.set pop\n"
+	: "=r" (cpu_id)
+	:
+	: "memory");
+
+	return cpu_id;
+}
+
+static __always_inline u64 read_stable_count(void)
+{
+	unsigned long count;
+
+	__asm__ __volatile__(
+	"	.set push\n"
+	"	.set mips64r2\n"
+	"	rdhwr	%0, $30\n"
+	"	.set pop\n"
+	: "=r" (count));
+
+	return count;
+}
+
+#ifdef CONFIG_LOONGSON_HPET
+
+#ifdef CONFIG_CPU_LOONGSON2K
+#define HPET_MAIN_COUNTER_OFFSET	0xf0
+#else	/* LS7A1000 */
+#define HPET_MAIN_COUNTER_OFFSET	0x10f0
+#endif
+
+static __always_inline u64 read_hpet_count(const union mips_vdso_data *data)
+{
+	void __iomem *hpet = get_extimer(data);
+
+	return ____raw_readq(hpet + HPET_MAIN_COUNTER_OFFSET);
+}
+
+#endif
+
 #ifdef CONFIG_CLKSRC_MIPS_GIC
 
 static __always_inline u64 read_gic_count(const union mips_vdso_data *data)
 {
-	void __iomem *gic = get_gic(data);
+	void __iomem *gic = get_extimer(data);
 	u32 hi, hi2, lo;
 
 	do {
@@ -157,6 +236,14 @@ static __always_inline u64 get_ns(const union mips_vdso_data *data)
 #ifdef CONFIG_CLKSRC_MIPS_GIC
 	case VDSO_CLOCK_GIC:
 		cycle_now = read_gic_count(data);
+		break;
+#endif
+	case VDSO_CLOCK_STABLE:
+		cycle_now = read_stable_count();
+		break;
+#ifdef CONFIG_LOONGSON_HPET
+	case VDSO_CLOCK_HPET:
+		cycle_now = read_hpet_count(data);
 		break;
 #endif
 	default:
@@ -231,6 +318,9 @@ static __always_inline int do_monotonic(struct timespec *ts,
  */
 int __vdso_gettimeofday(struct timeval *tv, struct timezone *tz)
 {
+#if _MIPS_SIM == _MIPS_SIM_ABI32
+	return gettimeofday_fallback(tv, tz);
+#else
 	const union mips_vdso_data *data = get_vdso_data();
 	struct timespec ts;
 	int ret;
@@ -250,12 +340,16 @@ int __vdso_gettimeofday(struct timeval *tv, struct timezone *tz)
 	}
 
 	return 0;
+#endif
 }
 
 #endif /* CONFIG_MIPS_CLOCK_VSYSCALL */
 
 int __vdso_clock_gettime(clockid_t clkid, struct timespec *ts)
 {
+#if _MIPS_SIM == _MIPS_SIM_ABI32
+	return clock_gettime_fallback(clkid, ts);
+#else
 	const union mips_vdso_data *data = get_vdso_data();
 	int ret = -1;
 
@@ -280,4 +374,83 @@ int __vdso_clock_gettime(clockid_t clkid, struct timespec *ts)
 		ret = clock_gettime_fallback(clkid, ts);
 
 	return ret;
+#endif
+}
+
+static __always_inline pid_t __do_getpid(const union mips_vdso_data *data)
+{
+	u32 start_seq;
+	u32 cpu_id;
+	pid_t pid;
+
+	do {
+	   cpu_id = read_cpu_id();
+	   start_seq = vdso_pcpu_data_read_begin(&data->pcpu_data[cpu_id]);
+	   pid = data->pcpu_data[cpu_id].pid;
+
+	} while (cpu_id != read_cpu_id() ||
+		vdso_pcpu_data_read_retry(&data->pcpu_data[cpu_id], start_seq));
+
+	return pid;
+}
+
+pid_t __vdso_getpid(void)
+{
+#if _MIPS_SIM == _MIPS_SIM_ABI32
+	return getpid_fallback();
+#else
+	const union mips_vdso_data *data;
+	pid_t pid;
+
+	data = get_vdso_data();
+	if (!data) {
+		return getpid_fallback();
+	}
+
+	pid = __do_getpid(data);
+	if (pid == VDSO_INVALID_PID) {
+		return getpid_fallback();
+	}
+
+	return pid;
+#endif
+}
+
+static __always_inline uid_t __do_getuid(const union mips_vdso_data *data)
+{
+	u32 start_seq;
+	u32 cpu_id;
+	uid_t uid;
+
+	do {
+		cpu_id = read_cpu_id();
+		start_seq = vdso_pcpu_data_read_begin(&data->pcpu_data[cpu_id]);
+		uid = data->pcpu_data[cpu_id].uid;
+
+	} while (cpu_id != read_cpu_id() ||
+		vdso_pcpu_data_read_retry(&data->pcpu_data[cpu_id], start_seq));
+
+	return uid;
+}
+
+uid_t __vdso_getuid(void)
+{
+#if _MIPS_SIM == _MIPS_SIM_ABI32
+	return getuid_fallback();
+#else
+	const union mips_vdso_data *data;
+	uid_t uid;
+
+	data = get_vdso_data();
+	if (!data) {
+		return getuid_fallback();
+	}
+
+	uid = __do_getuid(data);
+	if (uid == VDSO_INVALID_UID) {
+		return getuid_fallback();
+	}
+
+	return uid;
+#endif
 }

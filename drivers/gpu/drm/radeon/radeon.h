@@ -672,6 +672,7 @@ void radeon_gart_unbind(struct radeon_device *rdev, unsigned offset,
 int radeon_gart_bind(struct radeon_device *rdev, unsigned offset,
 		     int pages, struct page **pagelist,
 		     dma_addr_t *dma_addr, uint32_t flags);
+void radeon_gart_restore(struct radeon_device *rdev);
 
 
 /*
@@ -2204,11 +2205,10 @@ union radeon_asic_config {
 };
 
 /*
- * asic initizalization from radeon_asic.c
+ * asic setup from radeon_asic.c
  */
+int radeon_asic_setup(struct radeon_device *rdev);
 void radeon_agp_disable(struct radeon_device *rdev);
-int radeon_asic_init(struct radeon_device *rdev);
-
 
 /*
  * IOCTL.
@@ -2416,6 +2416,8 @@ struct radeon_device {
 	struct delayed_work hotplug_work;
 	struct work_struct dp_work;
 	struct work_struct audio_work;
+	int need_recover;
+	struct delayed_work recover_work;
 	int num_crtc; /* number of crtcs */
 	struct mutex dc_hw_i2c_mutex; /* display controller hw i2c mutex */
 	bool has_uvd;
@@ -2704,8 +2706,8 @@ static inline void radeon_ring_write(struct radeon_ring *ring, uint32_t v)
 /*
  * ASICs macro.
  */
-#define radeon_init(rdev) (rdev)->asic->init((rdev))
-#define radeon_fini(rdev) (rdev)->asic->fini((rdev))
+#define radeon_asic_init(rdev) (rdev)->asic->init((rdev))
+#define radeon_asic_fini(rdev) (rdev)->asic->fini((rdev))
 #define radeon_resume(rdev) (rdev)->asic->resume((rdev))
 #define radeon_suspend(rdev) (rdev)->asic->suspend((rdev))
 #define radeon_cs_parse(rdev, r, p) (rdev)->asic->ring[(r)]->cs_parse((p))

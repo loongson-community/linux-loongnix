@@ -46,6 +46,15 @@ static __inline__ long local_add_return(long i, local_t * l)
 		: "Ir" (i), "m" (l->a.counter)
 		: "memory");
 	} else if (kernel_uses_llsc) {
+#if defined(CONFIG_CPU_SUPPORTS_LAMO_INSTRUCTIONS) && defined(TOOLCHAIN_SUPPORTS_LAMO)
+         __asm__ __volatile__(
+         "   " __AMADD " %1, %2, %0      \n"
+         : "+ZB" (l->a.counter), "=&r" (result)
+         : "r" (i)
+         : "memory");
+ 
+         result = result + i;
+#else
 		unsigned long temp;
 
 		__asm__ __volatile__(
@@ -59,6 +68,7 @@ static __inline__ long local_add_return(long i, local_t * l)
 		: "=&r" (result), "=&r" (temp), "=m" (l->a.counter)
 		: "Ir" (i), "m" (l->a.counter)
 		: "memory");
+#endif
 	} else {
 		unsigned long flags;
 
@@ -91,6 +101,15 @@ static __inline__ long local_sub_return(long i, local_t * l)
 		: "Ir" (i), "m" (l->a.counter)
 		: "memory");
 	} else if (kernel_uses_llsc) {
+#if defined(CONFIG_CPU_SUPPORTS_LAMO_INSTRUCTIONS) && defined(TOOLCHAIN_SUPPORTS_LAMO)
+         __asm__ __volatile__(
+         "   " __AMADD "%1, %2, %0       \n"
+         : "+ZB" (l->a.counter), "=&r" (result)
+         : "r" (-i)
+         : "memory");
+ 
+         result = result - i;
+#else
 		unsigned long temp;
 
 		__asm__ __volatile__(
@@ -104,6 +123,7 @@ static __inline__ long local_sub_return(long i, local_t * l)
 		: "=&r" (result), "=&r" (temp), "=m" (l->a.counter)
 		: "Ir" (i), "m" (l->a.counter)
 		: "memory");
+#endif
 	} else {
 		unsigned long flags;
 

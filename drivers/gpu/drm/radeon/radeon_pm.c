@@ -1296,7 +1296,7 @@ static int radeon_pm_init_old(struct radeon_device *rdev)
 {
 	int ret;
 
-	rdev->pm.profile = PM_PROFILE_DEFAULT;
+	rdev->pm.profile = PM_PROFILE_AUTO;
 	rdev->pm.dynpm_state = DYNPM_STATE_DISABLED;
 	rdev->pm.dynpm_planned_action = DYNPM_ACTION_NONE;
 	rdev->pm.dynpm_can_upclock = true;
@@ -1467,6 +1467,7 @@ int radeon_pm_init(struct radeon_device *rdev)
 	case CHIP_RS780:
 	case CHIP_RS880:
 	case CHIP_RV770:
+	case CHIP_JUNIPER:
 		/* DPM requires the RLC, RV770+ dGPU requires SMC */
 		if (!rdev->rlc_fw)
 			rdev->pm.pm_method = PM_METHOD_PROFILE;
@@ -1484,7 +1485,6 @@ int radeon_pm_init(struct radeon_device *rdev)
 	case CHIP_RV740:
 	case CHIP_CEDAR:
 	case CHIP_REDWOOD:
-	case CHIP_JUNIPER:
 	case CHIP_CYPRESS:
 	case CHIP_HEMLOCK:
 	case CHIP_PALM:

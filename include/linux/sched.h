@@ -1023,6 +1023,12 @@ struct task_struct {
 	u64				node_stamp;
 	u64				last_task_numa_placement;
 	u64				last_sum_exec_runtime;
+#ifdef CONFIG_NODE_CACHE_THRASH_OPTIMIZATION
+	u64             fixed_stamp, stat;
+	short           pinned, init_pin;
+	atomic_t        in_progress;
+	struct callback_head affinity_work;
+#endif
 	struct callback_head		numa_work;
 
 	/*
@@ -1640,6 +1646,16 @@ static inline unsigned long wait_task_inactive(struct task_struct *p, long match
  * Set thread flags in other task's structures.
  * See asm/thread_info.h for TIF_xxxx flags available:
  */
+static inline void __set_tsk_thread_flag(struct task_struct *tsk, int flag)
+{
+	__set_ti_thread_flag(task_thread_info(tsk), flag);
+}
+
+static inline void __clear_tsk_thread_flag(struct task_struct *tsk, int flag)
+{
+	__clear_ti_thread_flag(task_thread_info(tsk), flag);
+}
+
 static inline void set_tsk_thread_flag(struct task_struct *tsk, int flag)
 {
 	set_ti_thread_flag(task_thread_info(tsk), flag);

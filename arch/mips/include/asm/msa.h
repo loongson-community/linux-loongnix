@@ -20,6 +20,69 @@ extern void _save_msa(struct task_struct *);
 extern void _restore_msa(struct task_struct *);
 extern void _init_msa_upper(void);
 
+#ifdef CONFIG_LOONGSON3_ACPI_CPUFREQ
+DECLARE_PER_CPU(unsigned long, msa_count);
+#endif
+
+#ifdef CONFIG_CPU_HAS_LASX
+enum {
+	CTX_MSA = 1,
+	CTX_LASX = 2,
+};
+
+extern void _save_lasx(struct task_struct *);
+extern void _restore_lasx(struct task_struct *);
+extern void _init_lasx_upper(void);
+
+#ifdef CONFIG_LOONGSON3_ACPI_CPUFREQ
+DECLARE_PER_CPU(unsigned long, lasx_count);
+#endif
+
+static inline int is_lasx_enabled(void)
+{
+	if (!loongson_cpu_has_lasx)
+		return 0;
+
+	return (read_c0_config() & LS64_CONF_LASXEN) ?
+			1 : 0;
+}
+
+static inline void enable_lasx(void)
+{
+	if (loongson_cpu_has_lasx) {
+		set_c0_config(LS64_CONF_LASXEN);
+#ifdef CONFIG_LOONGSON3_ACPI_CPUFREQ
+		per_cpu(lasx_count, raw_smp_processor_id())++;
+#endif
+	}
+}
+
+static inline void disable_lasx(void)
+{
+	if (loongson_cpu_has_lasx) {
+		clear_c0_config(LS64_CONF_LASXEN);
+	}
+}
+
+static inline void save_lasx(struct task_struct *t)
+{
+	if (loongson_cpu_has_lasx)
+		_save_lasx(t);
+}
+
+static inline void restore_lasx(struct task_struct *t)
+{
+	if (loongson_cpu_has_lasx)
+		_restore_lasx(t);
+}
+
+static inline void init_lasx_upper(void)
+{
+	if (loongson_cpu_has_lasx)
+		_init_lasx_upper();
+}
+#endif
+
 extern void read_msa_wr_b(unsigned idx, union fpureg *to);
 extern void read_msa_wr_h(unsigned idx, union fpureg *to);
 extern void read_msa_wr_w(unsigned idx, union fpureg *to);
@@ -102,6 +165,9 @@ static inline void enable_msa(void)
 {
 	if (cpu_has_msa) {
 		set_c0_config5(MIPS_CONF5_MSAEN);
+#ifdef CONFIG_LOONGSON3_ACPI_CPUFREQ
+		per_cpu(msa_count, raw_smp_processor_id())++;
+#endif
 		enable_fpu_hazard();
 	}
 }
@@ -124,15 +190,28 @@ static inline int is_msa_enabled(void)
 
 static inline int thread_msa_context_live(void)
 {
+	int ret = 0;
 	/*
 	 * Check cpu_has_msa only if it's a constant. This will allow the
 	 * compiler to optimise out code for CPUs without MSA without adding
 	 * an extra redundant check for CPUs with MSA.
 	 */
 	if (__builtin_constant_p(cpu_has_msa) && !cpu_has_msa)
-		return 0;
-
+#ifndef CONFIG_CPU_HAS_LASX
+		return ret;
 	return test_thread_flag(TIF_MSA_CTX_LIVE);
+#else
+		goto  out;
+
+	ret =  test_thread_flag(TIF_MSA_CTX_LIVE) ? CTX_MSA : 0;
+
+	if (__builtin_constant_p(loongson_cpu_has_lasx) && !loongson_cpu_has_lasx)
+		goto out;
+
+	ret = test_thread_flag(TIF_LASX_CTX_LIVE) ? CTX_LASX : ret;
+out:
+	return ret;
+#endif
 }
 
 static inline void save_msa(struct task_struct *t)

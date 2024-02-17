@@ -6,6 +6,7 @@
 
 #define KVM_HYPERCALL ".word 0x42000028"
 
+#define KVM_MIPS_GET_RTAS_INFO		0x10
 /*
  * Hypercalls for KVM.
  *
@@ -84,6 +85,28 @@ static inline unsigned long kvm_hypercall3(unsigned long num,
 	return r;
 }
 
+static inline unsigned long kvm_hypercall4(unsigned long num,
+	unsigned long arg0, unsigned long arg1, unsigned long arg2, unsigned long arg3)
+{
+	register unsigned long n asm("v0");
+	register unsigned long r asm("v0");
+	register unsigned long a0 asm("a0");
+	register unsigned long a1 asm("a1");
+	register unsigned long a2 asm("a2");
+	register unsigned long a3 asm("a3");
+
+	n = num;
+	a0 = arg0;
+	a1 = arg1;
+	a2 = arg2;
+	a3 = arg3;
+	__asm__ __volatile__(
+			KVM_HYPERCALL
+			: "=r" (r) : "r" (n), "r" (a0), "r" (a1), "r" (a2), "r" (a3) : "memory"
+			);
+
+	return r;
+}
 static inline bool kvm_check_and_clear_guest_paused(void)
 {
 	return false;

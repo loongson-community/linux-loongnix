@@ -25,23 +25,7 @@
 
 #include "special.h"
 #include "warn.h"
-
-#define EX_ENTRY_SIZE		12
-#define EX_ORIG_OFFSET		0
-#define EX_NEW_OFFSET		4
-
-#define JUMP_ENTRY_SIZE		24
-#define JUMP_ORIG_OFFSET	0
-#define JUMP_NEW_OFFSET		8
-
-#define ALT_ENTRY_SIZE		13
-#define ALT_ORIG_OFFSET		0
-#define ALT_NEW_OFFSET		4
-#define ALT_FEATURE_OFFSET	8
-#define ALT_ORIG_LEN_OFFSET	10
-#define ALT_NEW_LEN_OFFSET	11
-
-#define X86_FEATURE_POPCNT (4*32+23)
+#include "arch_special.h"
 
 struct special_entry {
 	const char *sec;
@@ -78,6 +62,10 @@ struct special_entry entries[] = {
 	{},
 };
 
+void __weak arch_handle_alternative(unsigned short feature, struct special_alt *alt)
+{
+}
+
 static int get_alt_entry(struct elf *elf, struct special_entry *entry,
 			 struct section *sec, int idx,
 			 struct special_alt *alt)
@@ -103,13 +91,7 @@ static int get_alt_entry(struct elf *elf, struct special_entry *entry,
 		feature = *(unsigned short *)(sec->data->d_buf + offset +
 					      entry->feature);
 
-		/*
-		 * It has been requested that we don't validate the !POPCNT
-		 * feature path which is a "very very small percentage of
-		 * machines".
-		 */
-		if (feature == X86_FEATURE_POPCNT)
-			alt->skip_orig = true;
+		arch_handle_alternative(feature, alt);
 	}
 
 	orig_rela = find_rela_by_dest(sec, offset + entry->orig);
@@ -117,14 +99,21 @@ static int get_alt_entry(struct elf *elf, struct special_entry *entry,
 		WARN_FUNC("can't find orig rela", sec, offset + entry->orig);
 		return -1;
 	}
-	if (orig_rela->sym->type != STT_SECTION) {
+
+	if (orig_rela->sym->type == STT_SECTION) {
+		alt->orig_sec = orig_rela->sym->sec;
+		alt->orig_off = orig_rela->addend;
+#ifdef __loongarch__
+	} else if (!strncmp(orig_rela->sym->name, ".L", 2) ||
+			!strncmp(orig_rela->sym->name, ".ex", 3)) {
+		alt->orig_sec = orig_rela->sym->sec;
+		alt->orig_off = orig_rela->sym->offset;
+#endif
+	} else {
 		WARN_FUNC("don't know how to handle non-section rela symbol %s",
 			   sec, offset + entry->orig, orig_rela->sym->name);
 		return -1;
 	}
-
-	alt->orig_sec = orig_rela->sym->sec;
-	alt->orig_off = orig_rela->addend;
 
 	if (!entry->group || alt->new_len) {
 		new_rela = find_rela_by_dest(sec, offset + entry->new);
@@ -135,7 +124,12 @@ static int get_alt_entry(struct elf *elf, struct special_entry *entry,
 		}
 
 		alt->new_sec = new_rela->sym->sec;
-		alt->new_off = (unsigned int)new_rela->addend;
+#ifdef __loongarch__
+		if (!strncmp(orig_rela->sym->name, ".L", 2))
+			alt->new_off = new_rela->sym->offset;
+		else
+#endif
+			alt->new_off = (unsigned int)new_rela->addend;
 
 		/* _ASM_EXTABLE_EX hack */
 		if (alt->new_off >= 0x7ffffff0)

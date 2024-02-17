@@ -31,6 +31,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include "../perf.h"
+#include "util.h"
 #include <subcmd/exec-cmd.h>
 #include "tests.h"
 

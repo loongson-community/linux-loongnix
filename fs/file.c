@@ -57,7 +57,9 @@ static void copy_fd_bitmaps(struct fdtable *nfdt, struct fdtable *ofdt,
 	memset((char *)nfdt->open_fds + cpy, 0, set);
 	memcpy(nfdt->close_on_exec, ofdt->close_on_exec, cpy);
 	memset((char *)nfdt->close_on_exec + cpy, 0, set);
-
+#ifdef CONFIG_LS_DUP
+	COPY_LS_DUP(ofdt, nfdt, set, cpy);
+#endif
 	cpy = BITBIT_SIZE(count);
 	set = BITBIT_SIZE(nfdt->max_fds) - cpy;
 	memcpy(nfdt->full_fds_bits, ofdt->full_fds_bits, cpy);
@@ -118,16 +120,15 @@ static struct fdtable * alloc_fdtable(unsigned int nr)
 	fdt->fd = data;
 
 	data = kvmalloc(max_t(size_t,
-				 2 * nr / BITS_PER_BYTE + BITBIT_SIZE(nr), L1_CACHE_BYTES),
+				4 * nr / BITS_PER_BYTE + BITBIT_SIZE(nr), L1_CACHE_BYTES),
 				 GFP_KERNEL_ACCOUNT);
 	if (!data)
 		goto out_arr;
 	fdt->open_fds = data;
 	data += nr / BITS_PER_BYTE;
 	fdt->close_on_exec = data;
-	data += nr / BITS_PER_BYTE;
+	data += 3*nr / BITS_PER_BYTE;
 	fdt->full_fds_bits = data;
-
 	return fdt;
 
 out_arr:
@@ -190,7 +191,7 @@ static int expand_fdtable(struct files_struct *files, unsigned int nr)
  * expanded and execution may have blocked.
  * The files->file_lock should be held on entry, and will be held on exit.
  */
-static int expand_files(struct files_struct *files, unsigned int nr)
+int expand_files(struct files_struct *files, unsigned int nr)
 	__releases(files->file_lock)
 	__acquires(files->file_lock)
 {
@@ -249,6 +250,7 @@ static inline void __clear_open_fd(unsigned int fd, struct fdtable *fdt)
 	__clear_bit(fd, fdt->open_fds);
 	__clear_bit(fd / BITS_PER_LONG, fdt->full_fds_bits);
 }
+
 
 static unsigned int count_open_files(struct fdtable *fdt)
 {
@@ -338,6 +340,9 @@ struct files_struct *dup_fd(struct files_struct *oldf, int *errorp)
 	for (i = open_files; i != 0; i--) {
 		struct file *f = *old_fds++;
 		if (f) {
+#ifdef CONFIG_LS_DUP
+			if (!REFILL_ACCESS(&f))
+#endif
 			get_file(f);
 		} else {
 			/*
@@ -384,6 +389,14 @@ static struct fdtable *close_files(struct files_struct * files)
 		while (set) {
 			if (set & 1) {
 				struct file * file = xchg(&fdt->fd[i], NULL);
+#ifdef CONFIG_LS_DUP
+				if (fd_is_lazy(i, fdt)) {
+					__clear_lazy_fd(i, fdt);
+					i++;
+					set >>= 1;
+					continue;
+				}
+#endif
 				if (file) {
 					filp_close(file, files);
 					cond_resched();
@@ -627,6 +640,15 @@ int __close_fd(struct files_struct *files, unsigned fd)
 	fdt = files_fdtable(files);
 	if (fd >= fdt->max_fds)
 		goto out_unlock;
+#ifdef CONFIG_LS_DUP
+	if (ls_dup_check(fd, fdt)) {
+		__clear_lazy_fd(fd, fdt);
+		rcu_assign_pointer(fdt->fd[fd], NULL);
+		__put_unused_fd(files, fd);
+		spin_unlock(&files->file_lock);
+		return 0;
+	}
+#endif
 	file = fdt->fd[fd];
 	if (!file)
 		goto out_unlock;
@@ -645,7 +667,6 @@ void do_close_on_exec(struct files_struct *files)
 {
 	unsigned i;
 	struct fdtable *fdt;
-
 	/* exec unshares first */
 	spin_lock(&files->file_lock);
 	for (i = 0; ; i++) {
@@ -662,6 +683,14 @@ void do_close_on_exec(struct files_struct *files)
 			struct file *file;
 			if (!(set & 1))
 				continue;
+#ifdef CONFIG_LS_DUP
+			 if (ls_dup_check(fd, fdt)) {
+				__clear_lazy_fd(fd, fdt);
+				rcu_assign_pointer(fdt->fd[fd], NULL);
+				__put_unused_fd(files, fd);
+				continue;
+			}
+#endif
 			file = fdt->fd[fd];
 			if (!file)
 				continue;
@@ -831,6 +860,12 @@ __releases(&files->file_lock)
 	tofree = fdt->fd[fd];
 	if (!tofree && fd_is_open(fd, fdt))
 		goto Ebusy;
+#ifdef CONFIG_LS_DUP
+	if (ls_dup_check(fd, fdt)) {
+		tofree = 0;
+		__clear_lazy_fd(fd, fdt);
+	}
+#endif
 	get_file(file);
 	rcu_assign_pointer(fdt->fd[fd], file);
 	__set_open_fd(fd, fdt);

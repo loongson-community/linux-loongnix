@@ -7,11 +7,20 @@
 #include <linux/shmem_fs.h>
 #include <linux/sched/mm.h>
 #include <linux/sched/task.h>
+#include <linux/dma-noncoherent.h>
+#include <asm/dma.h>
+#include <drm/drm_cache.h>
 
 #include "etnaviv_drv.h"
 #include "etnaviv_gem.h"
 #include "etnaviv_gpu.h"
 #include "etnaviv_mmu.h"
+
+#ifdef CONFIG_LOONGARCH
+#include <asm/dma.h>
+#else
+#include <asm/dma-coherence.h>
+#endif
 
 static struct lock_class_key etnaviv_shm_lock_class;
 static struct lock_class_key etnaviv_userptr_lock_class;
@@ -356,6 +365,7 @@ void *etnaviv_gem_vmap(struct drm_gem_object *obj)
 
 static void *etnaviv_gem_vmap_impl(struct etnaviv_gem_object *obj)
 {
+	pgprot_t prot;
 	struct page **pages;
 
 	lockdep_assert_held(&obj->lock);
@@ -364,8 +374,19 @@ static void *etnaviv_gem_vmap_impl(struct etnaviv_gem_object *obj)
 	if (IS_ERR(pages))
 		return NULL;
 
-	return vmap(pages, obj->base.size >> PAGE_SHIFT,
-			VM_MAP, pgprot_writecombine(PAGE_KERNEL));
+	switch (obj->flags) {
+		case ETNA_BO_CACHED:
+			prot = PAGE_KERNEL;
+			break;
+		case ETNA_BO_UNCACHED:
+			prot = pgprot_noncached(PAGE_KERNEL);
+			break;
+		case ETNA_BO_WC:
+		default:
+			prot = pgprot_writecombine(PAGE_KERNEL);
+	}
+
+	return vmap(pages, obj->base.size >> PAGE_SHIFT, VM_MAP, prot);
 }
 
 static inline enum dma_data_direction etnaviv_op_to_dma_dir(u32 op)
@@ -570,6 +591,7 @@ static int etnaviv_gem_new_impl(struct drm_device *dev, u32 size, u32 flags,
 	struct reservation_object *robj, const struct etnaviv_gem_ops *ops,
 	struct drm_gem_object **obj)
 {
+	struct etnaviv_drm_private *priv = dev->dev_private;
 	struct etnaviv_gem_object *etnaviv_obj;
 	unsigned sz = sizeof(*etnaviv_obj);
 	bool valid = true;
@@ -580,6 +602,9 @@ static int etnaviv_gem_new_impl(struct drm_device *dev, u32 size, u32 flags,
 	case ETNA_BO_CACHED:
 	case ETNA_BO_WC:
 		break;
+	case ETNA_BO_CACHED_COHERENT:
+		if (priv->has_cached_coherent)
+			break;
 	default:
 		valid = false;
 	}
@@ -588,6 +613,11 @@ static int etnaviv_gem_new_impl(struct drm_device *dev, u32 size, u32 flags,
 		dev_err(dev->dev, "invalid cache flag: %x\n",
 			(flags & ETNA_BO_CACHE_MASK));
 		return -EINVAL;
+	}
+
+	if (priv->has_cached_coherent) {
+		if (flags & ETNA_BO_WC)
+			flags = ETNA_BO_CACHED_COHERENT;
 	}
 
 	etnaviv_obj = kzalloc(sz, GFP_KERNEL);
@@ -639,8 +669,12 @@ int etnaviv_gem_new_handle(struct drm_device *dev, struct drm_file *file,
 		 * going to pin these pages.
 		 */
 		mapping = obj->filp->f_mapping;
-		mapping_set_gfp_mask(mapping, GFP_HIGHUSER |
-				     __GFP_RETRY_MAYFAIL | __GFP_NOWARN);
+		if (*dev->dev->dma_mask > DMA_BIT_MASK(32))
+			mapping_set_gfp_mask(mapping,
+				GFP_HIGHUSER | __GFP_RETRY_MAYFAIL | __GFP_NOWARN);
+		else
+			mapping_set_gfp_mask(mapping,
+				GFP_USER | GFP_DMA32 | __GFP_RETRY_MAYFAIL | __GFP_NOWARN);
 	}
 
 	if (ret)

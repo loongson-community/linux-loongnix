@@ -180,7 +180,7 @@ static int klp_resolve_symbols(Elf_Shdr *relasec, struct module *pmod)
 	char objname[MODULE_NAME_LEN];
 	char symname[KSYM_NAME_LEN];
 	char *strtab = pmod->core_kallsyms.strtab;
-	Elf_Rela *relas;
+	Elf_Rela *relas, *last = NULL;
 	Elf_Sym *sym;
 	unsigned long sympos, addr;
 
@@ -199,6 +199,10 @@ static int klp_resolve_symbols(Elf_Shdr *relasec, struct module *pmod)
 	relas = (Elf_Rela *) relasec->sh_addr;
 	/* For each rela in this klp relocation section */
 	for (i = 0; i < relasec->sh_size / sizeof(Elf_Rela); i++) {
+		if (last && relas[i].r_offset == last->r_offset)
+			continue;
+		last = &relas[i];
+
 		sym = pmod->core_kallsyms.symtab + ELF_R_SYM(relas[i].r_info);
 		if (sym->st_shndx != SHN_LIVEPATCH) {
 			pr_err("symbol %s is not marked as a livepatch symbol\n",

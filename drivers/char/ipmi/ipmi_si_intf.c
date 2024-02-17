@@ -2136,6 +2136,7 @@ static int __init init_ipmi_si(void)
 	ipmi_si_pci_init();
 
 	ipmi_si_parisc_init();
+	ipmi_si_ls2k500_init();
 
 	/* We prefer devices with interrupts, but in the case of a machine
 	   with multiple BMCs we assume that there will be several instances

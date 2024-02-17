@@ -392,7 +392,7 @@ void kvm_vz_local_flush_roottlb_all_guests(void)
 {
 	unsigned long flags;
 	unsigned long old_entryhi, old_pagemask, old_guestctl1;
-	int entry;
+	int entry, diag;
 
 	if (WARN_ON(!cpu_has_guestid))
 		return;
@@ -415,6 +415,13 @@ void kvm_vz_local_flush_roottlb_all_guests(void)
 		tlb_read();
 		tlb_read_hazard();
 
+#ifdef CONFIG_CPU_LOONGSON3
+		diag = read_c0_diag();
+		if (diag & 0xc0000) {
+			change_c0_diag(0xc0000, 0x0);
+			continue;
+		}
+#endif
 		/* Don't invalidate non-guest (RVA) mappings in the root TLB */
 		if (!(read_c0_guestctl1() & MIPS_GCTL1_RID))
 			continue;
@@ -427,6 +434,10 @@ void kvm_vz_local_flush_roottlb_all_guests(void)
 		mtc0_tlbw_hazard();
 		tlb_write_indexed();
 	}
+#ifdef CONFIG_CPU_LOONGSON3
+	//Should clear DIAG.MID after tlbr
+	change_c0_diag(0xc0000, 0x0);
+#endif
 
 	write_c0_entryhi(old_entryhi);
 	write_c0_pagemask(old_pagemask);
@@ -462,6 +473,9 @@ void kvm_vz_local_flush_guesttlb_all(void)
 	old_entrylo[1] = read_gc0_entrylo1();
 	old_pagemask = read_gc0_pagemask();
 
+	htw_stop();
+	set_root_gid_to_guest_gid();
+
 	switch (current_cpu_type()) {
 	case CPU_CAVIUM_OCTEON3:
 		/* Inhibit machine check due to multiple matching TLB entries */
@@ -488,6 +502,9 @@ void kvm_vz_local_flush_guesttlb_all(void)
 		write_c0_cvmmemctl2(cvmmemctl2);
 	};
 
+	/* Clear root GuestID again */
+	clear_root_gid();
+
 	write_gc0_index(old_index);
 	write_gc0_entryhi(old_entryhi);
 	write_gc0_entrylo0(old_entrylo[0]);
@@ -495,6 +512,7 @@ void kvm_vz_local_flush_guesttlb_all(void)
 	write_gc0_pagemask(old_pagemask);
 	tlbw_use_hazard();
 
+	htw_start();
 	local_irq_restore(flags);
 }
 EXPORT_SYMBOL_GPL(kvm_vz_local_flush_guesttlb_all);
@@ -621,6 +639,49 @@ void kvm_vz_load_guesttlb(const struct kvm_mips_tlb *buf, unsigned int index,
 	tlbw_use_hazard();
 }
 EXPORT_SYMBOL_GPL(kvm_vz_load_guesttlb);
+
+void kvm_ls3acomp_clear_guest_vtlb(void)
+{
+	int idx = read_gc0_index();
+	/* Set root GuestID for root probe and write of guest TLB entry */
+	htw_stop();
+	set_root_gid_to_guest_gid();
+
+	write_gc0_index(0);
+	mtc0_tlbw_hazard();
+	guest_tlbinvf();
+
+	clear_root_gid();
+	htw_start();
+
+	write_gc0_index(idx);
+	set_c0_diag(LOONGSON_DIAG_ITLB);
+}
+EXPORT_SYMBOL_GPL(kvm_ls3acomp_clear_guest_vtlb);
+
+void kvm_ls3acomp_clear_guest_ftlb(void)
+{
+	int i;
+	int idx = read_gc0_index();
+	/* Set root GuestID for root probe and write of guest TLB entry */
+	htw_stop();
+	set_root_gid_to_guest_gid();
+
+	for (i = current_cpu_data.tlbsizevtlb;
+	     i < (current_cpu_data.tlbsizevtlb +
+		     current_cpu_data.tlbsizeftlbsets);
+	     i++) {
+		write_gc0_index(i);
+		mtc0_tlbw_hazard();
+		guest_tlbinvf();
+	}
+	clear_root_gid();
+	htw_start();
+
+	write_gc0_index(idx);
+	set_c0_diag(LOONGSON_DIAG_ITLB);
+}
+EXPORT_SYMBOL_GPL(kvm_ls3acomp_clear_guest_ftlb);
 
 #endif
 

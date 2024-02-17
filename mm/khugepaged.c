@@ -58,6 +58,7 @@ static DEFINE_MUTEX(khugepaged_mutex);
 
 /* default scan 8*512 pte (or vmas) every 30 second */
 static unsigned int khugepaged_pages_to_scan __read_mostly;
+static unsigned int khugepaged_pages_deep_scan __read_mostly;
 static unsigned int khugepaged_pages_collapsed;
 static unsigned int khugepaged_full_scans;
 static unsigned int khugepaged_scan_sleep_millisecs __read_mostly = 10000;
@@ -89,6 +90,8 @@ struct mm_slot {
 	struct hlist_node hash;
 	struct list_head mm_node;
 	struct mm_struct *mm;
+	unsigned long addr;
+	unsigned int pages_deep_scan;
 };
 
 /**
@@ -191,6 +194,32 @@ static struct kobj_attribute pages_to_scan_attr =
 	__ATTR(pages_to_scan, 0644, pages_to_scan_show,
 	       pages_to_scan_store);
 
+static ssize_t pages_deep_scan_show(struct kobject *kobj,
+				  struct kobj_attribute *attr,
+				  char *buf)
+{
+	return sprintf(buf, "%u\n", khugepaged_pages_deep_scan);
+}
+static ssize_t pages_deep_scan_store(struct kobject *kobj,
+				   struct kobj_attribute *attr,
+				   const char *buf, size_t count)
+{
+	int err;
+	unsigned long pages;
+
+	err = kstrtoul(buf, 10, &pages);
+	if (err || !pages || pages > UINT_MAX)
+		return -EINVAL;
+
+	khugepaged_pages_deep_scan = pages;
+
+	return count;
+}
+static struct kobj_attribute pages_deep_scan_attr =
+	__ATTR(pages_deep_scan, 0644, pages_deep_scan_show,
+	       pages_deep_scan_store);
+
+
 static ssize_t pages_collapsed_show(struct kobject *kobj,
 				    struct kobj_attribute *attr,
 				    char *buf)
@@ -290,6 +319,7 @@ static struct attribute *khugepaged_attr[] = {
 	&khugepaged_defrag_attr.attr,
 	&khugepaged_max_ptes_none_attr.attr,
 	&pages_to_scan_attr.attr,
+	&pages_deep_scan_attr.attr,
 	&pages_collapsed_attr.attr,
 	&full_scans_attr.attr,
 	&scan_sleep_millisecs_attr.attr,
@@ -356,6 +386,7 @@ int __init khugepaged_init(void)
 	khugepaged_pages_to_scan = HPAGE_PMD_NR * 8;
 	khugepaged_max_ptes_none = HPAGE_PMD_NR - 1;
 	khugepaged_max_ptes_swap = HPAGE_PMD_NR / 8;
+	khugepaged_pages_deep_scan = HPAGE_PMD_NR;
 
 	return 0;
 }
@@ -426,6 +457,9 @@ int __khugepaged_enter(struct mm_struct *mm)
 	int wakeup;
 
 	mm_slot = alloc_mm_slot();
+	mm_slot->addr = 0;
+	mm_slot->pages_deep_scan = khugepaged_pages_deep_scan;
+
 	if (!mm_slot)
 		return -ENOMEM;
 
@@ -1708,7 +1742,7 @@ static unsigned int khugepaged_scan_mm_slot(unsigned int pages,
 	else {
 		mm_slot = list_entry(khugepaged_scan.mm_head.next,
 				     struct mm_slot, mm_node);
-		khugepaged_scan.address = 0;
+		khugepaged_scan.address = mm_slot->addr;
 		khugepaged_scan.mm_slot = mm_slot;
 	}
 	spin_unlock(&khugepaged_mm_lock);
@@ -1777,9 +1811,11 @@ skip:
 			/* move to next address */
 			khugepaged_scan.address += HPAGE_PMD_SIZE;
 			progress += HPAGE_PMD_NR;
-			if (ret)
+			if (ret) {
+				mm_slot->pages_deep_scan -= HPAGE_PMD_NR;
 				/* we released mmap_sem so break loop */
 				goto breakouterloop_mmap_sem;
+			}
 			if (progress >= pages)
 				goto breakouterloop;
 		}
@@ -1794,23 +1830,29 @@ breakouterloop_mmap_sem:
 	 * Release the current mm_slot if this mm is about to die, or
 	 * if we scanned all vmas of this mm.
 	 */
-	if (khugepaged_test_exit(mm) || !vma) {
+	if (khugepaged_test_exit(mm) || !vma || (mm_slot->pages_deep_scan == 0)) {
 		/*
 		 * Make sure that if mm_users is reaching zero while
 		 * khugepaged runs here, khugepaged_exit will find
 		 * mm_slot not pointing to the exiting mm.
 		 */
+		if (!vma)
+			mm_slot->addr = 0;
+		else
+			mm_slot->addr = khugepaged_scan.address;
 		if (mm_slot->mm_node.next != &khugepaged_scan.mm_head) {
 			khugepaged_scan.mm_slot = list_entry(
 				mm_slot->mm_node.next,
 				struct mm_slot, mm_node);
-			khugepaged_scan.address = 0;
+			khugepaged_scan.address = khugepaged_scan.mm_slot->addr;
 		} else {
 			khugepaged_scan.mm_slot = NULL;
 			khugepaged_full_scans++;
 		}
 
 		collect_mm_slot(mm_slot);
+		if (mm_slot->pages_deep_scan == 0)
+			mm_slot->pages_deep_scan = khugepaged_pages_deep_scan;
 	}
 
 	return progress;
@@ -1847,7 +1889,7 @@ static void khugepaged_do_scan(void)
 			break;
 
 		spin_lock(&khugepaged_mm_lock);
-		if (!khugepaged_scan.mm_slot)
+		if (!khugepaged_scan.mm_slot && !khugepaged_pages_deep_scan)
 			pass_through_head++;
 		if (khugepaged_has_work() &&
 		    pass_through_head < 2)

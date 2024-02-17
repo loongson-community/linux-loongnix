@@ -1,4 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0 */
+#include <linux/screen_info.h>
 #ifndef __ASM_MACH_LOONGSON64_BOOT_PARAM_H_
 #define __ASM_MACH_LOONGSON64_BOOT_PARAM_H_
 
@@ -12,9 +13,18 @@
 #define ADAPTER_ROM		8
 #define ACPI_TABLE		9
 #define SMBIOS_TABLE		10
-#define MAX_MEMORY_TYPE		11
+#define UMA_VIDEO_RAM		11
+#define VUMA_VIDEO_RAM		12
+#define SYSTEM_RAM_LOW_DMA      13
+#define SYSTEM_RAM_HIGH_DMA     14
+#define MAX_MEMORY_TYPE		15
+
+#define VRAM_TYPE_SP	0
+#define VRAM_TYPE_UMA	1
 
 #define LOONGSON3_BOOT_MEM_MAP_MAX 128
+#define LOONGSON3_BOOT_MEM_MAP 64
+
 struct efi_memory_map_loongson {
 	u16 vers;	/* version of efi_memory_map */
 	u32 nr_map;	/* number of memory_maps */
@@ -26,6 +36,12 @@ struct efi_memory_map_loongson {
 		u32 mem_size;	/* each memory_map size, not the total size */
 	} map[LOONGSON3_BOOT_MEM_MAP_MAX];
 } __packed;
+
+struct dma_mem_map{
+    u32 mem_type;
+    u64 mem_start;
+    u64 mem_size;
+}__attribute__((packed));
 
 enum loongson_cpu_type {
 	Legacy_2E = 0x0,
@@ -58,6 +74,7 @@ struct efi_cpuinfo_loongson {
 	u16 reserved_cores_mask;
 	u32 cpu_clock_freq; /* cpu_clock */
 	u32 nr_cpus;
+	char cpuname[64];
 } __packed;
 
 #define MAX_UARTS 64
@@ -97,6 +114,7 @@ struct system_loongson {
 	char tcm_name[32];
 	u64 tcm_base_addr;
 	u64 workarounds; /* see workarounds.h */
+	u64 of_dtb_addr; /* NULL if not support */
 } __packed;
 
 struct irq_source_routing_table {
@@ -115,11 +133,18 @@ struct irq_source_routing_table {
 	u64 pci_io_start_addr;
 	u64 pci_io_end_addr;
 	u64 pci_config_addr;
-	u32 dma_mask_bits;
+	u16 dma_mask_bits;
+	u16 dma_noncoherent;
 } __packed;
 
 struct interface_info {
-	u16 vers; /* version of the specificition */
+	union {
+		u16 vers; /* version of the specificition */
+		struct {
+			u8 minor;
+			u8 major;
+		}version;
+	}__packed;
 	u16 size;
 	u8  flag;
 	char description[64];
@@ -162,8 +187,8 @@ struct loongson_params {
 	u64 boarddev_table_offset;  /* board_devices offset */
 };
 
-struct smbios_tables {
-	u16 vers;     /* version of smbios */
+struct sysinfo_tables {
+	u16 vers;     /* version of sysinfo */
 	u64 vga_bios; /* vga_bios address */
 	struct loongson_params lp;
 };
@@ -180,7 +205,7 @@ struct efi_loongson {
 	u64 mps;	/* MPS table */
 	u64 acpi;	/* ACPI table (IA64 ext 0.71) */
 	u64 acpi20;	/* ACPI table (ACPI 2.0) */
-	struct smbios_tables smbios;	/* SM BIOS table */
+	struct sysinfo_tables sysinfo;	/* Sysinfo table */
 	u64 sal_systab;	/* SAL system table */
 	u64 boot_info;	/* boot info table */
 };
@@ -206,16 +231,80 @@ struct loongson_system_configuration {
 	u64 poweroff_addr;
 	u64 suspend_addr;
 	u64 vgabios_addr;
+	u64 low_physmem_start;
+	u64 high_physmem_start;
 	u32 dma_mask_bits;
+	u32 vram_type;
+	u64 uma_vram_addr;
+	u64 uma_vram_size;
+	u64 vuma_vram_addr;
+	u64 vuma_vram_size;
+	u32 ec_sci_irq;
 	char ecname[32];
 	u32 nr_uarts;
 	struct uart_device uarts[MAX_UARTS];
 	u32 nr_sensors;
 	struct sensor_device sensors[MAX_SENSORS];
 	u64 workarounds;
+	u32 msi_address_lo;
+	u32 msi_address_hi;
+	u32 msi_base_irq;
+	u32 msi_last_irq;
+	u32 io_base_irq;
+	u32 io_last_irq;
 };
 
+
+#define PCI_MEM_START_ADDR		0x40000000
+#define PCI_MEM_END_ADDR		0x7fffffff
+#define LOONGSON_PCI_IOBASE		0xefdfc000000
+#define LOONGSON_DMA_MASK_BIT		64
+#define LOONGSON_MEM_LINKLIST		"MEM"
+#define LOONGSON_VBIOS_LINKLIST		"VBIOS"
+#define LOONGSON_EFIBOOT_SIGNATURE	"BPI"
+#define LOONGSON_SCREENINFO_LINKLIST	"SINFO"
+
+struct bootparamsinterface {
+	u64	signature;	/*{"B", "P", "I", "_", "0", "_", "1"}*/
+	void	*systemtable;
+	struct	_extention_list_hdr	*extlist;
+}__attribute__((packed));
+
+struct _extention_list_hdr {
+	u64	signature;
+	u32	length;
+	u8	revision;
+	u8	checksum;
+	struct	_extention_list_hdr *next;
+}__attribute__((packed));
+
+struct loongsonlist_mem_map {
+	struct	_extention_list_hdr header;	/*{"M", "E", "M"}*/
+	u8	map_count;
+	struct	_loongson_mem_map {
+		u32 mem_type;
+		u64 mem_start;
+		u64 mem_size;
+	}__attribute__((packed))map[LOONGSON3_BOOT_MEM_MAP_MAX];
+}__attribute__((packed));
+
+struct loongsonlist_vbios {
+	struct	_extention_list_hdr header;
+	u64	vbios_addr;
+}__attribute__((packed));
+
+struct loongsonlist_screeninfo{
+
+	struct	_extention_list_hdr header;
+	struct	screen_info si;
+};
+
+extern void *loongson_fdt_blob;
+extern u32 __dtb_loongson3_ls2h_begin[];
+extern u32 __dtb_loongson3_ls7a_begin[];
+extern u32 __dtb_loongson3_rs780_begin[];
 extern struct efi_memory_map_loongson *loongson_memmap;
 extern struct loongson_system_configuration loongson_sysconf;
-
+extern struct dma_mem_map ls_dma_map[LOONGSON3_BOOT_MEM_MAP];
+extern struct dma_mem_map ls_phy_map[LOONGSON3_BOOT_MEM_MAP];
 #endif

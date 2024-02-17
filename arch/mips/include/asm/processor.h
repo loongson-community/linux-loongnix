@@ -69,7 +69,11 @@ extern unsigned int vced_count, vcei_count;
 #ifdef CONFIG_MIPS_VA_BITS_48
 #define TASK_SIZE64     (0x1UL << ((cpu_data[0].vmbits>48)?48:cpu_data[0].vmbits))
 #else
+#if defined(CONFIG_CPU_LOONGSON3) && defined(CONFIG_PAGE_SIZE_16KB)
+#define TASK_SIZE64     0x800000000000UL
+#else
 #define TASK_SIZE64     0x10000000000UL
+#endif
 #endif
 #define TASK_SIZE (test_thread_flag(TIF_32BIT_ADDR) ? TASK_SIZE32 : TASK_SIZE64)
 #define STACK_TOP_MAX	TASK_SIZE64
@@ -95,7 +99,9 @@ extern unsigned long mips_stack_top(void);
 
 #define NUM_FPU_REGS	32
 
-#ifdef CONFIG_CPU_HAS_MSA
+#if defined(CONFIG_CPU_HAS_LASX)
+# define FPU_REG_WIDTH	256
+#elif defined(CONFIG_CPU_HAS_MSA)
 # define FPU_REG_WIDTH	128
 #else
 # define FPU_REG_WIDTH	64
@@ -137,6 +143,7 @@ struct mips_fpu_struct {
 	union fpureg	fpr[NUM_FPU_REGS];
 	unsigned int	fcr31;
 	unsigned int	msacsr;
+	unsigned int    ftop;
 };
 
 #define NUM_DSP_REGS   6
@@ -176,7 +183,7 @@ struct octeon_cop2_state {
 	unsigned long	cop2_crc_poly;
 	/* DMFC2 rt, 0x0402; DMFC2 rt, 0x040A */
 	unsigned long	cop2_llm_dat[2];
-       /* DMFC2 rt, 0x0084 */
+	/* DMFC2 rt, 0x0084 */
 	unsigned long	cop2_3des_iv;
 	/* DMFC2 rt, 0x0080; DMFC2 rt, 0x0081; DMFC2 rt, 0x0082 */
 	unsigned long	cop2_3des_key[3];
@@ -238,7 +245,10 @@ typedef struct {
 	unsigned long seg;
 } mm_segment_t;
 
-#ifdef CONFIG_CPU_HAS_MSA
+#if defined(CONFIG_CPU_HAS_LASX)
+# define ARCH_MIN_TASKALIGN	32
+# define FPU_ALIGN		__aligned(32)
+#elif defined(CONFIG_CPU_HAS_MSA)
 # define ARCH_MIN_TASKALIGN	16
 # define FPU_ALIGN		__aligned(16)
 #else
@@ -259,6 +269,10 @@ struct thread_struct {
 
 	/* Saved cp0 stuff. */
 	unsigned long cp0_status;
+	unsigned int cp0_config;
+
+	/* lbt eflags */
+	unsigned int eflags;
 
 	/* Saved fpu/fpu emulator stuff. */
 	struct mips_fpu_struct fpu FPU_ALIGN;
@@ -323,12 +337,15 @@ struct thread_struct {
 	 * Saved cp0 stuff					\
 	 */							\
 	.cp0_status		= 0,				\
+	.cp0_config     = 0,        \
+	.eflags         = 0,        \
 	/*							\
 	 * Saved FPU/FPU emulator stuff				\
 	 */							\
 	.fpu			= {				\
 		.fpr		= {{{0,},},},			\
 		.fcr31		= 0,				\
+		.ftop        = 0,                \
 		.msacsr		= 0,				\
 	},							\
 	/*							\
@@ -368,6 +385,10 @@ struct task_struct;
 /* Free all resources held by a thread. */
 #define release_thread(thread) do { } while(0)
 
+enum idle_boot_override {IDLE_NO_OVERRIDE=0, IDLE_HALT, IDLE_NOMWAIT,
+			 IDLE_POLL};
+
+extern unsigned long		boot_option_idle_override;
 /*
  * Do necessary setup to start up a newly executed thread.
  */
@@ -386,7 +407,7 @@ unsigned long get_wchan(struct task_struct *p);
 #define KSTK_ESP(tsk) (task_pt_regs(tsk)->regs[29])
 #define KSTK_STATUS(tsk) (task_pt_regs(tsk)->cp0_status)
 
-#ifdef CONFIG_CPU_LOONGSON3
+#if defined(CONFIG_CPU_LOONGSON3) || defined(CONFIG_CPU_LOONGSON2K)
 /*
  * Loongson-3's SFB (Store-Fill-Buffer) may buffer writes indefinitely when a
  * tight read loop is executed, because reads take priority over writes & the
@@ -433,6 +454,7 @@ extern int mips_get_process_fp_mode(struct task_struct *task);
 extern int mips_set_process_fp_mode(struct task_struct *task,
 				    unsigned int value);
 
+extern int arch_register_cpu(int cpu);
 #define GET_FP_MODE(task)		mips_get_process_fp_mode(task)
 #define SET_FP_MODE(task,value)		mips_set_process_fp_mode(task, value)
 

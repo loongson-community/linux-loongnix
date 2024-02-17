@@ -131,6 +131,9 @@ static inline struct thread_info *current_thread_info(void)
 #define TIF_USEDMSA		29	/* MSA has been used this quantum */
 #define TIF_MSA_CTX_LIVE	30	/* MSA context must be preserved */
 #define TIF_SYSCALL_TRACE	31	/* syscall trace active */
+#define TIF_LASX_CTX_LIVE	32  /* LASX context must be preserved */
+#define TIF_USEDLBT         33  /* LBT has been used */
+#define TIF_LBT_CTX_LIVE    34  /* LBT context */
 
 #define _TIF_SYSCALL_TRACE	(1<<TIF_SYSCALL_TRACE)
 #define _TIF_SIGPENDING		(1<<TIF_SIGPENDING)
@@ -151,7 +154,10 @@ static inline struct thread_info *current_thread_info(void)
 #define _TIF_HYBRID_FPREGS	(1<<TIF_HYBRID_FPREGS)
 #define _TIF_USEDMSA		(1<<TIF_USEDMSA)
 #define _TIF_MSA_CTX_LIVE	(1<<TIF_MSA_CTX_LIVE)
+#define _TIF_LASX_CTX_LIVE	(1<<TIF_LASX_CTX_LIVE)
 #define _TIF_SYSCALL_TRACEPOINT	(1<<TIF_SYSCALL_TRACEPOINT)
+#define _TIF_USEDLBT        (1<<TIF_USEDLBT)
+#define _TIF_LBT_CTX_LIVE   (1<<TIF_LBT_CTX_LIVE)
 
 #define _TIF_WORK_SYSCALL_ENTRY	(_TIF_NOHZ | _TIF_SYSCALL_TRACE |	\
 				 _TIF_SYSCALL_AUDIT | \

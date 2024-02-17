@@ -36,6 +36,9 @@ struct stmmac_resources {
 	int wol_irq;
 	int lpi_irq;
 	int irq;
+	int rx_irq[MTL_MAX_RX_QUEUES];
+	int tx_irq[MTL_MAX_TX_QUEUES];
+	int msi_vecs;
 };
 
 struct stmmac_tx_info {
@@ -203,6 +206,12 @@ struct stmmac_priv {
 
 	/* Pulse Per Second output */
 	struct stmmac_pps_cfg pps[STMMAC_PPS_MAX];
+
+	int rx_irq[MTL_MAX_RX_QUEUES];
+	int tx_irq[MTL_MAX_TX_QUEUES];
+	char int_name_rx_irq[MTL_MAX_RX_QUEUES][20];
+	char int_name_tx_irq[MTL_MAX_TX_QUEUES][20];
+	int msi_vecs;
 };
 
 enum stmmac_state {

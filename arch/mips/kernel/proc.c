@@ -15,6 +15,7 @@
 #include <asm/mipsregs.h>
 #include <asm/processor.h>
 #include <asm/prom.h>
+#include <asm/time.h>
 
 unsigned int vced_count, vcei_count;
 
@@ -63,6 +64,11 @@ static int show_cpuinfo(struct seq_file *m, void *v)
 	seq_printf(m, fmt, __cpu_name[n],
 		      (version >> 4) & 0x0f, version & 0x0f,
 		      (fp_vers >> 4) & 0x0f, fp_vers & 0x0f);
+	if (__cpu_full_name[n])
+		seq_printf(m, "model name\t\t: %s\n", __cpu_full_name[n]);
+	if (mips_cpu_frequency)
+		seq_printf(m, "CPU MHz\t\t\t: %u.%02u\n",
+		      mips_cpu_frequency / 1000000, (mips_cpu_frequency / 10000) % 100);
 	seq_printf(m, "BogoMIPS\t\t: %u.%02u\n",
 		      cpu_data[n].udelay_val / (500000/HZ),
 		      (cpu_data[n].udelay_val / (5000/HZ)) % 100);
@@ -124,11 +130,27 @@ static int show_cpuinfo(struct seq_file *m, void *v)
 	if (cpu_has_eva)	seq_printf(m, "%s", " eva");
 	if (cpu_has_htw)	seq_printf(m, "%s", " htw");
 	if (cpu_has_xpa)	seq_printf(m, "%s", " xpa");
-	if (cpu_has_loongson_mmi)	seq_printf(m, "%s", " loongson-mmi");
-	if (cpu_has_loongson_cam)	seq_printf(m, "%s", " loongson-cam");
-	if (cpu_has_loongson_ext)	seq_printf(m, "%s", " loongson-ext");
-	if (cpu_has_loongson_ext2)	seq_printf(m, "%s", " loongson-ext2");
+	if (cpu_has_loongson_mmi)       seq_printf(m, "%s", " loongson-mmi");
+	if (cpu_has_loongson_cam)       seq_printf(m, "%s", " loongson-cam");
+	if (cpu_has_loongson_ext)       seq_printf(m, "%s", " loongson-ext");
+	if (cpu_has_loongson_ext2)      seq_printf(m, "%s", " loongson-ext2");
 	seq_printf(m, "\n");
+
+#ifdef CONFIG_CPU_LOONGSON3
+	seq_printf(m, "Loongson Features\t:");
+	if (loongson_cpu_has_csr)	seq_printf(m, "%s", " csr");
+	if (loongson_cpu_has_lasx)	seq_printf(m, "%s", " lasx");
+	if (loongson_cpu_has_lamo)	seq_printf(m, "%s", " lamo");
+	if (loongson_cpu_has_cam)	seq_printf(m, "%s", " cam");
+	if (loongson_cpu_has_vz)	seq_printf(m, "%s", " vz");
+	if (loongson_cpu_has_gft)	seq_printf(m, "%s", " gft");
+	if (loongson_cpu_has_lft)	seq_printf(m, "%s", " lft");
+	if (loongson_cpu_has_msi128)	seq_printf(m, "%s", " msi128");
+	if (loongson_cpu_has_msi256)	seq_printf(m, "%s", " msi256");
+	if (loongson_cpu_has_extioi)	seq_printf(m, "%s", " extioi");
+	if (loongson_cpu_has_csripi)	seq_printf(m, "%s", " csripi");
+	seq_printf(m, "\n");
+#endif
 
 	if (cpu_has_mmips) {
 		seq_printf(m, "micromips kernel\t: %s\n",
@@ -168,7 +190,7 @@ static void *c_start(struct seq_file *m, loff_t *pos)
 {
 	unsigned long i = *pos;
 
-	return i < NR_CPUS ? (void *) (i + 1) : NULL;
+	return i < nr_cpu_ids ? (void *) (i + 1) : NULL;
 }
 
 static void *c_next(struct seq_file *m, void *v, loff_t *pos)

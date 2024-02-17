@@ -80,6 +80,9 @@ struct cpuinfo_mips {
 	int			srsets; /* Shadow register sets */
 	int			package;/* physical package number */
 	unsigned int		globalnumber;
+#if defined(CONFIG_CPU_LOONGSON3)
+	unsigned long long lses;
+#endif
 #ifdef CONFIG_64BIT
 	int			vmbits; /* Virtual memory size in bits */
 #endif
@@ -105,6 +108,10 @@ struct cpuinfo_mips {
 	unsigned int		gtoffset_mask;
 	unsigned int		guestid_mask;
 	unsigned int		guestid_cache;
+#ifdef CONFIG_CPU_LOONGSON3
+	/* CPU features specific to Loongson-3 Processors*/
+	unsigned long long	loongson_options;
+#endif
 } __attribute__((aligned(SMP_CACHE_BYTES)));
 
 extern struct cpuinfo_mips cpu_data[];
@@ -116,7 +123,9 @@ extern void cpu_probe(void);
 extern void cpu_report(void);
 
 extern const char *__cpu_name[];
+extern const char *__cpu_full_name[];
 #define cpu_name_string()	__cpu_name[raw_smp_processor_id()]
+#define cpu_full_name_string()	__cpu_full_name[raw_smp_processor_id()]
 
 struct seq_file;
 struct notifier_block;

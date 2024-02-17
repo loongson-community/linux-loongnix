@@ -68,6 +68,14 @@ static inline void set_bit(unsigned long nr, volatile unsigned long *addr)
 		: "ir" (1UL << bit), GCC_OFF_SMALL_ASM() (*m));
 #if defined(CONFIG_CPU_MIPSR2) || defined(CONFIG_CPU_MIPSR6)
 	} else if (kernel_uses_llsc && __builtin_constant_p(bit)) {
+#if defined(CONFIG_CPU_SUPPORTS_LAMO_INSTRUCTIONS) && defined(TOOLCHAIN_SUPPORTS_LAMO)
+		__asm__ __volatile__(
+		"   " __AMOR "$zero, %1, %0        \n"
+		: "+ZB" (*m)
+		: "r" (1UL << bit)
+		: "memory");
+#else
+		loongson_llsc_mb();
 		do {
 			__asm__ __volatile__(
 			"	" __LL "%0, %1		# set_bit	\n"
@@ -76,8 +84,17 @@ static inline void set_bit(unsigned long nr, volatile unsigned long *addr)
 			: "=&r" (temp), "+" GCC_OFF_SMALL_ASM() (*m)
 			: "ir" (bit), "r" (~0));
 		} while (unlikely(!temp));
+#endif
 #endif /* CONFIG_CPU_MIPSR2 || CONFIG_CPU_MIPSR6 */
 	} else if (kernel_uses_llsc) {
+#if defined(CONFIG_CPU_SUPPORTS_LAMO_INSTRUCTIONS) && defined(TOOLCHAIN_SUPPORTS_LAMO)
+		__asm__ __volatile__(
+		"   " __AMOR "$zero, %1, %0        \n"
+		: "+ZB" (*m)
+		: "r" (1UL << bit)
+		: "memory");
+#else
+		loongson_llsc_mb();
 		do {
 			__asm__ __volatile__(
 			"	.set	"MIPS_ISA_ARCH_LEVEL"		\n"
@@ -88,6 +105,7 @@ static inline void set_bit(unsigned long nr, volatile unsigned long *addr)
 			: "=&r" (temp), "+" GCC_OFF_SMALL_ASM() (*m)
 			: "ir" (1UL << bit));
 		} while (unlikely(!temp));
+#endif
 	} else
 		__mips_set_bit(nr, addr);
 }
@@ -120,6 +138,14 @@ static inline void clear_bit(unsigned long nr, volatile unsigned long *addr)
 		: "ir" (~(1UL << bit)));
 #if defined(CONFIG_CPU_MIPSR2) || defined(CONFIG_CPU_MIPSR6)
 	} else if (kernel_uses_llsc && __builtin_constant_p(bit)) {
+#if defined(CONFIG_CPU_SUPPORTS_LAMO_INSTRUCTIONS) && defined(TOOLCHAIN_SUPPORTS_LAMO)
+		__asm__ __volatile__(
+		"   " __AMAND "$zero, %1, %0       \n"
+		: "+ZB" (*m)
+		: "r" (~(1UL << bit))
+		: "memory");
+#else
+		loongson_llsc_mb();
 		do {
 			__asm__ __volatile__(
 			"	" __LL "%0, %1		# clear_bit	\n"
@@ -128,8 +154,17 @@ static inline void clear_bit(unsigned long nr, volatile unsigned long *addr)
 			: "=&r" (temp), "+" GCC_OFF_SMALL_ASM() (*m)
 			: "ir" (bit));
 		} while (unlikely(!temp));
+#endif
 #endif /* CONFIG_CPU_MIPSR2 || CONFIG_CPU_MIPSR6 */
 	} else if (kernel_uses_llsc) {
+#if defined(CONFIG_CPU_SUPPORTS_LAMO_INSTRUCTIONS) && defined(TOOLCHAIN_SUPPORTS_LAMO)
+		__asm__ __volatile__(
+		"   " __AMAND "$zero, %1, %0       \n"
+		: "+ZB" (*m)
+		: "r" (~(1UL << bit))
+		: "memory");
+#else
+		loongson_llsc_mb();
 		do {
 			__asm__ __volatile__(
 			"	.set	"MIPS_ISA_ARCH_LEVEL"		\n"
@@ -140,6 +175,7 @@ static inline void clear_bit(unsigned long nr, volatile unsigned long *addr)
 			: "=&r" (temp), "+" GCC_OFF_SMALL_ASM() (*m)
 			: "ir" (~(1UL << bit)));
 		} while (unlikely(!temp));
+#endif
 	} else
 		__mips_clear_bit(nr, addr);
 }
@@ -186,8 +222,17 @@ static inline void change_bit(unsigned long nr, volatile unsigned long *addr)
 		: "ir" (1UL << bit));
 	} else if (kernel_uses_llsc) {
 		unsigned long *m = ((unsigned long *) addr) + (nr >> SZLONG_LOG);
+
+#if defined(CONFIG_CPU_SUPPORTS_LAMO_INSTRUCTIONS) && defined(TOOLCHAIN_SUPPORTS_LAMO)
+		__asm__ __volatile__(
+		"   " __AMXOR "$zero, %1, %0       \n"
+		: "+ZB" (*m)
+		: "r" (1UL << bit)
+		: "memory");
+#else
 		unsigned long temp;
 
+		loongson_llsc_mb();
 		do {
 			__asm__ __volatile__(
 			"	.set	"MIPS_ISA_ARCH_LEVEL"		\n"
@@ -198,6 +243,7 @@ static inline void change_bit(unsigned long nr, volatile unsigned long *addr)
 			: "=&r" (temp), "+" GCC_OFF_SMALL_ASM() (*m)
 			: "ir" (1UL << bit));
 		} while (unlikely(!temp));
+#endif
 	} else
 		__mips_change_bit(nr, addr);
 }
@@ -235,6 +281,16 @@ static inline int test_and_set_bit(unsigned long nr,
 		: "memory");
 	} else if (kernel_uses_llsc) {
 		unsigned long *m = ((unsigned long *) addr) + (nr >> SZLONG_LOG);
+
+#if defined(CONFIG_CPU_SUPPORTS_LAMO_INSTRUCTIONS) && defined(TOOLCHAIN_SUPPORTS_LAMO)
+		__asm__ __volatile__(
+		"   " __AMOR_SYNC "%1, %2, %0       \n"
+		: "+ZB" (*m), "=&r" (res)
+		: "r" (1UL << bit)
+		: "memory");
+ 
+		res = res & (1UL << bit);
+#else
 		unsigned long temp;
 
 		do {
@@ -250,6 +306,7 @@ static inline int test_and_set_bit(unsigned long nr,
 		} while (unlikely(!res));
 
 		res = temp & (1UL << bit);
+#endif
 	} else
 		res = __mips_test_and_set_bit(nr, addr);
 
@@ -289,6 +346,16 @@ static inline int test_and_set_bit_lock(unsigned long nr,
 		: "memory");
 	} else if (kernel_uses_llsc) {
 		unsigned long *m = ((unsigned long *) addr) + (nr >> SZLONG_LOG);
+
+#if defined(CONFIG_CPU_SUPPORTS_LAMO_INSTRUCTIONS) && defined(TOOLCHAIN_SUPPORTS_LAMO)
+		__asm__ __volatile__(
+		"   " __AMOR_SYNC "%1, %2, %0       \n"
+		: "+ZB" (*m), "=&r" (res)
+		: "r" (1UL << bit)
+		: "memory");
+ 
+		res = res & (1UL << bit);
+#else
 		unsigned long temp;
 
 		do {
@@ -304,6 +371,7 @@ static inline int test_and_set_bit_lock(unsigned long nr,
 		} while (unlikely(!res));
 
 		res = temp & (1UL << bit);
+#endif
 	} else
 		res = __mips_test_and_set_bit_lock(nr, addr);
 
@@ -363,6 +431,13 @@ static inline int test_and_clear_bit(unsigned long nr,
 		unsigned long *m = ((unsigned long *) addr) + (nr >> SZLONG_LOG);
 		unsigned long temp;
 
+#if defined(CONFIG_CPU_SUPPORTS_LAMO_INSTRUCTIONS) && defined(TOOLCHAIN_SUPPORTS_LAMO)
+		__asm__ __volatile__(
+		"   " __AMAND_SYNC "%1, %2, %0      \n"
+		: "+ZB" (*m), "=&r" (temp)
+		: "r" (~(1UL << bit))
+		: "memory");
+#else
 		do {
 			__asm__ __volatile__(
 			"	.set	"MIPS_ISA_ARCH_LEVEL"		\n"
@@ -375,6 +450,7 @@ static inline int test_and_clear_bit(unsigned long nr,
 			: "r" (1UL << bit)
 			: "memory");
 		} while (unlikely(!res));
+#endif
 
 		res = temp & (1UL << bit);
 	} else
@@ -420,6 +496,15 @@ static inline int test_and_change_bit(unsigned long nr,
 		unsigned long *m = ((unsigned long *) addr) + (nr >> SZLONG_LOG);
 		unsigned long temp;
 
+#if defined(CONFIG_CPU_SUPPORTS_LAMO_INSTRUCTIONS) && defined(TOOLCHAIN_SUPPORTS_LAMO)
+		__asm__ __volatile__(
+		"   " __AMXOR_SYNC "%1, %2, %0      \n"
+		: "+ZB" (*m), "=&r" (res)
+		: "r" (1UL << bit)
+		: "memory");
+ 
+		res = res & (1UL << bit);
+#else
 		do {
 			__asm__ __volatile__(
 			"	.set	"MIPS_ISA_ARCH_LEVEL"		\n"
@@ -431,6 +516,7 @@ static inline int test_and_change_bit(unsigned long nr,
 			: "r" (1UL << bit)
 			: "memory");
 		} while (unlikely(!res));
+#endif
 
 		res = temp & (1UL << bit);
 	} else
@@ -454,9 +540,13 @@ static inline int test_and_change_bit(unsigned long nr,
  */
 static inline void __clear_bit_unlock(unsigned long nr, volatile unsigned long *addr)
 {
+#ifdef CONFIG_LOONGSON3_ENHANCEMENT
+	clear_bit(nr, addr);
+#else
 	smp_mb__before_llsc();
 	__clear_bit(nr, addr);
 	nudge_writes();
+#endif
 }
 
 /*

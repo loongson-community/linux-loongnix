@@ -4,5 +4,13 @@
 
 #define WORKAROUND_CPUFREQ	0x00000001
 #define WORKAROUND_CPUHOTPLUG	0x00000002
+#define WORKAROUND_LVDS_EC	0x00000004
+#define WORKAROUND_LVDS_GPIO	0x00000008
+#define WORKAROUND_USB_TMCS	0x00000010
+#define WORKAROUND_PCIE_DMA	0x00000020
 
+#if defined(CONFIG_LOONGSON_EA_LAPTOP)
+extern int is_ea_laptop(void);
+extern int is_ea_minipc(void);
+#endif
 #endif

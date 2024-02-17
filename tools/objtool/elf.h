@@ -67,12 +67,14 @@ struct symbol {
 struct rela {
 	struct list_head list;
 	struct hlist_node hash;
+	struct rela *next;
 	GElf_Rela rela;
 	struct section *rela_sec;
 	struct symbol *sym;
 	unsigned int type;
 	unsigned long offset;
 	int addend;
+	bool jump_table_start;
 };
 
 struct elf {

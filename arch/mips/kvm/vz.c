@@ -1003,8 +1003,8 @@ static enum emulation_result kvm_vz_gpsi_cop0(union mips_instruction inst,
 
 			if (rd == MIPS_CP0_COUNT &&
 			    sel == 0) {			/* Count */
-				kvm_vz_lose_htimer(vcpu);
-				kvm_mips_write_count(vcpu, vcpu->arch.gprs[rt]);
+				kvm_timer_callbacks->lose_htimer(vcpu);
+				kvm_timer_callbacks->write_count(vcpu, vcpu->arch.gprs[rt]);
 			} else if (rd == MIPS_CP0_COMPARE &&
 				   sel == 0) {		/* Compare */
 				kvm_mips_write_compare(vcpu,
@@ -1280,7 +1280,7 @@ static enum emulation_result kvm_trap_vz_handle_gsfc(u32 cause, u32 *opc,
 			/* DC bit enabling/disabling timer? */
 			if (change & CAUSEF_DC) {
 				if (val & CAUSEF_DC) {
-					kvm_vz_lose_htimer(vcpu);
+					kvm_timer_callbacks->lose_htimer(vcpu);
 					kvm_mips_count_disable_cause(vcpu);
 				} else {
 					kvm_mips_count_enable_cause(vcpu);
@@ -2140,7 +2140,7 @@ static int kvm_vz_set_one_reg(struct kvm_vcpu *vcpu,
 		write_gc0_badinstrp(v);
 		break;
 	case KVM_REG_MIPS_CP0_COUNT:
-		kvm_mips_write_count(vcpu, v);
+		kvm_timer_callbacks->write_count(vcpu, v);
 		break;
 	case KVM_REG_MIPS_CP0_ENTRYHI:
 		write_gc0_entryhi(v);
@@ -2324,8 +2324,13 @@ static void kvm_vz_get_new_guestid(unsigned long cpu, struct kvm_vcpu *vcpu)
 		++guestid;		/* guestid 0 reserved for root */
 
 		/* start new guestid cycle */
+#if CONFIG_CPU_LOONGSON3
+		/* Set cp0 diag to clear FTLB VTLB */
+		set_c0_diag(0x3000);
+#else
 		kvm_vz_local_flush_roottlb_all_guests();
 		kvm_vz_local_flush_guesttlb_all();
+#endif
 	}
 
 	guestid_cache(cpu) = guestid;
@@ -2494,7 +2499,7 @@ static int kvm_vz_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 	 * Restore timer state regardless, as e.g. Cause.TI can change over time
 	 * if left unmaintained.
 	 */
-	kvm_vz_restore_timer(vcpu);
+	kvm_timer_callbacks->restore_timer(vcpu);
 
 	/* Set MC bit if we want to trace guest mode changes */
 	if (kvm_trace_guest_mode_change)
@@ -2693,7 +2698,7 @@ static int kvm_vz_vcpu_put(struct kvm_vcpu *vcpu, int cpu)
 		kvm_save_gc0_pwctl(cop0);
 	}
 
-	kvm_vz_save_timer(vcpu);
+	kvm_timer_callbacks->save_timer(vcpu);
 
 	/* save Root.GuestCtl2 in unused Guest guestctl2 register */
 	if (cpu_has_guestctl2)
@@ -2817,7 +2822,7 @@ static int kvm_vz_hardware_enable(void)
 		/* Try switching to maximum guest VTLB size for flush */
 		guest_mmu_size = kvm_vz_resize_guest_vtlb(mmu_size);
 		current_cpu_data.guest.tlbsize = guest_mmu_size + ftlb_size;
-		kvm_vz_local_flush_guesttlb_all();
+		set_c0_diag(0x3000);
 
 		/*
 		 * Reduce to make space for root wired entries and at least 2
@@ -3150,7 +3155,7 @@ static int kvm_vz_vcpu_run(struct kvm_run *run, struct kvm_vcpu *vcpu)
 	int cpu = smp_processor_id();
 	int r;
 
-	kvm_vz_acquire_htimer(vcpu);
+	kvm_timer_callbacks->acquire_htimer(vcpu);
 	/* Check if we have any exceptions/interrupts pending */
 	kvm_mips_deliver_interrupts(vcpu, read_gc0_cause());
 
@@ -3219,5 +3224,25 @@ int kvm_mips_emulation_init(struct kvm_mips_callbacks **install_callbacks)
 	pr_info("Starting KVM with MIPS VZ extensions\n");
 
 	*install_callbacks = &kvm_vz_callbacks;
+	return 0;
+}
+
+static struct kvm_timer_callbacks kvm_vz_timer_callbacks = {
+	.restore_timer = kvm_vz_restore_timer,
+	.acquire_htimer = kvm_vz_acquire_htimer,
+	.save_timer = kvm_vz_save_timer,
+	.lose_htimer = kvm_vz_lose_htimer,
+	.count_timeout = kvm_mips_count_timeout,
+	.write_count = kvm_mips_write_count,
+};
+
+int kvm_mips_timer_init(struct kvm_timer_callbacks **install_callbacks)
+{
+	if (!cpu_has_vz)
+		return -ENODEV;
+
+	pr_info("Init KVM Timer with MIPS\n");
+
+	*install_callbacks = &kvm_vz_timer_callbacks;
 	return 0;
 }

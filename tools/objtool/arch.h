@@ -20,8 +20,10 @@
 
 #include <stdbool.h>
 #include <linux/list.h>
-#include "elf.h"
+#include "objtool.h"
 #include "cfi.h"
+
+#include <asm/orc_types.h>
 
 #define INSN_JUMP_CONDITIONAL	1
 #define INSN_JUMP_UNCONDITIONAL	2
@@ -35,6 +37,14 @@
 #define INSN_NOP		10
 #define INSN_OTHER		11
 #define INSN_LAST		INSN_OTHER
+
+#ifndef R_LARCH_ADD32
+#define R_LARCH_ADD32	50
+#endif
+
+#ifndef R_LARCH_SUB32
+#define R_LARCH_SUB32	55
+#endif
 
 enum op_dest_type {
 	OP_DEST_REG,
@@ -70,6 +80,8 @@ struct stack_op {
 	struct op_src src;
 };
 
+struct instruction;
+
 void arch_initial_func_cfi_state(struct cfi_state *state);
 
 int arch_decode_instruction(struct elf *elf, struct section *sec,
@@ -78,5 +90,14 @@ int arch_decode_instruction(struct elf *elf, struct section *sec,
 			    unsigned long *immediate, struct stack_op *op);
 
 bool arch_callee_saved_reg(unsigned char reg);
+
+int arch_decode_hint_reg(struct cfi_reg *cfa, u8 sp_reg);
+
+unsigned long arch_jump_destination(struct instruction *insn);
+
+unsigned long arch_dest_rela_offset(int addend);
+
+void arch_try_find_call(struct list_head *p_orbit_list, struct objtool_file *file,
+                        struct symbol *func, struct instruction *insn);
 
 #endif /* _ARCH_H */

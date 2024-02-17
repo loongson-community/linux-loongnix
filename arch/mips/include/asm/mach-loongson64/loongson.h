@@ -22,14 +22,18 @@ extern void bonito_irq_init(void);
 /* machine-specific reboot/halt operation */
 extern void mach_prepare_reboot(void);
 extern void mach_prepare_shutdown(void);
+extern void prom_printf(char *fmt, ...);
 
+extern u32 cpu_guestmode;
 /* environment arguments from bootloader */
 extern u32 cpu_clock_freq;
 extern u32 memsize, highmemsize;
 extern const struct plat_smp_ops loongson3_smp_ops;
+extern const struct plat_smp_ops loongson3_vz_smp_ops;
 
 /* loongson-specific command line, env and memory initialization */
 extern void __init prom_init_memory(void);
+extern void __init prom_init_memory_new(void);
 extern void __init prom_init_cmdline(void);
 extern void __init prom_init_machtype(void);
 extern void __init prom_init_env(void);
@@ -37,6 +41,9 @@ extern void __init prom_init_env(void);
 extern unsigned long _loongson_uart_base[], loongson_uart_base[];
 extern void prom_init_loongson_uart_base(void);
 #endif
+extern unsigned long loongson_ls7a_get_rtc_time(void);
+extern unsigned long loongson_ls7a_vz_get_rtc_time(void);
+extern void init_hypervisor_platform(void);
 
 static inline void prom_init_uart_base(void)
 {
@@ -49,8 +56,12 @@ static inline void prom_init_uart_base(void)
 extern void bonito_irqdispatch(void);
 extern void __init bonito_irq_init(void);
 extern void __init mach_init_irq(void);
+extern void __init mach_vz_init_irq(void);
 extern void mach_irq_dispatch(unsigned int pending);
+extern void mach_vz_irq_dispatch(unsigned int pending);
 extern int mach_i8259_irq(void);
+
+extern int __init ls7a_vz_irq_of_init(struct device_node *node, struct device_node *parent);
 
 /* We need this in some places... */
 #define delay() ({		\
@@ -67,6 +78,9 @@ extern int mach_i8259_irq(void);
 
 #define LOONGSON3_REG32(base, x) \
 	(*(volatile u32 *)((char *)TO_UNCAC(base) + (x)))
+
+#define LOONGSON3_REG64(base, x) \
+	(*(volatile u64 *)((char *)TO_UNCAC(base) + (x)))
 
 #define LOONGSON_IRQ_BASE	32
 #define LOONGSON2_PERFCNT_IRQ	(MIPS_CPU_IRQ_BASE + 6) /* cpu perf counter */
@@ -122,6 +136,14 @@ static inline void do_perfcnt_IRQ(void)
 #define LOONGSON_PCIIO_SIZE	0x00100000	/* 1M */
 #define LOONGSON_PCIIO_TOP	(LOONGSON_PCIIO_BASE+LOONGSON_PCIIO_SIZE-1)
 
+#define HT1LO_PCICFG_BASE	0x1a000000
+#define HT1LO_PCICFG_BASE_TP1	0x1b000000
+
+#define HT1LO_EXT_PCICFG_BASE_FIX	0xefe00000000UL
+#define HT1LO_EXT_PCICFG_BASE		(((struct pci_controller *)(bus)->sysdata)->mcfg_addr)
+#define HT1LO_EXT_PCICFG_TP1_OFFSET	0x10000000
+#define HT1LO_EXT_PCICFG_BASE_TP1	(HT1LO_EXT_PCICFG_BASE + HT1LO_EXT_PCICFG_TP1_OFFSET)
+
 /* Loongson Register Bases */
 
 #define LOONGSON_PCICONFIGBASE	0x00
@@ -155,6 +177,19 @@ static inline void do_perfcnt_IRQ(void)
 #define LOONGSON_PCICMD_SERREN		0x00000100
 #define LOONGSON_PCILTIMER_BUSLATENCY	0x0000ff00
 #define LOONGSON_PCILTIMER_BUSLATENCY_SHIFT	8
+
+/* Register offset and bit definition for CSR access */
+#define LOONGSON_STABLE_TIMER_CFG       0x1060
+#define LOONGSON_STABLE_TIMER_TICK      0x1070
+#define LOONGSON_STABLE_TIMER_CFG_RESERVED        (_ULCAST_(1) << 63)
+#define LOONGSON_STABLE_TIMER_CFG_PERIODIC        (_ULCAST_(1) << 62)
+#define LOONGSON_STABLE_TIMER_CFG_EN              (_ULCAST_(1) << 61)
+#define LOONGSON_STABLE_TIMER_MASK	0x0ffffffffffffULL
+#define LOONGSON_STABLE_TIMER_INITVAL_RST         (_ULCAST_(0xffff) << 48)
+
+#define LOONGSON_CPUCFG_CONFIG_FIELD2    0x2
+#define LOONGSON_CPUCFG_CONFIG_FIELD4    0x4
+#define LOONGSON_CPUCFG_CONFIG_FIELD5    0x5
 
 /* Loongson h/w Configuration */
 
@@ -192,6 +227,7 @@ static inline void do_perfcnt_IRQ(void)
 
 #define LOONGSON_GPIODATA		LOONGSON_REG(LOONGSON_REGBASE + 0x1c)
 #define LOONGSON_GPIOIE			LOONGSON_REG(LOONGSON_REGBASE + 0x20)
+#define LOONGSON_REG_GPIO_BASE          (LOONGSON_REG_BASE + LOONGSON_REGBASE + 0x1c)
 
 /* ICU Configuration Regs - r/w */
 
@@ -262,6 +298,8 @@ extern u64 loongson_chiptemp[MAX_PACKAGES];
 extern u64 loongson_freqctrl[MAX_PACKAGES];
 #define LOONGSON_FREQCTRL(id) (*(volatile u32 *)(loongson_freqctrl[id]))
 
+#define LOONGSON3_NODE_BASE(x)  (0x9000000000000000 | (((unsigned long)x & 0xf) << 44))
+
 /* pcimap */
 
 #define LOONGSON_PCIMAP_PCIMAP_LO0	0x0000003f
@@ -277,6 +315,39 @@ extern u64 loongson_freqctrl[MAX_PACKAGES];
 #ifdef CONFIG_CPU_SUPPORTS_CPUFREQ
 #include <linux/cpufreq.h>
 extern struct cpufreq_frequency_table loongson2_clockmod_table[];
+extern struct cpufreq_frequency_table loongson3_clockmod_table[];
+extern struct cpufreq_frequency_table *loongson3a4000_clockmod_table;
+extern struct cpufreq_frequency_table ls3a4000_normal_table[];
+extern struct cpufreq_frequency_table ls3a4000_boost_table[];
+extern void ls3a4000_freq_table_switch(struct cpufreq_frequency_table *table);
+extern int ls3a4000_set_boost(int mode, int freq_level);
+extern int ls3a4000_freq_scale(struct cpufreq_policy* policy, unsigned long rate);
+
+#define BOOST_FREQ_MAX 2000000000
+
+#define CPU_ID_FIELD    0xf
+#define NODE_FIELD      0xf0
+#define FREQ_FIELD      0xf00
+#define VOLTAGE_FIELD   0xf000
+#define VOLTAGE_CHANGE_FIELD    0xc0000
+
+#define BOOST_NORMAL_FIELD  0xc0000
+
+#define COMMAND_FIELD   0x7f000000
+#define COMPLETE_STATUS 0x80000000
+#define VOLTAGE_COMMAND 0x21
+
+#define DVFS_INFO	0x22
+#define DVFS_INFO_BOOST_LEVEL	0x23
+#define DVFS_INFO_MIN_FREQ	0xf
+#define DVFS_INFO_MAX_FREQ	0xf0
+#define DVFS_INFO_BOOST_CORE_FREQ	0xff00
+#define DVFS_INFO_NORMAL_CORE_UPPER_LIMIT	0xf0000
+#define DVFS_INFO_BOOST_CORES	0xf00000
+
+#define BOOST_MODE	0x80000
+#define NORMAL_MODE	0x40000
+
 #endif
 
 /*
@@ -355,5 +426,119 @@ extern unsigned long _loongson_addrwincfg_base;
 	LOONGSON_ADDRWIN_CFG(PCIDMA, DDR, win, src, dst, size)
 
 #endif	/* ! CONFIG_CPU_SUPPORTS_ADDRWINCFG */
+
+int mach_suspend(void);
+void mach_resume(void);
+void mach_common_suspend(void);
+void mach_common_resume(void);
+void loongson_suspend_enter(void);
+
+#ifdef CONFIG_HOTPLUG_CPU
+extern int disable_unused_cpus(void);
+#else
+static inline int disable_unused_cpus(void) { return 0; }
+#endif
+
+/*
+ * Loongson specific extension encodings
+ */
+
+#define MBIT_U(bit)		(1U << (bit))
+
+/* cpucfg register 2*/
+#define MIPS_LSE_LAMO		MBIT_U(12)
+
+#define CPU_TO_CONF(x)	(0x900000003ff00000 | (((unsigned long)x & 0x3) << 8) \
+		| (((unsigned long)x & 0xc) << 42))
+
+#ifdef CONFIG_GS464E_NODE_COUNTER
+void loongson_nodecounter_adjust(void);
+#endif
+extern int stable_timer_enabled;
+void loongson_stablecounter_adjust(void);
+
+#ifdef CONFIG_CPU_LOONGSON3
+static inline unsigned int calc_const_freq(void)
+{
+	unsigned int res;
+	unsigned int base_freq;
+	unsigned int cfm, cfd;
+
+	res = read_cfg(LOONGSON_CPUCFG_CONFIG_FIELD2);
+	if (!(res & LOONGSON_CFG2_LLFTP))
+		return 0;
+
+	base_freq = read_cfg(LOONGSON_CPUCFG_CONFIG_FIELD4);
+	res = read_cfg(LOONGSON_CPUCFG_CONFIG_FIELD5);
+	cfm = res & 0xffff;
+	cfd = (res >> 16) & 0xffff;
+
+	if (!base_freq || !cfm || !cfd)
+		return 0;
+	else
+		return (base_freq * cfm / cfd);
+}
+#endif
+
+static inline void ls64_conf_write64(u64 val64, volatile void __iomem *addr)
+{
+
+	asm volatile (
+	"	.set push			\n"
+	"	.set noreorder			\n"
+	"	sd	%[v], (%[hw])		\n"
+	"	lb	$0, (%[hw])		\n"
+	"	.set pop			\n"
+	:
+	: [hw] "r" (addr),  [v] "r" (val64)
+	);
+}
+
+static inline void ls64_conf_write32(u32 val, volatile void __iomem *addr)
+{
+	asm volatile (
+	"	.set push			\n"
+	"	.set noreorder			\n"
+	"	sw	%[v], (%[hw])		\n"
+	"	lb	$0, (%[hw])		\n"
+	"	.set pop			\n"
+	:
+	: [hw] "r" (addr), [v] "r" (val)
+	);
+
+}
+
+static inline void ls64_conf_write16(u16 val, volatile void __iomem *addr)
+{
+	asm volatile (
+	"	.set push			\n"
+	"	.set noreorder			\n"
+	"	sh	%[v], (%[hw])		\n"
+	"	lb	$0, (%[hw])		\n"
+	"	.set pop			\n"
+	:
+	: [hw] "r" (addr), [v] "r" (val)
+	);
+
+}
+
+static inline void ls64_conf_write8(u8 val, volatile void __iomem *addr)
+{
+	asm volatile (
+	"	.set push			\n"
+	"	.set noreorder			\n"
+	"	sb	%[v], (%[hw])		\n"
+	"	lb	$0, (%[hw])		\n"
+	"	.set pop			\n"
+	:
+	: [hw] "r" (addr), [v] "r" (val)
+	);
+
+}
+
+#define ls64_conf_read64(addr) readq(addr)
+#define ls64_conf_read32(addr) readl(addr)
+#define ls64_conf_read16(x) 	readw(x)
+#define ls64_conf_read8(x) 	readb(x)
 
 #endif /* __ASM_MACH_LOONGSON64_LOONGSON_H */

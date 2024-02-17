@@ -33,6 +33,7 @@
 #include <linux/cpufreq.h>
 #include <linux/cpuidle.h>
 #include <linux/timer.h>
+#include <linux/delay.h>
 
 #include "../base.h"
 #include "power.h"
@@ -1082,6 +1083,12 @@ void dpm_resume(pm_message_t state)
 			async_schedule(async_resume, dev);
 		}
 	}
+
+#ifdef CONFIG_LOONGARCH
+	device_pm_unlock();
+	msleep(500);
+	device_pm_lock();
+#endif
 
 	while (!list_empty(&dpm_suspended_list)) {
 		dev = to_device(dpm_suspended_list.next);

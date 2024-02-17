@@ -12,7 +12,7 @@
 #include <asm/asm.h>
 
 .text
-LEAF(swsusp_arch_suspend)
+LEAF(swsusp_arch_save)
 	PTR_LA t0, saved_regs
 	PTR_S ra, PT_R31(t0)
 	PTR_S sp, PT_R29(t0)
@@ -27,9 +27,11 @@ LEAF(swsusp_arch_suspend)
 	PTR_S s6, PT_R22(t0)
 	PTR_S s7, PT_R23(t0)
 	j swsusp_save
-END(swsusp_arch_suspend)
+END(swsusp_arch_save)
 
 LEAF(restore_image)
+	jal local_flush_tlb_all
+	nop
 	PTR_L t0, restore_pblist
 0:
 	PTR_L t1, PBE_ADDRESS(t0)   /* source */

@@ -761,5 +761,5 @@ config CRYPTO_DEV_CCREE
 	  If unsure say Y.
 
 source "drivers/crypto/hisilicon/Kconfig"
-
+source "drivers/crypto/sedriver/Kconfig"
 endif # CRYPTO_HW

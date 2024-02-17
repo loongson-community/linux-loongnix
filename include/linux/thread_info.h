@@ -63,6 +63,16 @@ static inline long set_restart_fn(struct restart_block *restart,
  * - pass TIF_xxxx constants to these functions
  */
 
+static inline void __set_ti_thread_flag(struct thread_info *ti, int flag)
+{
+	__set_bit(flag, (unsigned long *)&ti->flags);
+}
+
+static inline void __clear_ti_thread_flag(struct thread_info *ti, int flag)
+{
+	__clear_bit(flag, (unsigned long *)&ti->flags);
+}
+
 static inline void set_ti_thread_flag(struct thread_info *ti, int flag)
 {
 	set_bit(flag, (unsigned long *)&ti->flags);
@@ -97,6 +107,10 @@ static inline int test_ti_thread_flag(struct thread_info *ti, int flag)
 	return test_bit(flag, (unsigned long *)&ti->flags);
 }
 
+#define __set_thread_flag(flag) \
+	__set_ti_thread_flag(current_thread_info(), flag)
+#define __clear_thread_flag(flag) \
+	__clear_ti_thread_flag(current_thread_info(), flag)
 #define set_thread_flag(flag) \
 	set_ti_thread_flag(current_thread_info(), flag)
 #define clear_thread_flag(flag) \

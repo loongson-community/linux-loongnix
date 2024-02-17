@@ -424,6 +424,12 @@ typedef struct elf64_shdr {
 #define NT_VMCOREDD	0x700		/* Vmcore Device Dump Note */
 #define NT_MIPS_DSP	0x800		/* MIPS DSP ASE registers */
 #define NT_MIPS_FP_MODE	0x801		/* MIPS floating-point mode */
+#define NT_MIPS_MSA	0x802		/* MIPS SIMD registers */
+#define NT_MIPS_LASX	0x840		/* Loongson Advanced SIMD eXtenstion registers */
+#define NT_LOONGARCH_CPUCFG	0x900		/* Loongarch CPU config registers */
+#define NT_LOONGARCH_LBT	0x901		/* Loongarch Loongson Binary Translation registers */
+#define NT_LOONGARCH_LSX	0x902		/* Loongarch Loongson SIMD Extension registers */
+#define NT_LOONGARCH_LASX	0x903		/* Loongarch Loongson Advanced SIMD Extension registers */
 
 /* Note header in a PT_NOTE section */
 typedef struct elf32_note {

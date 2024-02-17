@@ -46,6 +46,10 @@ struct pci_controller {
 	   and XFree86. Eventually will be removed. */
 	unsigned int need_domain_info;
 #endif
+#ifdef CONFIG_ACPI
+	struct acpi_device *companion;
+#endif
+	phys_addr_t mcfg_addr;
 
 	/* Optional access methods for reading/writing the bus number
 	   of the PCI controller */
@@ -59,6 +63,11 @@ struct pci_controller {
 extern void register_pci_controller(struct pci_controller *hose);
 
 /*
+ * Get pci root info.
+ */
+extern void get_pci_root_info (struct pci_controller **controller, struct list_head *resources, bool is_use_crs);
+extern void vz_get_pci_root_info (struct pci_controller **controller, struct list_head *resources, bool is_use_crs);
+/*
  * board supplied pci irq fixup routine
  */
 extern int pcibios_map_irq(const struct pci_dev *dev, u8 slot, u8 pin);
@@ -67,6 +76,8 @@ extern int pcibios_map_irq(const struct pci_dev *dev, u8 slot, u8 pin);
 extern int pcibios_plat_dev_init(struct pci_dev *dev);
 
 extern char * (*pcibios_plat_setup)(char *str);
+
+extern phys_addr_t mcfg_addr_init(int domain);
 
 #ifdef CONFIG_OF
 /* this function parses memory ranges from a device node */
@@ -135,6 +146,23 @@ static inline int pci_proc_domain(struct pci_bus *bus)
 	return hose->need_domain_info;
 }
 #endif /* CONFIG_PCI_DOMAINS */
+
+/* mmconfig.c */
+
+#ifdef CONFIG_PCI_MMCONFIG
+struct pci_mmcfg_region {
+	struct list_head list;
+	phys_addr_t address;
+	u16 segment;
+	u8 start_bus;
+	u8 end_bus;
+};
+
+extern phys_addr_t pci_mmconfig_addr(u16 seg, u8 start);
+extern int pci_mmconfig_delete(u16 seg, u8 start, u8 end);
+extern struct pci_mmcfg_region *pci_mmconfig_lookup(int segment, int bus);
+extern struct list_head pci_mmcfg_list;
+#endif /*CONFIG_PCI_MMCONFIG*/
 
 #endif /* __KERNEL__ */
 

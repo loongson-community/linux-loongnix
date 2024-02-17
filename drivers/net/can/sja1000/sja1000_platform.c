@@ -15,6 +15,7 @@
  * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <linux/acpi.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/interrupt.h>
@@ -226,10 +227,19 @@ static int sp_probe(struct platform_device *pdev)
 	const struct sja1000_of_data *of_data = NULL;
 	size_t priv_sz = 0;
 
-	pdata = dev_get_platdata(&pdev->dev);
-	if (!pdata && !of) {
-		dev_err(&pdev->dev, "No platform data provided!\n");
-		return -ENODEV;
+	if (ACPI_COMPANION(&pdev->dev)) {
+		struct sja1000_platform_data data;
+		memset(&data, 0, sizeof(data));
+		pdata = &data;
+		device_property_read_u32(&pdev->dev, "clock", &pdata->osc_freq);
+		device_property_read_u8(&pdev->dev, "ocr", &pdata->ocr);
+		device_property_read_u8(&pdev->dev, "cdr", &pdata->cdr);
+	} else {
+		pdata = dev_get_platdata(&pdev->dev);
+		if (!pdata && !of) {
+			dev_err(&pdev->dev, "No platform data provided!\n");
+			return -ENODEV;
+		}
 	}
 
 	res_mem = platform_get_resource(pdev, IORESOURCE_MEM, 0);
@@ -317,12 +327,19 @@ static int sp_remove(struct platform_device *pdev)
 	return 0;
 }
 
+static const struct acpi_device_id loongson_can_acpi_match[] = {
+	{"LOON0009"},
+	{}
+};
+MODULE_DEVICE_TABLE(acpi, loongson_can_acpi_match);
+
 static struct platform_driver sp_driver = {
 	.probe = sp_probe,
 	.remove = sp_remove,
 	.driver = {
 		.name = DRV_NAME,
 		.of_match_table = sp_of_table,
+		.acpi_match_table = ACPI_PTR(loongson_can_acpi_match),
 	},
 };
 

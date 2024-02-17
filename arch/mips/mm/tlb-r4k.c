@@ -24,8 +24,15 @@
 #include <asm/pgtable.h>
 #include <asm/tlb.h>
 #include <asm/tlbmisc.h>
+#ifdef CONFIG_CPU_LOONGSON3
+#include <loongson.h>
+#endif
 
 extern void build_tlb_refill_handler(void);
+
+#ifdef CONFIG_CPU_LOONGSON3
+unsigned long guest_fixup;
+#endif
 
 /*
  * LOONGSON-2 has a 4 entry itlb which is a subset of jtlb, LOONGSON-3 has
@@ -34,22 +41,32 @@ extern void build_tlb_refill_handler(void);
  */
 static inline void flush_micro_tlb(void)
 {
+#ifndef CONFIG_LOONGSON3_ENHANCEMENT
 	switch (current_cpu_type()) {
 	case CPU_LOONGSON2:
+	case CPU_LOONGSON3:
+	case CPU_LOONGSON2K:
 		write_c0_diag(LOONGSON_DIAG_ITLB);
 		break;
-	case CPU_LOONGSON3:
-		write_c0_diag(LOONGSON_DIAG_ITLB | LOONGSON_DIAG_DTLB);
+	case CPU_LOONGSON3_COMP:
 		break;
 	default:
 		break;
 	}
+#endif
 }
 
 static inline void flush_micro_tlb_vm(struct vm_area_struct *vma)
 {
+#ifndef CONFIG_LOONGSON3_ENHANCEMENT
 	if (vma->vm_flags & VM_EXEC)
 		flush_micro_tlb();
+#endif
+}
+
+static inline void local_flush_tlb_all_fast(void)
+{
+	change_c0_diag(0x300c, 0x300c);
 }
 
 void local_flush_tlb_all(void)
@@ -71,22 +88,48 @@ void local_flush_tlb_all(void)
 	 * Blast 'em all away.
 	 * If there are any wired entries, fall back to iterating
 	 */
-	if (cpu_has_tlbinv && !entry) {
-		if (current_cpu_data.tlbsizevtlb) {
-			write_c0_index(0);
-			mtc0_tlbw_hazard();
-			tlbinvf();  /* invalidate VTLB */
-		}
-		ftlbhighset = current_cpu_data.tlbsizevtlb +
-			current_cpu_data.tlbsizeftlbsets;
-		for (entry = current_cpu_data.tlbsizevtlb;
-		     entry < ftlbhighset;
-		     entry++) {
-			write_c0_index(entry);
-			mtc0_tlbw_hazard();
-			tlbinvf();  /* invalidate one FTLB set */
+	if (!entry) {
+		if (cpu_has_tlbinv) {
+#ifndef CONFIG_CPU_LOONGSON3
+			if (current_cpu_data.tlbsizevtlb) {
+				write_c0_index(0);
+				mtc0_tlbw_hazard();
+				tlbinvf();  /* invalidate VTLB */
+			}
+			ftlbhighset = current_cpu_data.tlbsizevtlb +
+				current_cpu_data.tlbsizeftlbsets;
+			for (entry = current_cpu_data.tlbsizevtlb;
+			     entry < ftlbhighset;
+			     entry++) {
+				write_c0_index(entry);
+				mtc0_tlbw_hazard();
+				tlbinvf();  /* invalidate one FTLB set */
+			}
+#else			 /* here is optimization for 3A2000+ */
+
+			local_flush_tlb_all_fast();
+			local_irq_restore(flags);
+			return;
+#endif
+		} else {
+			old_ctx = read_c0_entryhi();
+			write_c0_entrylo0(0);
+			write_c0_entrylo1(0);
+			while (entry < current_cpu_data.tlbsize) {
+				/* Make sure all entries differ. */
+				write_c0_entryhi(UNIQUE_ENTRYHI(entry));
+				write_c0_index(entry);
+				mtc0_tlbw_hazard();
+				tlb_write_indexed();
+				entry++;
+			}
+			tlbw_use_hazard();
+			write_c0_entryhi(old_ctx);
 		}
 	} else {
+		old_ctx = read_c0_entryhi();
+		write_c0_entrylo0(0);
+		write_c0_entrylo1(0);
 		while (entry < current_cpu_data.tlbsize) {
 			/* Make sure all entries differ. */
 			write_c0_entryhi(UNIQUE_ENTRYHI(entry));
@@ -95,9 +138,32 @@ void local_flush_tlb_all(void)
 			tlb_write_indexed();
 			entry++;
 		}
+
+		if (cpu_has_tlbinv) {
+			ftlbhighset = current_cpu_data.tlbsizevtlb +
+				current_cpu_data.tlbsizeftlbsets;
+			for (entry = current_cpu_data.tlbsizevtlb;
+				entry < ftlbhighset; entry++) {
+				write_c0_index(entry);
+				mtc0_tlbw_hazard();
+				tlbinvf();  /* invalidate one FTLB set */
+			}
+
+		} else {
+
+			while (entry < current_cpu_data.tlbsize) {
+				/* Make sure all entries differ. */
+				write_c0_entryhi(UNIQUE_ENTRYHI(entry));
+				write_c0_index(entry);
+				mtc0_tlbw_hazard();
+				tlb_write_indexed();
+				entry++;
+			}
+
+		}
+		tlbw_use_hazard();
+		write_c0_entryhi(old_ctx);
 	}
-	tlbw_use_hazard();
-	write_c0_entryhi(old_ctx);
 	htw_start();
 	flush_micro_tlb();
 	local_irq_restore(flags);
@@ -114,9 +180,10 @@ void local_flush_tlb_mm(struct mm_struct *mm)
 
 	cpu = smp_processor_id();
 
-	if (cpu_context(cpu, mm) != 0) {
+	if (asid_valid(mm, cpu))
 		drop_mmu_context(mm, cpu);
-	}
+	else
+		cpumask_clear_cpu(cpu, mm_cpumask(mm));
 
 	preempt_enable();
 }
@@ -127,7 +194,7 @@ void local_flush_tlb_range(struct vm_area_struct *vma, unsigned long start,
 	struct mm_struct *mm = vma->vm_mm;
 	int cpu = smp_processor_id();
 
-	if (cpu_context(cpu, mm) != 0) {
+	if (asid_valid(mm, cpu)) {
 		unsigned long size, flags;
 
 		local_irq_save(flags);
@@ -167,7 +234,8 @@ void local_flush_tlb_range(struct vm_area_struct *vma, unsigned long start,
 		}
 		flush_micro_tlb();
 		local_irq_restore(flags);
-	}
+	} else
+		cpumask_clear_cpu(cpu, mm_cpumask(mm));
 }
 
 void local_flush_tlb_kernel_range(unsigned long start, unsigned long end)
@@ -219,7 +287,7 @@ void local_flush_tlb_page(struct vm_area_struct *vma, unsigned long page)
 {
 	int cpu = smp_processor_id();
 
-	if (cpu_context(cpu, vma->vm_mm) != 0) {
+	if (asid_valid(vma->vm_mm, cpu)) {
 		unsigned long flags;
 		int oldpid, newpid, idx;
 
@@ -248,7 +316,8 @@ void local_flush_tlb_page(struct vm_area_struct *vma, unsigned long page)
 		htw_start();
 		flush_micro_tlb_vm(vma);
 		local_irq_restore(flags);
-	}
+	} else
+		cpumask_clear_cpu(cpu, mm_cpumask(vma->vm_mm));
 }
 
 /*
@@ -284,19 +353,17 @@ void local_flush_tlb_one(unsigned long page)
 	local_irq_restore(flags);
 }
 
+#ifdef CONFIG_MIPS_HUGE_TLB_SUPPORT
 /*
  * We will need multiple versions of update_mmu_cache(), one that just
  * updates the TLB with the new pte(s), and another which also checks
  * for the R4k "end of page" hardware bug and does the needy.
  */
-void __update_tlb(struct vm_area_struct * vma, unsigned long address, pte_t pte)
+static void __update_hugetlb(struct vm_area_struct *vma, unsigned long address, pte_t *ptep)
 {
 	unsigned long flags;
-	pgd_t *pgdp;
-	pud_t *pudp;
-	pmd_t *pmdp;
-	pte_t *ptep;
 	int idx, pid;
+	unsigned long lo;
 
 	/*
 	 * Handle debugger faulting in for debugee.
@@ -310,59 +377,83 @@ void __update_tlb(struct vm_area_struct * vma, unsigned long address, pte_t pte)
 	pid = read_c0_entryhi() & cpu_asid_mask(&current_cpu_data);
 	address &= (PAGE_MASK << 1);
 	write_c0_entryhi(address | pid);
-	pgdp = pgd_offset(vma->vm_mm, address);
 	mtc0_tlbw_hazard();
 	tlb_probe();
 	tlb_probe_hazard();
-	pudp = pud_offset(pgdp, address);
-	pmdp = pmd_offset(pudp, address);
 	idx = read_c0_index();
-#ifdef CONFIG_MIPS_HUGE_TLB_SUPPORT
 	/* this could be a huge page  */
-	if (pmd_huge(*pmdp)) {
-		unsigned long lo;
-		write_c0_pagemask(PM_HUGE_MASK);
-		ptep = (pte_t *)pmdp;
-		lo = pte_to_entrylo(pte_val(*ptep));
-		write_c0_entrylo0(lo);
-		write_c0_entrylo1(lo + (HPAGE_SIZE >> 7));
+	write_c0_pagemask(PM_HUGE_MASK);
+	lo = pte_to_entrylo(pte_val(*ptep));
+	write_c0_entrylo0(lo);
+	write_c0_entrylo1(lo + (HPAGE_SIZE >> 7));
 
-		mtc0_tlbw_hazard();
-		if (idx < 0)
-			tlb_write_random();
-		else
-			tlb_write_indexed();
-		tlbw_use_hazard();
-		write_c0_pagemask(PM_DEFAULT_MASK);
-	} else
+	mtc0_tlbw_hazard();
+	if (idx < 0)
+		tlb_write_random();
+	else
+		tlb_write_indexed();
+	tlbw_use_hazard();
+	write_c0_pagemask(PM_DEFAULT_MASK);
+	tlbw_use_hazard();
+	htw_start();
+	flush_micro_tlb_vm(vma);
+	local_irq_restore(flags);
+}
 #endif
-	{
-		ptep = pte_offset_map(pmdp, address);
+
+void __update_tlb(struct vm_area_struct *vma, unsigned long address, pte_t *ptep)
+{
+	unsigned long flags;
+	int idx, pid;
+
+	/*
+	 * Handle debugger faulting in for debugee.
+	 */
+	if (current->active_mm != vma->vm_mm)
+		return;
+
+#ifdef CONFIG_MIPS_HUGE_TLB_SUPPORT
+	if (pte_val(*ptep) & _PAGE_HUGE)
+		return __update_hugetlb(vma, address, ptep);
+#endif
+
+	local_irq_save(flags);
+
+	if ((unsigned long)ptep & sizeof(pte_t))
+		ptep--;
+
+	htw_stop();
+	pid = read_c0_entryhi() & cpu_asid_mask(&current_cpu_data);
+	address &= (PAGE_MASK << 1);
+	write_c0_entryhi(address | pid);
+	mtc0_tlbw_hazard();
+	tlb_probe();
+	tlb_probe_hazard();
+	idx = read_c0_index();
 
 #if defined(CONFIG_PHYS_ADDR_T_64BIT) && defined(CONFIG_CPU_MIPS32)
 #ifdef CONFIG_XPA
-		write_c0_entrylo0(pte_to_entrylo(ptep->pte_high));
-		if (cpu_has_xpa)
-			writex_c0_entrylo0(ptep->pte_low & _PFNX_MASK);
-		ptep++;
-		write_c0_entrylo1(pte_to_entrylo(ptep->pte_high));
-		if (cpu_has_xpa)
-			writex_c0_entrylo1(ptep->pte_low & _PFNX_MASK);
+	write_c0_entrylo0(pte_to_entrylo(ptep->pte_high));
+	if (cpu_has_xpa)
+		writex_c0_entrylo0(ptep->pte_low & _PFNX_MASK);
+	ptep++;
+	write_c0_entrylo1(pte_to_entrylo(ptep->pte_high));
+	if (cpu_has_xpa)
+		writex_c0_entrylo1(ptep->pte_low & _PFNX_MASK);
 #else
-		write_c0_entrylo0(ptep->pte_high);
-		ptep++;
-		write_c0_entrylo1(ptep->pte_high);
+	write_c0_entrylo0(ptep->pte_high);
+	ptep++;
+	write_c0_entrylo1(ptep->pte_high);
 #endif
 #else
-		write_c0_entrylo0(pte_to_entrylo(pte_val(*ptep++)));
-		write_c0_entrylo1(pte_to_entrylo(pte_val(*ptep)));
+	write_c0_entrylo0(pte_to_entrylo(pte_val(*ptep++)));
+	write_c0_entrylo1(pte_to_entrylo(pte_val(*ptep)));
 #endif
-		mtc0_tlbw_hazard();
-		if (idx < 0)
-			tlb_write_random();
-		else
-			tlb_write_indexed();
-	}
+	mtc0_tlbw_hazard();
+	if (idx < 0)
+		tlb_write_random();
+	else
+		tlb_write_indexed();
 	tlbw_use_hazard();
 	htw_start();
 	flush_micro_tlb_vm(vma);
@@ -507,6 +598,12 @@ static void r4k_tlb_configure(void)
 	    current_cpu_type() == CPU_R14000 ||
 	    current_cpu_type() == CPU_R16000)
 		write_c0_framemask(0);
+
+#ifdef CONFIG_CPU_LOONGSON3
+	if ((current_cpu_type() == CPU_LOONGSON3_COMP) &&
+			cpu_guestmode)
+		guest_fixup = 1;
+#endif
 
 	if (cpu_has_rixi) {
 		/*

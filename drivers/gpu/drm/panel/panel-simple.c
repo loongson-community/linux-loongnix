@@ -33,6 +33,7 @@
 #include <drm/drm_mipi_dsi.h>
 #include <drm/drm_panel.h>
 
+#include <video/of_display_timing.h>
 #include <video/display_timing.h>
 #include <video/videomode.h>
 
@@ -291,6 +292,64 @@ static const struct drm_panel_funcs panel_simple_funcs = {
 	.get_timings = panel_simple_get_timings,
 };
 
+static struct panel_desc panel_dpi;
+
+static int panel_dpi_probe(struct device *dev,
+			   struct panel_simple *panel)
+{
+	struct display_timing *timing;
+	const struct device_node *np;
+	struct panel_desc *desc;
+	unsigned int bus_flags;
+	struct videomode vm;
+	const char *mapping;
+	int ret;
+
+	np = dev->of_node;
+	desc = devm_kzalloc(dev, sizeof(*desc), GFP_KERNEL);
+	if (!desc)
+		return -ENOMEM;
+
+	timing = devm_kzalloc(dev, sizeof(*timing), GFP_KERNEL);
+	if (!timing)
+		return -ENOMEM;
+
+	ret = of_get_display_timing(np, "panel-timing", timing);
+	if (ret < 0) {
+		dev_err(dev, "%pOF: no panel-timing node found for \"panel-dpi\" binding\n",
+			np);
+		return ret;
+	}
+
+	desc->timings = timing;
+	desc->num_timings = 1;
+
+	of_property_read_u32(np, "width-mm", &desc->size.width);
+	of_property_read_u32(np, "height-mm", &desc->size.height);
+
+	of_property_read_string(np, "data-mapping", &mapping);
+	if (!mapping)
+		desc->bus_format = MEDIA_BUS_FMT_RGB888_1X24;
+	else if (!strcmp(mapping, "rgb24"))
+		desc->bus_format = MEDIA_BUS_FMT_RGB888_1X24;
+	else if (!strcmp(mapping, "rgb565"))
+		desc->bus_format = MEDIA_BUS_FMT_RGB565_1X16;
+	else if (!strcmp(mapping, "bgr666"))
+		desc->bus_format = MEDIA_BUS_FMT_RGB666_1X18;
+	else if (!strcmp(mapping, "lvds666"))
+		desc->bus_format = MEDIA_BUS_FMT_RGB666_1X24_CPADHI;
+
+	/* Extract bus_flags from display_timing */
+	bus_flags = 0;
+	vm.flags = timing->flags;
+	drm_bus_flags_from_videomode(&vm, &bus_flags);
+	desc->bus_flags = bus_flags;
+
+	panel->desc = desc;
+
+	return 0;
+}
+
 static int panel_simple_probe(struct device *dev, const struct panel_desc *desc)
 {
 	struct device_node *backlight, *ddc;
@@ -336,6 +395,14 @@ static int panel_simple_probe(struct device *dev, const struct panel_desc *desc)
 			err = -EPROBE_DEFER;
 			goto free_backlight;
 		}
+	}
+
+	if (desc == &panel_dpi) {
+		/* Handle the generic panel-dpi binding */
+		err = panel_dpi_probe(dev, panel);
+		if (err)
+			goto free_ddc;
+		desc = panel->desc;
 	}
 
 	drm_panel_init(&panel->base);
@@ -2602,6 +2669,10 @@ static const struct of_device_id platform_of_match[] = {
 	}, {
 		.compatible = "winstar,wf35ltiacd",
 		.data = &winstar_wf35ltiacd,
+	}, {
+		/* Must be the last entry */
+		.compatible = "panel-dpi",
+		.data = &panel_dpi,
 	}, {
 		/* sentinel */
 	}

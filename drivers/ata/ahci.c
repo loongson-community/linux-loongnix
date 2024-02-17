@@ -56,6 +56,7 @@
 enum {
 	AHCI_PCI_BAR_STA2X11	= 0,
 	AHCI_PCI_BAR_CAVIUM	= 0,
+	AHCI_PCI_BAR_LOONGSON	= 0,
 	AHCI_PCI_BAR_ENMOTUS	= 2,
 	AHCI_PCI_BAR_CAVIUM_GEN5	= 4,
 	AHCI_PCI_BAR_STANDARD	= 5,
@@ -592,6 +593,9 @@ static const struct pci_device_id ahci_pci_tbl[] = {
 
 	/* Enmotus */
 	{ PCI_DEVICE(0x1c44, 0x8000), board_ahci },
+
+	/* Loongson */
+	{ PCI_VDEVICE(LOONGSON, 0x7a08), board_ahci },
 
 	/* Generic, PCI class code for AHCI */
 	{ PCI_ANY_ID, PCI_ANY_ID, PCI_ANY_ID, PCI_ANY_ID,
@@ -1702,6 +1706,8 @@ static int ahci_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 		if (pdev->device == 0xa084)
 			ahci_pci_bar = AHCI_PCI_BAR_CAVIUM_GEN5;
 	}
+	else if (pdev->vendor == PCI_VENDOR_ID_LOONGSON && pdev->device == 0x7a08)
+		ahci_pci_bar = AHCI_PCI_BAR_LOONGSON;
 
 	/* acquire resources */
 	rc = pcim_enable_device(pdev);
@@ -1765,6 +1771,10 @@ static int ahci_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 		hpriv->irq_handler = ahci_thunderx_irq_handler;
 #endif
 
+	/* workaround for ASMEDIA HBA */
+	if (pdev->vendor == PCI_VENDOR_ID_ASMEDIA && pdev->device == 0x0611)
+		hpriv->start_engine = ahci_start_engine_workaround;
+
 	/* save initial config */
 	ahci_pci_save_initial_config(pdev, hpriv);
 
@@ -1797,6 +1807,9 @@ static int ahci_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 
 	if (hpriv->cap & HOST_CAP_PMP)
 		pi.flags |= ATA_FLAG_PMP;
+
+	if (pdev->vendor == PCI_VENDOR_ID_MARVELL_EXT)
+		pi.flags |= ATA_FLAG_ATAPI_DMA;
 
 	ahci_set_em_messages(hpriv, &pi);
 

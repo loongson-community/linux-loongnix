@@ -115,6 +115,9 @@ static bool fanotify_should_send_event(struct fsnotify_iter_info *iter_info,
 			continue;
 		mark = iter_info->marks[type];
 
+		if (event_mask & FS_ISDIR && !(mark->mask & FS_ISDIR))
+			continue;
+
 		/* Apply ignore mask regardless of ISDIR and ON_CHILD flags */
 		marks_ignored_mask |= mark->ignored_mask;
 

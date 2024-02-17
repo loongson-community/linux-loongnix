@@ -745,6 +745,10 @@ enum inode_i_mutex_lock_class
 
 static inline void inode_lock(struct inode *inode)
 {
+#ifdef CONFIG_NODE_CACHE_THRASH_OPTIMIZATION
+	extern void update_access_stat(u64 *ptr, int kind);
+	update_access_stat(&inode->i_rwsem.stat, 1);
+#endif
 	down_write(&inode->i_rwsem);
 }
 
@@ -904,7 +908,6 @@ struct file {
 	 */
 	spinlock_t		f_lock;
 	enum rw_hint		f_write_hint;
-	atomic_long_t		f_count;
 	unsigned int 		f_flags;
 	fmode_t			f_mode;
 	struct mutex		f_pos_lock;
@@ -927,6 +930,7 @@ struct file {
 #endif /* #ifdef CONFIG_EPOLL */
 	struct address_space	*f_mapping;
 	errseq_t		f_wb_err;
+	atomic_long_t		f_count;
 } __randomize_layout
   __attribute__((aligned(4)));	/* lest something weird decides that 2 is OK */
 

@@ -31,7 +31,9 @@ struct fdtable {
 	unsigned long *full_fds_bits;
 	struct rcu_head rcu;
 };
-
+#ifdef CONFIG_LS_DUP
+#include <asm/special_syscall.h>
+#endif
 static inline bool close_on_exec(unsigned int fd, const struct fdtable *fdt)
 {
 	return test_bit(fd, fdt->close_on_exec);
@@ -60,7 +62,7 @@ struct files_struct {
    */
 	spinlock_t file_lock ____cacheline_aligned_in_smp;
 	unsigned int next_fd;
-	unsigned long close_on_exec_init[1];
+	unsigned long close_on_exec_init[3];
 	unsigned long open_fds_init[1];
 	unsigned long full_fds_bits_init[1];
 	struct file __rcu * fd_array[NR_OPEN_DEFAULT];
@@ -76,20 +78,22 @@ struct dentry;
 #define files_fdtable(files) \
 	rcu_dereference_check_fdtable((files), (files)->fdt)
 
+#ifndef ls_get_file
+#define ls_get_file
+#endif
 /*
  * The caller must ensure that fd table isn't shared or hold rcu or file lock
  */
 static inline struct file *__fcheck_files(struct files_struct *files, unsigned int fd)
 {
 	struct fdtable *fdt = rcu_dereference_raw(files->fdt);
-
 	if (fd < fdt->max_fds) {
 		fd = array_index_nospec(fd, fdt->max_fds);
+		ls_get_file(fd, fdt);
 		return rcu_dereference_raw(fdt->fd[fd]);
 	}
 	return NULL;
 }
-
 static inline struct file *fcheck_files(struct files_struct *files, unsigned int fd)
 {
 	RCU_LOCKDEP_WARN(!rcu_read_lock_held() &&

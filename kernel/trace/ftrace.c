@@ -78,6 +78,11 @@
 #define ASSIGN_OPS_HASH(opsname, val)
 #endif
 
+enum {
+	FTRACE_MODIFY_ENABLE_FL		= (1 << 0),
+	FTRACE_MODIFY_MAY_SLEEP_FL	= (1 << 1),
+};
+
 static struct ftrace_ops ftrace_list_end __read_mostly = {
 	.func		= ftrace_stub,
 	.flags		= FTRACE_OPS_FL_RECURSION_SAFE | FTRACE_OPS_FL_STUB,
@@ -2438,10 +2443,12 @@ __ftrace_replace_code(struct dyn_ftrace *rec, int enable)
 	return -1; /* unknow ftrace bug */
 }
 
-void __weak ftrace_replace_code(int enable)
+void __weak ftrace_replace_code(int mod_flags)
 {
 	struct dyn_ftrace *rec;
 	struct ftrace_page *pg;
+	int enable = mod_flags & FTRACE_MODIFY_ENABLE_FL;
+	int schedulable = mod_flags & FTRACE_MODIFY_MAY_SLEEP_FL;
 	int failed;
 
 	if (unlikely(ftrace_disabled))
@@ -2458,6 +2465,8 @@ void __weak ftrace_replace_code(int enable)
 			/* Stop processing */
 			return;
 		}
+		if (schedulable)
+			cond_resched();
 	} while_for_each_ftrace_rec();
 }
 
@@ -2534,14 +2543,14 @@ struct dyn_ftrace *ftrace_rec_iter_record(struct ftrace_rec_iter *iter)
 }
 
 static int
-ftrace_code_disable(struct module *mod, struct dyn_ftrace *rec)
+ftrace_nop_initialize(struct module *mod, struct dyn_ftrace *rec)
 {
 	int ret;
 
 	if (unlikely(ftrace_disabled))
 		return 0;
 
-	ret = ftrace_make_nop(mod, rec, MCOUNT_ADDR);
+	ret = ftrace_init_nop(mod, rec);
 	if (ret) {
 		ftrace_bug_type = FTRACE_BUG_INIT;
 		ftrace_bug(ret, rec);
@@ -2571,7 +2580,11 @@ int __weak ftrace_arch_code_modify_post_process(void)
 void ftrace_modify_all_code(int command)
 {
 	int update = command & FTRACE_UPDATE_TRACE_FUNC;
+	int mod_flags = 0;
 	int err = 0;
+
+	if (command & FTRACE_MAY_SLEEP)
+		mod_flags = FTRACE_MODIFY_MAY_SLEEP_FL;
 
 	/*
 	 * If the ftrace_caller calls a ftrace_ops func directly,
@@ -2590,9 +2603,9 @@ void ftrace_modify_all_code(int command)
 	}
 
 	if (command & FTRACE_UPDATE_CALLS)
-		ftrace_replace_code(1);
+		ftrace_replace_code(mod_flags | FTRACE_MODIFY_ENABLE_FL);
 	else if (command & FTRACE_DISABLE_CALLS)
-		ftrace_replace_code(0);
+		ftrace_replace_code(mod_flags);
 
 	if (update && ftrace_trace_function != ftrace_ops_list_func) {
 		function_trace_op = set_function_trace_op;
@@ -2979,7 +2992,7 @@ static int ftrace_update_code(struct module *mod, struct ftrace_page *new_pgs)
 			 * to the NOP instructions.
 			 */
 			if (!__is_defined(CC_USING_NOP_MCOUNT) &&
-			    !ftrace_code_disable(mod, p))
+			    !ftrace_nop_initialize(mod, p))
 				break;
 
 			update_cnt++;

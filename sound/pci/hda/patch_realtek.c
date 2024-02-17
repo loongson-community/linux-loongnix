@@ -37,6 +37,7 @@
 #include "hda_auto_parser.h"
 #include "hda_jack.h"
 #include "hda_generic.h"
+#include "hda_controller.h"
 
 /* keep halting ALC5505 DSP, for power saving */
 #define HALT_REALTEK_ALC5505
@@ -287,6 +288,13 @@ static void alc_fixup_gpio4(struct hda_codec *codec,
 			    const struct hda_fixup *fix, int action)
 {
 	alc_fixup_gpio(codec, action, 0x04);
+}
+
+int has_loongson_workaround(struct hda_codec *codec)
+{
+	struct azx *chip = bus_to_azx(&codec->bus->core);
+
+	return chip->driver_caps & AZX_DCAPS_LS2X_WORKAROUND;
 }
 
 /*
@@ -623,10 +631,10 @@ static int alc_auto_parse_customize_define(struct hda_codec *codec)
 		goto do_sku;
 	}
 
-	if (!codec->bus->pci)
+	if (!codec->bus->pci && !has_loongson_workaround(codec))
 		return -1;
 	ass = codec->core.subsystem_id & 0xffff;
-	if (ass != codec->bus->pci->subsystem_device && (ass & 1))
+	if (codec->bus->pci && ass != codec->bus->pci->subsystem_device && (ass & 1))
 		goto do_sku;
 
 	nid = 0x1d;
@@ -3990,7 +3998,7 @@ static void alc269_fixup_hp_gpio_led(struct hda_codec *codec,
 }
 
 static void alc285_fixup_hp_gpio_led(struct hda_codec *codec,
-				const struct hda_fixup *fix, int action)
+                               const struct hda_fixup *fix, int action)
 {
 	struct alc_spec *spec = codec->spec;
 
@@ -5819,6 +5827,9 @@ enum {
 	ALC294_FIXUP_ASUS_SPK,
 	ALC293_FIXUP_SYSTEM76_MIC_NO_PRESENCE,
 	ALC285_FIXUP_LENOVO_PC_BEEP_IN_NOISE,
+	ALC269_FIXUP_CZC_B20,
+	ALC269_FIXUP_LEMOTE_A1802,
+	ALC269_FIXUP_LS3A7A,
 	ALC255_FIXUP_ACER_HEADSET_MIC,
 	ALC225_FIXUP_DELL_WYSE_AIO_MIC_NO_PRESENCE,
 	ALC225_FIXUP_WYSE_AUTO_MUTE,
@@ -6829,6 +6840,41 @@ static const struct hda_fixup alc269_fixups[] = {
 		.chained = true,
 		.chain_id = ALC285_FIXUP_LENOVO_HEADPHONE_NOISE
 	},
+	[ALC269_FIXUP_CZC_B20] = {
+		.type = HDA_FIXUP_PINS,
+		.v.pins = (const struct hda_pintbl[]) {
+			{ 0x12, 0x411111f0 },
+			{ 0x14, 0x90170110 }, /* speaker */
+			{ 0x15, 0x032f1020 }, /* HP out */
+			{ 0x17, 0x411111f0 },
+			{ 0x18, 0x03ab1040 }, /* mic */
+			{ 0x19, 0xb7a7013f },
+			{ 0x1a, 0x0181305f },
+			{ 0x1b, 0x411111f0 },
+			{ 0x1d, 0x411111f0 },
+			{ 0x1e, 0x411111f0 },
+			{ }
+		},
+		.chain_id = ALC269_FIXUP_DMIC,
+	},
+	[ALC269_FIXUP_LEMOTE_A1802] = {
+		.type = HDA_FIXUP_PINS,
+		.v.pins = (const struct hda_pintbl[]) {
+			{ 0x12, 0x40000000 },
+			{ 0x14, 0x90170110 }, /* speaker */
+			{ 0x17, 0x411111f0 },
+			{ 0x18, 0x03a19040 }, /* mic1 */
+			{ 0x19, 0x90a70130 }, /* mic2 */
+			{ 0x1a, 0x411111f0 },
+			{ 0x1b, 0x411111f0 },
+			{ 0x1d, 0x40489d2d },
+			{ 0x1e, 0x411111f0 },
+			{ 0x20, 0x0003ffff },
+			{ 0x21, 0x03214020 },
+			{ }
+		},
+		.chain_id = ALC269_FIXUP_DMIC,
+	},
 	[ALC255_FIXUP_ACER_HEADSET_MIC] = {
 		.type = HDA_FIXUP_PINS,
 		.v.pins = (const struct hda_pintbl[]) {
@@ -6948,6 +6994,14 @@ static const struct hda_fixup alc269_fixups[] = {
 	[ALC285_FIXUP_HP_GPIO_LED] = {
 		.type = HDA_FIXUP_FUNC,
 		.v.func = alc285_fixup_hp_gpio_led,
+	},
+	[ALC269_FIXUP_LS3A7A] = {
+		.type = HDA_FIXUP_PINS,
+		.v.pins = (const struct hda_pintbl[]) {
+			{ 0x1b, 0x02214c40 }, /* Front Mic */
+			{ 0x15, 0x01014030 }, /* Rear Mic */
+			{ }
+		},
 	},
 };
 
@@ -7264,10 +7318,12 @@ static const struct snd_pci_quirk alc269_fixup_tbl[] = {
 	SND_PCI_QUIRK(0x17aa, 0x3bf8, "Quanta FL1", ALC269_FIXUP_PCM_44K),
 	SND_PCI_QUIRK(0x17aa, 0x9e54, "LENOVO NB", ALC269_FIXUP_LENOVO_EAPD),
 	SND_PCI_QUIRK(0x19e5, 0x3204, "Huawei MBXP", ALC256_FIXUP_HUAWEI_MBXP_PINS),
+	SND_PCI_QUIRK(0x1b35, 0x1235, "CZC B20", ALC269_FIXUP_CZC_B20),
 	SND_PCI_QUIRK(0x1b7d, 0xa831, "Ordissimo EVE2 ", ALC269VB_FIXUP_ORDISSIMO_EVE2), /* Also known as Malata PC-B1303 */
 	SND_PCI_QUIRK(0x1d72, 0x1901, "RedmiBook 14", ALC256_FIXUP_ASUS_HEADSET_MIC),
 	SND_PCI_QUIRK(0x10ec, 0x118c, "Medion EE4254 MD62100", ALC256_FIXUP_MEDION_HEADSET_NO_PRESENCE),
-
+	SND_PCI_QUIRK(0x1c06, 0x2013, "Lemote A1802", ALC269_FIXUP_LEMOTE_A1802),
+	SND_PCI_QUIRK(0x10ec, 0x0269, "ls3a7a", ALC269_FIXUP_LS3A7A),
 #if 0
 	/* Below is a quirk table taken from the old code.
 	 * Basically the device should work as is without the fixup table.
@@ -8464,6 +8520,7 @@ enum {
 	ALC662_FIXUP_LED_GPIO1,
 	ALC662_FIXUP_IDEAPAD,
 	ALC272_FIXUP_MARIO,
+	ALC662_FIXUP_CZC_ET26,
 	ALC662_FIXUP_CZC_P10T,
 	ALC662_FIXUP_SKU_IGNORE,
 	ALC662_FIXUP_HP_RP5800,
@@ -8527,6 +8584,25 @@ static const struct hda_fixup alc662_fixups[] = {
 	[ALC272_FIXUP_MARIO] = {
 		.type = HDA_FIXUP_FUNC,
 		.v.func = alc272_fixup_mario,
+	},
+	[ALC662_FIXUP_CZC_ET26] = {
+		.type = HDA_FIXUP_PINS,
+		.v.pins = (const struct hda_pintbl[]) {
+			{0x12, 0x403cc000},
+			{0x14, 0x90170110}, /* speaker */
+			{0x15, 0x411111f0},
+			{0x16, 0x411111f0},
+			{0x18, 0x01a19030}, /* mic */
+			{0x19, 0x90a7013f}, /* int-mic */
+			{0x1a, 0x01014020},
+			{0x1b, 0x0121401f},
+			{0x1c, 0x411111f0},
+			{0x1d, 0x411111f0},
+			{0x1e, 0x40478e35},
+			{}
+		},
+		.chained = true,
+		.chain_id = ALC662_FIXUP_SKU_IGNORE
 	},
 	[ALC662_FIXUP_CZC_P10T] = {
 		.type = HDA_FIXUP_VERBS,
@@ -8871,6 +8947,7 @@ static const struct snd_pci_quirk alc662_fixup_tbl[] = {
 	SND_PCI_QUIRK(0x1849, 0x5892, "ASRock B150M", ALC892_FIXUP_ASROCK_MOBO),
 	SND_PCI_QUIRK(0x19da, 0xa130, "Zotac Z68", ALC662_FIXUP_ZOTAC_Z68),
 	SND_PCI_QUIRK(0x1b0a, 0x01b8, "ACER Veriton", ALC662_FIXUP_ACER_VERITON),
+	SND_PCI_QUIRK(0x1b35, 0x1234, "CZC ET26", ALC662_FIXUP_CZC_ET26),
 	SND_PCI_QUIRK(0x1b35, 0x2206, "CZC P10T", ALC662_FIXUP_CZC_P10T),
 
 #if 0

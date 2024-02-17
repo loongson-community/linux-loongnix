@@ -708,7 +708,15 @@ static int mdio_bus_match(struct device *dev, struct device_driver *drv)
 
 static int mdio_uevent(struct device *dev, struct kobj_uevent_env *env)
 {
+	struct mdio_device *mdio = to_mdio_device(dev);
 	int rc;
+
+	/* Use the device-specific uevent if specified */
+	if (mdio->bus_uevent) {
+		rc = mdio->bus_uevent(mdio, env);
+		if (rc != -ENODEV)
+			return rc;
+	}
 
 	/* Some devices have extra OF data and an OF-style MODALIAS */
 	rc = of_device_uevent_modalias(dev, env);

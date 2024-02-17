@@ -799,9 +799,24 @@ const struct acpi_device_id *acpi_match_device(const struct acpi_device_id *ids,
 }
 EXPORT_SYMBOL_GPL(acpi_match_device);
 
+static const void *acpi_of_device_get_match_data(const struct device *dev)
+{
+	struct acpi_device *adev = ACPI_COMPANION(dev);
+	const struct of_device_id *match = NULL;
+
+	if (!acpi_of_match_device(adev, dev->driver->of_match_table, &match))
+		return NULL;
+
+	return match->data;
+}
+
 const void *acpi_device_get_match_data(const struct device *dev)
 {
+	const struct acpi_device_id *acpi_ids = dev->driver->acpi_match_table;
 	const struct acpi_device_id *match;
+
+	if (!acpi_ids)
+		return acpi_of_device_get_match_data(dev);
 
 	match = acpi_match_device(dev->driver->acpi_match_table, dev);
 	if (!match)
@@ -987,6 +1002,9 @@ static int __init acpi_bus_init_irq(void)
 		break;
 	case ACPI_IRQ_MODEL_PLATFORM:
 		message = "platform specific model";
+		break;
+	case ACPI_IRQ_MODEL_LPIC:
+		message = "LPIC";
 		break;
 	default:
 		printk(KERN_WARNING PREFIX "Unknown interrupt routing model\n");

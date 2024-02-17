@@ -1711,6 +1711,7 @@ struct mempolicy *__get_vma_policy(struct vm_area_struct *vma,
 
 	return pol;
 }
+EXPORT_SYMBOL(__get_vma_policy);
 
 /*
  * get_vma_policy(@vma, @addr)
@@ -2163,6 +2164,7 @@ alloc_pages_vma(gfp_t gfp, int order, struct vm_area_struct *vma,
 out:
 	return page;
 }
+EXPORT_SYMBOL(alloc_pages_vma);
 
 /**
  * 	alloc_pages_current - Allocate pages.

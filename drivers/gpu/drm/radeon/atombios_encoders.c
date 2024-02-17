@@ -138,10 +138,28 @@ atombios_set_backlight_level(struct radeon_encoder *radeon_encoder, u8 level)
 
 #if defined(CONFIG_BACKLIGHT_CLASS_DEVICE) || defined(CONFIG_BACKLIGHT_CLASS_DEVICE_MODULE)
 
+#if defined(CONFIG_LOONGSON_EA_LAPTOP)
+int is_ea_laptop(void);
+int is_ea_minipc(void);
+void ec_set_brightness(int level);
+int ec_get_brightness(void);
+#endif
+
 static u8 radeon_atom_bl_level(struct backlight_device *bd)
 {
 	u8 level;
 
+#if defined(CONFIG_LOONGSON_EA_LAPTOP)
+	if(is_ea_laptop() || is_ea_minipc()){
+		if (bd->props.brightness < 0)
+			level = 0;
+		else if (bd->props.brightness > 100)
+			level = 100;
+		else
+			level = bd->props.brightness;
+		return level;
+	}
+#endif
 	/* Convert brightness to hardware level */
 	if (bd->props.brightness < 0)
 		level = 0;
@@ -158,6 +176,12 @@ static int radeon_atom_backlight_update_status(struct backlight_device *bd)
 	struct radeon_backlight_privdata *pdata = bl_get_data(bd);
 	struct radeon_encoder *radeon_encoder = pdata->encoder;
 
+#if defined(CONFIG_LOONGSON_EA_LAPTOP)
+	if(is_ea_laptop() || is_ea_minipc()){
+		ec_set_brightness(radeon_atom_bl_level(bd));
+		return 0;
+	}
+#endif
 	atombios_set_backlight_level(radeon_encoder, radeon_atom_bl_level(bd));
 
 	return 0;
@@ -169,7 +193,10 @@ static int radeon_atom_backlight_get_brightness(struct backlight_device *bd)
 	struct radeon_encoder *radeon_encoder = pdata->encoder;
 	struct drm_device *dev = radeon_encoder->base.dev;
 	struct radeon_device *rdev = dev->dev_private;
-
+#if defined(CONFIG_LOONGSON_EA_LAPTOP)
+	if(is_ea_laptop() || is_ea_minipc())
+		return ec_get_brightness();
+#endif
 	return radeon_atom_get_backlight_level_from_reg(rdev);
 }
 
@@ -213,6 +240,11 @@ void radeon_atom_backlight_init(struct radeon_encoder *radeon_encoder,
 
 	memset(&props, 0, sizeof(props));
 	props.max_brightness = RADEON_MAX_BL_LEVEL;
+#if defined(CONFIG_LOONGSON_EA_LAPTOP)
+	if(is_ea_laptop() || is_ea_minipc())
+		props.max_brightness = 100;
+#endif
+
 	props.type = BACKLIGHT_RAW;
 	snprintf(bl_name, sizeof(bl_name),
 		 "radeon_bl%d", dev->primary->index);

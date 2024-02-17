@@ -22,6 +22,7 @@
 
 #include <asm/inst.h>
 #include <asm/mipsregs.h>
+#include <asm/compiler.h>
 
 /* MIPS KVM register ids */
 #define MIPS_CP0_32(_R, _S)					\
@@ -31,6 +32,7 @@
 	(KVM_REG_MIPS_CP0 | KVM_REG_SIZE_U64 | (8 * (_R) + (_S)))
 
 #define KVM_REG_MIPS_CP0_INDEX		MIPS_CP0_32(0, 0)
+#define KVM_REG_MIPS_CP0_RANDOM		MIPS_CP0_32(1, 0)
 #define KVM_REG_MIPS_CP0_ENTRYLO0	MIPS_CP0_64(2, 0)
 #define KVM_REG_MIPS_CP0_ENTRYLO1	MIPS_CP0_64(3, 0)
 #define KVM_REG_MIPS_CP0_CONTEXT	MIPS_CP0_64(4, 0)
@@ -66,9 +68,11 @@
 #define KVM_REG_MIPS_CP0_CONFIG3	MIPS_CP0_32(16, 3)
 #define KVM_REG_MIPS_CP0_CONFIG4	MIPS_CP0_32(16, 4)
 #define KVM_REG_MIPS_CP0_CONFIG5	MIPS_CP0_32(16, 5)
-#define KVM_REG_MIPS_CP0_CONFIG7	MIPS_CP0_32(16, 7)
+#define KVM_REG_MIPS_CP0_CONFIG6	MIPS_CP0_32(16, 6)
+#define KVM_REG_MIPS_CP0_CONFIG7	MIPS_CP0_64(16, 7)
 #define KVM_REG_MIPS_CP0_MAARI		MIPS_CP0_64(17, 2)
 #define KVM_REG_MIPS_CP0_XCONTEXT	MIPS_CP0_64(20, 0)
+#define KVM_REG_MIPS_CP0_GSCAUSE	MIPS_CP0_64(22, 1)
 #define KVM_REG_MIPS_CP0_ERROREPC	MIPS_CP0_64(30, 0)
 #define KVM_REG_MIPS_CP0_KSCRATCH1	MIPS_CP0_64(31, 2)
 #define KVM_REG_MIPS_CP0_KSCRATCH2	MIPS_CP0_64(31, 3)
@@ -77,9 +81,8 @@
 #define KVM_REG_MIPS_CP0_KSCRATCH5	MIPS_CP0_64(31, 6)
 #define KVM_REG_MIPS_CP0_KSCRATCH6	MIPS_CP0_64(31, 7)
 
-
-#define KVM_MAX_VCPUS		8
-#define KVM_USER_MEM_SLOTS	8
+#define KVM_MAX_VCPUS		16
+#define KVM_USER_MEM_SLOTS	16
 /* memory slots that does not exposed to userspace */
 #define KVM_PRIVATE_MEM_SLOTS	0
 
@@ -141,6 +144,34 @@ static inline bool kvm_is_error_hva(unsigned long addr)
 
 struct kvm_vm_stat {
 	ulong remote_tlb_flush;
+#ifdef CONFIG_CPU_LOONGSON3
+	u64 lsvz_kvm_vm_ioctl_irq_line;
+	u64 lsvz_kvm_ls7a_ioapic_update;
+	u64 lsvz_kvm_ls7a_ioapic_lower;
+	u64 lsvz_kvm_ls7a_ioapic_clear;
+	u64 lsvz_kvm_ls7a_ioapic_set_irq;
+	u64 lsvz_ls7a_ioapic_reg_write;
+	u64 lsvz_ls7a_ioapic_reg_read;
+	u64 lsvz_kvm_set_ls7a_ioapic;
+	u64 lsvz_kvm_get_ls7a_ioapic;
+	u64 lsvz_kvm_set_ls3a_ht_irq;
+	u64 lsvz_kvm_get_ls3a_ht_irq;
+	u64 lsvz_kvm_set_ls3a_router_irq;
+	u64 lsvz_kvm_get_ls3a_router_irq;
+	u64 lsvz_kvm_set_ls3a_ext_irq;
+	u64 lsvz_kvm_get_ls3a_ext_irq;
+	u64 lsvz_kvm_set_ls3a_ipmask;
+	u64 lsvz_kvm_get_ls3a_ipmask;
+	u64 lsvz_kvm_pip_read_exits;
+	u64 lsvz_kvm_pip_write_exits;
+	u64 lsvz_kvm_ls7a_pic_read_exits;
+	u64 lsvz_kvm_ls7a_pic_write_exits;
+	u64 lsvz_kvm_ls3a_ht_write_exits;
+	u64 lsvz_kvm_ls3a_ht_read_exits;
+	u64 lsvz_kvm_ls3a_router_write_exits;
+	u64 lsvz_kvm_ls3a_router_read_exits;
+	u64 lsvz_kvm_ls7a_msi_irq;
+#endif
 };
 
 struct kvm_vcpu_stat {
@@ -160,7 +191,10 @@ struct kvm_vcpu_stat {
 	u64 trap_inst_exits;
 	u64 msa_fpe_exits;
 	u64 fpe_exits;
+	u64 tlbri_exits;
+	u64 tlbxi_exits;
 	u64 msa_disabled_exits;
+	u64 lasx_disabled_exits;
 	u64 flush_dcache_exits;
 #ifdef CONFIG_KVM_MIPS_VZ
 	u64 vz_gpsi_exits;
@@ -172,6 +206,42 @@ struct kvm_vcpu_stat {
 	u64 vz_gpa_exits;
 	u64 vz_resvd_exits;
 #endif
+#ifdef CONFIG_CPU_LOONGSON3
+	u64 lsvz_mmio_exits;
+	u64 lsvz_general_exits;
+	u64 lsvz_ignore_exits;
+	u64 lsvz_nc_exits;
+	u64 lsvz_hc_tlbmiss_exits;
+	u64 lsvz_hc_tlbm_exits;
+	u64 lsvz_hc_tlbl_exits;
+	u64 lsvz_hc_tlbs_exits;
+	u64 lsvz_hc_emulate_exits;
+	u64 lsvz_hc_missvalid_exits;
+	u64 lsvz_gpsi_cop0_exits;
+	u64 lsvz_gpsi_cache_exits;
+	u64 lsvz_gpsi_spec3_exits;
+	u64 lsvz_tlb_refill_exits;
+	u64 lsvz_tlb_refill_fail;
+	u64 lsvz_tlb_add_replace;
+	u64 lsvz_tlb_add_refresh;
+	u64 lsvz_gpsi_lwc2_exits;
+	u64 lsvz_rdcsr_exits;
+	u64 lsvz_rdcsr_cpu_feature_exits;
+	u64 lsvz_rdcsr_cpu_temperature_exits;
+	u64 lsvz_rdcsr_node_counter_exits;
+	u64 lsvz_rdcsr_other_func_exits;
+	u64 lsvz_rdcsr_ipi_access_exits;
+	u64 lsvz_wrcsr_exits;
+	u64 lsvz_drdcsr_exits;
+	u64 lsvz_dwrcsr_exits;
+	u64 lsvz_cpucfg_exits;
+	u64 lsvz_stable_counter_exits;
+	u64 lsvz_huge_dec_exits;
+	u64 lsvz_huge_thp_exits;
+	u64 lsvz_huge_adjust_exits;
+	u64 lsvz_huge_set_exits;
+	u64 lsvz_huge_merge_exits;
+#endif
 	u64 halt_successful_poll;
 	u64 halt_attempted_poll;
 	u64 halt_poll_invalid;
@@ -181,11 +251,37 @@ struct kvm_vcpu_stat {
 struct kvm_arch_memory_slot {
 };
 
+struct mailbox_val {
+	union {
+		struct {
+			u32 lo;
+			u32 hi;
+		};
+		u64 mailval;
+	};
+	u32 flags;
+};
+
 struct kvm_arch {
 	/* Guest physical mm */
 	struct mm_struct gpa_mm;
 	/* Mask of CPUs needing GPA ASID flush */
 	cpumask_t asid_flush_mask;
+
+	unsigned char online_vcpus;
+	unsigned char is_migrate;
+	s64 nodecounter_offset;
+	s64 stablecounter_gftoffset;
+	u32 node_shift;
+	u32 use_stable_timer;
+	u32 cpucfg_lasx;
+	struct mailbox_val mval[NR_CPUS][4];
+	struct ls7a_kvm_ioapic *v_ioapic;
+	struct ls3a_kvm_ipi *v_gipi;
+	struct ls3a_kvm_htirq *v_htirq;
+	struct ls3a_kvm_routerirq *v_routerirq;
+	struct ls3a_kvm_extirq *v_extirq;
+	uint16_t core_ip_mask[KVM_MAX_VCPUS][4];
 };
 
 #define N_MIPS_COPROC_REGS	32
@@ -208,6 +304,7 @@ struct mips_coproc {
 #define MIPS_CP0_TLB_LO1	3
 #define MIPS_CP0_TLB_CONTEXT	4
 #define MIPS_CP0_TLB_PG_MASK	5
+#define MIPS_CP0_TLB_PGGRAIN	5
 #define MIPS_CP0_TLB_WIRED	6
 #define MIPS_CP0_HWRENA		7
 #define MIPS_CP0_BAD_VADDR	8
@@ -228,6 +325,7 @@ struct mips_coproc {
 #define MIPS_CP0_TAG_LO		28
 #define MIPS_CP0_TAG_HI		29
 #define MIPS_CP0_ERROR_PC	30
+#define MIPS_CP0_DIAG		22
 #define MIPS_CP0_DEBUG		23
 #define MIPS_CP0_DEPC		24
 #define MIPS_CP0_PERFCNT	25
@@ -264,6 +362,7 @@ enum emulation_result {
 	EMULATE_PRIV_FAIL,
 	EMULATE_EXCEPT,		/* A guest exception has been generated */
 	EMULATE_HYPERCALL,	/* HYPCALL instruction */
+	EMULATE_DEBUG,		/* Emulate guest kernel debug */
 };
 
 #define mips3_paddr_to_tlbpfn(x) \
@@ -275,7 +374,7 @@ enum emulation_result {
 #define MIPS3_PG_FRAME		0x3fffffc0
 
 #if defined(CONFIG_64BIT)
-#define VPN2_MASK		GENMASK(cpu_vmbits - 1, 13)
+#define VPN2_MASK              GENMASK(cpu_vmbits - 1, 13)
 #else
 #define VPN2_MASK		0xffffe000
 #endif
@@ -310,8 +409,18 @@ struct kvm_mmu_memory_cache {
 
 #define KVM_MIPS_AUX_FPU	0x1
 #define KVM_MIPS_AUX_MSA	0x2
+#define KVM_MIPS_AUX_LASX	0x4
 
 #define KVM_MIPS_GUEST_TLB_SIZE	64
+
+#if defined(CONFIG_CPU_HAS_LASX)
+# define FPU_ALIGN              __aligned(32)
+#elif defined(CONFIG_CPU_HAS_MSA)
+# define FPU_ALIGN              __aligned(16)
+#else
+# define FPU_ALIGN
+#endif
+
 struct kvm_vcpu_arch {
 	void *guest_ebase;
 	int (*vcpu_run)(struct kvm_run *run, struct kvm_vcpu *vcpu);
@@ -329,7 +438,10 @@ struct kvm_vcpu_arch {
 	u32 host_cp0_guestctl0;
 	u32 host_cp0_badinstr;
 	u32 host_cp0_badinstrp;
+	u32 host_cp0_gscause;
 
+	u32 is_hypcall;
+	u32 is_nodecounter;
 	/* GPRS */
 	unsigned long gprs[32];
 	unsigned long hi;
@@ -337,7 +449,7 @@ struct kvm_vcpu_arch {
 	unsigned long pc;
 
 	/* FPU State */
-	struct mips_fpu_struct fpu;
+	struct mips_fpu_struct fpu FPU_ALIGN;
 	/* Which auxiliary state is loaded (KVM_MIPS_AUX_*) */
 	unsigned int aux_inuse;
 
@@ -386,7 +498,26 @@ struct kvm_vcpu_arch {
 
 #ifdef CONFIG_KVM_MIPS_VZ
 	/* vcpu's vzguestid is different on each host cpu in an smp system */
-	u32 vzguestid[NR_CPUS];
+	u64 vzguestid[NR_CPUS];
+
+	u64 stable_timer_tick;
+	u64 stable_timer_cfg;
+	/* Period of stable timer tick in ns */
+	u64 stable_timer_period;
+	/* Frequency of stable timer in Hz */
+	u64 stable_timer_hz;
+	/* Stable bias from the raw time */
+	u64 stable_timer_bias;
+	/* Stable timer control KVM register */
+	u32 stable_timer_ctl;
+	/* Dynamic nanosecond bias (multiple of stable_timer_period) to avoid overflow */
+	s64 stable_timer_dyn_bias;
+	/* Resume time */
+	ktime_t stable_timer_resume;
+	/* Save ktime */
+	ktime_t stable_ktime_saved;
+
+	u64 core_ext_ioisr[4];
 
 	/* wired guest TLB entries */
 	struct kvm_mips_tlb *wired_tlb;
@@ -704,7 +835,9 @@ __BUILD_KVM_RW_HW(compare,        32, MIPS_CP0_COMPARE,      0)
 __BUILD_KVM_RW_HW(status,         32, MIPS_CP0_STATUS,       0)
 __BUILD_KVM_RW_HW(intctl,         32, MIPS_CP0_STATUS,       1)
 __BUILD_KVM_RW_HW(cause,          32, MIPS_CP0_CAUSE,        0)
+__BUILD_KVM_RW_HW(nestexc,        32, MIPS_CP0_CAUSE,        5)
 __BUILD_KVM_RW_HW(epc,            l,  MIPS_CP0_EXC_PC,       0)
+__BUILD_KVM_RW_HW(nestepc,        l,  MIPS_CP0_EXC_PC,       2)
 __BUILD_KVM_RW_SW(prid,           32, MIPS_CP0_PRID,         0)
 __BUILD_KVM_RW_HW(ebase,          l,  MIPS_CP0_PRID,         1)
 __BUILD_KVM_RW_HW(config,         32, MIPS_CP0_CONFIG,       0)
@@ -714,9 +847,10 @@ __BUILD_KVM_RW_HW(config3,        32, MIPS_CP0_CONFIG,       3)
 __BUILD_KVM_RW_HW(config4,        32, MIPS_CP0_CONFIG,       4)
 __BUILD_KVM_RW_HW(config5,        32, MIPS_CP0_CONFIG,       5)
 __BUILD_KVM_RW_HW(config6,        32, MIPS_CP0_CONFIG,       6)
-__BUILD_KVM_RW_HW(config7,        32, MIPS_CP0_CONFIG,       7)
+__BUILD_KVM_RW_HW(config7,        l,  MIPS_CP0_CONFIG,       7)
 __BUILD_KVM_RW_SW(maari,          l,  MIPS_CP0_LLADDR,       2)
 __BUILD_KVM_RW_HW(xcontext,       l,  MIPS_CP0_TLB_XCONTEXT, 0)
+__BUILD_KVM_RW_HW(gscause,        32,  MIPS_CP0_DIAG,        1)
 __BUILD_KVM_RW_HW(errorepc,       l,  MIPS_CP0_ERROR_PC,     0)
 __BUILD_KVM_RW_HW(kscratch1,      l,  MIPS_CP0_DESAVE,       2)
 __BUILD_KVM_RW_HW(kscratch2,      l,  MIPS_CP0_DESAVE,       3)
@@ -765,6 +899,8 @@ static inline bool kvm_mips_guest_has_msa(struct kvm_vcpu_arch *vcpu)
 		kvm_read_c0_guest_config3(vcpu->cop0) & MIPS_CONF3_MSA;
 }
 
+bool kvm_mips_guest_has_lasx(struct kvm_vcpu *vcpu);
+
 struct kvm_mips_callbacks {
 	int (*handle_cop_unusable)(struct kvm_vcpu *vcpu);
 	int (*handle_tlb_mod)(struct kvm_vcpu *vcpu);
@@ -778,7 +914,10 @@ struct kvm_mips_callbacks {
 	int (*handle_trap)(struct kvm_vcpu *vcpu);
 	int (*handle_msa_fpe)(struct kvm_vcpu *vcpu);
 	int (*handle_fpe)(struct kvm_vcpu *vcpu);
+	int (*handle_tlbri)(struct kvm_vcpu *vcpu);
+	int (*handle_tlbxi)(struct kvm_vcpu *vcpu);
 	int (*handle_msa_disabled)(struct kvm_vcpu *vcpu);
+	int (*handle_lasx_disabled)(struct kvm_vcpu *vcpu);
 	int (*handle_guest_exit)(struct kvm_vcpu *vcpu);
 	int (*hardware_enable)(void);
 	void (*hardware_disable)(void);
@@ -818,6 +957,20 @@ struct kvm_mips_callbacks {
 };
 extern struct kvm_mips_callbacks *kvm_mips_callbacks;
 int kvm_mips_emulation_init(struct kvm_mips_callbacks **install_callbacks);
+int kvm_ls3acomp_emulation_init(struct kvm_mips_callbacks **install_callbacks);
+
+struct kvm_timer_callbacks {
+	void (*restore_timer)(struct kvm_vcpu *vcpu);
+	void (*acquire_htimer)(struct kvm_vcpu *vcpu);
+	void (*save_timer)(struct kvm_vcpu *vcpu);
+	void (*lose_htimer)(struct kvm_vcpu *vcpu);
+	enum hrtimer_restart (*count_timeout)(struct kvm_vcpu *vcpu);
+	void (*write_count)(struct kvm_vcpu *vcpu, u32 count);
+	void (*write_stable_timer)(struct kvm_vcpu *vcpu, u64 stable_timer);
+};
+extern struct kvm_timer_callbacks *kvm_timer_callbacks;
+int kvm_mips_timer_init(struct kvm_timer_callbacks **install_callbacks);
+int kvm_ls3acomp_timer_init(struct kvm_timer_callbacks **install_callbacks);
 
 /* Debug: dump vcpu state */
 int kvm_arch_vcpu_dump_regs(struct kvm_vcpu *vcpu);
@@ -843,6 +996,11 @@ void kvm_own_fpu(struct kvm_vcpu *vcpu);
 void kvm_own_msa(struct kvm_vcpu *vcpu);
 void kvm_drop_fpu(struct kvm_vcpu *vcpu);
 void kvm_lose_fpu(struct kvm_vcpu *vcpu);
+void __kvm_save_lasx(struct kvm_vcpu_arch *vcpu);
+void __kvm_restore_lasx(struct kvm_vcpu_arch *vcpu);
+void __kvm_restore_lasx_upper(struct kvm_vcpu_arch *vcpu);
+void __kvm_restore_lasx_uppest(struct kvm_vcpu_arch *vcpu);
+void kvm_own_lasx(struct kvm_vcpu *vcpu);
 
 /* TLB handling */
 u32 kvm_get_kernel_asid(struct kvm_vcpu *vcpu);
@@ -891,6 +1049,8 @@ void kvm_vz_save_guesttlb(struct kvm_mips_tlb *buf, unsigned int index,
 			  unsigned int count);
 void kvm_vz_load_guesttlb(const struct kvm_mips_tlb *buf, unsigned int index,
 			  unsigned int count);
+void kvm_ls3acomp_clear_guest_ftlb(void);
+void kvm_ls3acomp_clear_guest_vtlb(void);
 #endif
 
 void kvm_mips_suspend_mm(int cpu);
@@ -1065,6 +1225,22 @@ void kvm_mips_count_enable_cause(struct kvm_vcpu *vcpu);
 void kvm_mips_count_disable_cause(struct kvm_vcpu *vcpu);
 enum hrtimer_restart kvm_mips_count_timeout(struct kvm_vcpu *vcpu);
 
+u32 kvm_loongson_read_stable_timer(struct kvm_vcpu *vcpu);
+void kvm_loongson_init_stable_timer(struct kvm_vcpu *vcpu,
+				    unsigned long stable_timer_hz);
+int kvm_loongson_set_stable_timer_ctl(struct kvm_vcpu *vcpu,
+					     s64 stable_timer_ctl);
+int kvm_loongson_set_stable_timer_resume(struct kvm_vcpu *vcpu,
+					  s64 stable_timer_resume);
+int kvm_loongson_set_stable_timer_hz(struct kvm_vcpu *vcpu,
+					      s64 stable_timer_hz);
+void kvm_loongson_write_stable_timer(struct kvm_vcpu *vcpu, u64 stable_timer);
+int kvm_loongson_stable_timer_disabled(struct kvm_vcpu *vcpu);
+int kvm_loongson_restore_hrtimer(struct kvm_vcpu *vcpu, ktime_t before,
+					     u64 stable_timer, int min_drift);
+ktime_t kvm_loongson_freeze_hrtimer(struct kvm_vcpu *vcpu, u64 *stable_timer);
+enum hrtimer_restart kvm_loongson_count_timeout(struct kvm_vcpu *vcpu);
+
 /* fairly internal functions requiring some care to use */
 int kvm_mips_count_disabled(struct kvm_vcpu *vcpu);
 ktime_t kvm_mips_freeze_hrtimer(struct kvm_vcpu *vcpu, u32 *count);
@@ -1074,9 +1250,13 @@ int kvm_mips_restore_hrtimer(struct kvm_vcpu *vcpu, ktime_t before,
 #ifdef CONFIG_KVM_MIPS_VZ
 void kvm_vz_acquire_htimer(struct kvm_vcpu *vcpu);
 void kvm_vz_lose_htimer(struct kvm_vcpu *vcpu);
+void kvm_ls3acomp_acquire_htimer(struct kvm_vcpu *vcpu);
+void kvm_ls3acomp_lose_htimer(struct kvm_vcpu *vcpu);
 #else
 static inline void kvm_vz_acquire_htimer(struct kvm_vcpu *vcpu) {}
 static inline void kvm_vz_lose_htimer(struct kvm_vcpu *vcpu) {}
+static inline void kvm_ls3acomp_acquire_htimer(struct kvm_vcpu *vcpu) {}
+static inline void kvm_ls3acomp_lose_htimer(struct kvm_vcpu *vcpu) {}
 #endif
 
 enum emulation_result kvm_mips_check_privilege(u32 cause,

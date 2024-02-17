@@ -632,4 +632,11 @@ config RISCV_TIMER
 	  is accessed via both the SBI and the rdcycle instruction.  This is
 	  required for all RISC-V systems.
 
+config LS2K_HPET_TIMER
+	bool "LS2K HPET Timer Module driver"
+	select TIMER_PROBE
+	select TIMER_OF
+	help
+	  Support for Loongson Arch 2k1000 HPET Module timer.
+
 endmenu

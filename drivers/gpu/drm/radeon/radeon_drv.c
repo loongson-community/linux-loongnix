@@ -31,6 +31,7 @@
 
 #include <drm/drmP.h>
 #include <drm/radeon_drm.h>
+#include "radeon.h"
 #include "radeon_drv.h"
 
 #include <drm/drm_pciids.h>
@@ -351,7 +352,7 @@ static int radeon_pci_probe(struct pci_dev *pdev,
 		case CHIP_OLAND:
 		case CHIP_HAINAN:
 			dev_info(&pdev->dev,
-				 "SI support disabled by module param\n");
+				"SI support disabled by module param\n");
 			return -ENODEV;
 		}
 	}
@@ -363,7 +364,7 @@ static int radeon_pci_probe(struct pci_dev *pdev,
 		case CHIP_KABINI:
 		case CHIP_MULLINS:
 			dev_info(&pdev->dev,
-				 "CIK support disabled by module param\n");
+				"CIK support disabled by module param\n");
 			return -ENODEV;
 		}
 	}
@@ -390,11 +391,10 @@ radeon_pci_remove(struct pci_dev *pdev)
 static void
 radeon_pci_shutdown(struct pci_dev *pdev)
 {
-	/* if we are running in a VM, make sure the device
-	 * torn down properly on reboot/shutdown
-	 */
-	if (radeon_device_is_virtual())
-		radeon_pci_remove(pdev);
+	struct drm_device *dev = pci_get_drvdata(pdev);
+	struct radeon_device *rdev = dev->dev_private;
+
+	radeon_suspend(rdev);
 }
 
 static int radeon_pmops_suspend(struct device *dev)
@@ -638,6 +638,40 @@ static struct pci_driver radeon_kms_pci_driver = {
 	.shutdown = radeon_pci_shutdown,
 	.driver.pm = &radeon_pm_ops,
 };
+
+static int radeon_lvds_dpms_callback(struct device *dev, void *arg)
+{
+	int on = *(unsigned long *)arg;
+	struct drm_device *ddev = dev_get_drvdata(dev);
+	struct drm_connector *connector;
+
+	list_for_each_entry(connector, &ddev->mode_config.connector_list, head) {
+		if (connector->connector_type == DRM_MODE_CONNECTOR_LVDS) {
+			if (on)
+				drm_helper_connector_dpms(connector, DRM_MODE_DPMS_ON);
+			else
+				drm_helper_connector_dpms(connector, DRM_MODE_DPMS_OFF);
+		}
+	}
+
+	return 0;
+}
+
+void radeon_lvds_dpms_off(void)
+{
+	int on = 0;
+
+	driver_for_each_device(&pdriver->driver, NULL, &on, radeon_lvds_dpms_callback);
+}
+EXPORT_SYMBOL(radeon_lvds_dpms_off);
+
+void radeon_lvds_dpms_on(void)
+{
+	int on = 1;
+
+	driver_for_each_device(&pdriver->driver, NULL, &on, radeon_lvds_dpms_callback);
+}
+EXPORT_SYMBOL(radeon_lvds_dpms_on);
 
 static int __init radeon_init(void)
 {

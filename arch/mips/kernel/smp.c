@@ -359,7 +359,8 @@ asmlinkage void start_secondary(void)
 	per_cpu_trap_init(false);
 	mips_clockevent_init();
 	mp_ops->init_secondary();
-	cpu_report();
+	if (system_state == SYSTEM_BOOTING)
+		cpu_report();
 	maar_init();
 
 	/*
@@ -370,7 +371,8 @@ asmlinkage void start_secondary(void)
 	calibrate_delay();
 	preempt_disable();
 	cpu = smp_processor_id();
-	cpu_data[cpu].udelay_val = loops_per_jiffy;
+	if (!cpu_data[cpu].udelay_val)
+		cpu_data[cpu].udelay_val = loops_per_jiffy;
 
 	cpumask_set_cpu(cpu, &cpu_coherent_mask);
 	notify_cpu_starting(cpu);
@@ -531,7 +533,7 @@ void flush_tlb_mm(struct mm_struct *mm)
 	preempt_disable();
 
 	if ((atomic_read(&mm->mm_users) != 1) || (current->mm != mm)) {
-		smp_on_other_tlbs(flush_tlb_mm_ipi, mm);
+		on_each_cpu_mask(mm_cpumask(mm), flush_tlb_mm_ipi, mm, 1);
 	} else {
 		unsigned int cpu;
 
@@ -539,8 +541,8 @@ void flush_tlb_mm(struct mm_struct *mm)
 			if (cpu != smp_processor_id() && cpu_context(cpu, mm))
 				cpu_context(cpu, mm) = 0;
 		}
+		local_flush_tlb_mm(mm);
 	}
-	local_flush_tlb_mm(mm);
 
 	preempt_enable();
 }
@@ -570,7 +572,7 @@ void flush_tlb_range(struct vm_area_struct *vma, unsigned long start, unsigned l
 			.addr2 = end,
 		};
 
-		smp_on_other_tlbs(flush_tlb_range_ipi, &fd);
+		on_each_cpu_mask(mm_cpumask(mm), flush_tlb_range_ipi, &fd, 1);
 	} else {
 		unsigned int cpu;
 		int exec = vma->vm_flags & VM_EXEC;
@@ -585,8 +587,8 @@ void flush_tlb_range(struct vm_area_struct *vma, unsigned long start, unsigned l
 			if (cpu != smp_processor_id() && cpu_context(cpu, mm))
 				cpu_context(cpu, mm) = !exec;
 		}
+		local_flush_tlb_range(vma, start, end);
 	}
-	local_flush_tlb_range(vma, start, end);
 	preempt_enable();
 }
 
@@ -623,7 +625,7 @@ void flush_tlb_page(struct vm_area_struct *vma, unsigned long page)
 			.addr1 = page,
 		};
 
-		smp_on_other_tlbs(flush_tlb_page_ipi, &fd);
+		on_each_cpu_mask(mm_cpumask(vma->vm_mm), flush_tlb_page_ipi, &fd, 1);
 	} else {
 		unsigned int cpu;
 
@@ -637,8 +639,8 @@ void flush_tlb_page(struct vm_area_struct *vma, unsigned long page)
 			if (cpu != smp_processor_id() && cpu_context(cpu, vma->vm_mm))
 				cpu_context(cpu, vma->vm_mm) = 1;
 		}
+		local_flush_tlb_page(vma, page);
 	}
-	local_flush_tlb_page(vma, page);
 	preempt_enable();
 }
 

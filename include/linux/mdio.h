@@ -33,6 +33,8 @@ struct mdio_device {
 	char modalias[MDIO_NAME_SIZE];
 
 	int (*bus_match)(struct device *dev, struct device_driver *drv);
+	int (*bus_uevent)(struct mdio_device *mdiodev,
+			  struct kobj_uevent_env *env);
 	void (*device_free)(struct mdio_device *mdiodev);
 	void (*device_remove)(struct mdio_device *mdiodev);
 

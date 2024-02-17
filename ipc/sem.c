@@ -1648,6 +1648,14 @@ long ksys_semctl(int semid, int semnum, int cmd, unsigned long arg)
 	version = ipc_parse_version(&cmd);
 	ns = current->nsproxy->ipc_ns;
 
+#ifdef CONFIG_LOONGARCH
+	/* FIXME: remove this workaround after userspace programs updated */
+	if (cmd & ~0xff) {
+		cmd = cmd & 0xff;
+		printk("cmd is invalid, please recompile %s with new glibc\n", current->comm);
+	}
+#endif
+
 	switch (cmd) {
 	case IPC_INFO:
 	case SEM_INFO:

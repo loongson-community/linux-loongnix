@@ -100,6 +100,12 @@ static void pcibios_scanbus(struct pci_controller *hose)
 	bridge->ops = hose->pci_ops;
 	bridge->swizzle_irq = pci_common_swizzle;
 	bridge->map_irq = pcibios_map_irq;
+
+	bridge->native_pcie_hotplug = 0;
+	bridge->native_shpc_hotplug = 0;
+	bridge->native_aer = 0;
+	bridge->native_ltr = 0;
+
 	ret = pci_scan_root_bus_bridge(bridge);
 	if (ret) {
 		pci_free_host_bridge(bridge);

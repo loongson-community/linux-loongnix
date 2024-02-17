@@ -263,6 +263,21 @@ config PCIE_TANGO_SMP8759
 	  This can lead to data corruption if drivers perform concurrent
 	  config and MMIO accesses.
 
+config PCIE_LOONGSON
+	bool "Loongson pcie controller"
+	depends on LOONGARCH && PCI_MSI
+	depends on OF || ACPI
+	depends on PCI_MSI_IRQ_DOMAIN
+	help
+	  Say Y here to enable PCIe controller support for loongson.
+
+config PCI_LS2K500
+	bool "Loongson 2k500 pci controller"
+	depends on LOONGARCH && OF
+	default n
+	help
+	  Say Y here to enable PCI controller support for loongson 2k500.
+
 config VMD
 	depends on PCI_MSI && X86_64 && SRCU
 	tristate "Intel Volume Management Device Driver"

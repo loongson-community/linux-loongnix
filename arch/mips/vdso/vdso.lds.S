@@ -99,6 +99,8 @@ VERSION
 	global:
 		__vdso_clock_gettime;
 		__vdso_gettimeofday;
+		__vdso_getpid;
+		__vdso_getuid;
 #endif
 	local: *;
 	};

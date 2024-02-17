@@ -5,6 +5,7 @@
 
 #include <linux/component.h>
 #include <linux/of_platform.h>
+#include <linux/thermal.h>
 #include <drm/drm_of.h>
 
 #include "etnaviv_cmdbuf.h"
@@ -13,11 +14,15 @@
 #include "etnaviv_gem.h"
 #include "etnaviv_mmu.h"
 #include "etnaviv_perfmon.h"
+#include "etnaviv_sched.h"
 
-/*
- * DRM operations:
- */
+int etnaviv_enable = -1;
+MODULE_PARM_DESC(enable, "Enable etnaviv (0 = disabled)");
+module_param_named(enable, etnaviv_enable, int, 0644);
 
+int etnaviv_cached_coherent = -1;
+MODULE_PARM_DESC(cached_coherent, "Enable cached coherent (0 = disabled)");
+module_param_named(cached_coherent, etnaviv_cached_coherent, int, 0644);
 
 static void load_gpu(struct drm_device *dev)
 {
@@ -55,7 +60,7 @@ static int etnaviv_open(struct drm_device *dev, struct drm_file *file)
 			rq = &gpu->sched.sched_rq[DRM_SCHED_PRIORITY_NORMAL];
 			drm_sched_entity_init(&ctx->sched_entity[i],
 					      &rq, 1, NULL);
-			}
+		}
 	}
 
 	file->driver_priv = ctx;
@@ -439,6 +444,7 @@ static int etnaviv_ioctl_pm_query_sig(struct drm_device *dev, void *data,
 	return etnaviv_pm_query_sig(gpu, args);
 }
 
+
 static const struct drm_ioctl_desc etnaviv_ioctls[] = {
 #define ETNA_IOCTL(n, func, flags) \
 	DRM_IOCTL_DEF_DRV(ETNAVIV_##n, etnaviv_ioctl_##func, flags)
@@ -473,7 +479,8 @@ static const struct file_operations fops = {
 	.mmap               = etnaviv_gem_mmap,
 };
 
-static struct drm_driver etnaviv_drm_driver = {
+
+struct drm_driver etnaviv_drm_driver = {
 	.driver_features    = DRIVER_GEM |
 				DRIVER_PRIME |
 				DRIVER_RENDER,
@@ -528,11 +535,20 @@ static int etnaviv_bind(struct device *dev)
 	drm->dev_private = priv;
 
 	dev->dma_parms = &priv->dma_parms;
+
 	dma_set_max_seg_size(dev, SZ_2G);
 
 	mutex_init(&priv->gem_lock);
 	INIT_LIST_HEAD(&priv->gem_list);
 	priv->num_gpus = 0;
+
+	if (etnaviv_cached_coherent != 0) {
+		if (IS_ENABLED(CONFIG_CPU_LOONGSON2K) ||
+		    IS_ENABLED(CONFIG_CPU_LOONGSON64)) {
+			dev_info(dev, "has cached coherent\n");
+			priv->has_cached_coherent = true;
+		}
+	}
 
 	dev_set_drvdata(dev, drm);
 
@@ -599,7 +615,6 @@ static int etnaviv_pdev_probe(struct platform_device *pdev)
 
 	if (!dev->platform_data) {
 		struct device_node *core_node;
-
 		for_each_compatible_node(core_node, NULL, "vivante,gc") {
 			if (!of_device_is_available(core_node))
 				continue;
@@ -625,13 +640,36 @@ static int etnaviv_pdev_remove(struct platform_device *pdev)
 	return 0;
 }
 
+
 static struct platform_driver etnaviv_platform_driver = {
 	.probe      = etnaviv_pdev_probe,
 	.remove     = etnaviv_pdev_remove,
 	.driver     = {
-		.name   = "etnaviv",
+		.name = "etnaviv",
 	},
 };
+
+
+#ifdef CONFIG_DRM_ETNAVIV_PCI_DRIVER
+
+enum vivante_gpu_family {
+	GC1000 = 0,
+	CHIP_LAST,
+};
+
+static const struct pci_device_id etnaviv_pci_id_lists[] = {
+	{0x0014, 0x7a15, PCI_ANY_ID, PCI_ANY_ID, 0, 0, GC1000},
+	{0, 0, 0, 0, 0, 0, 0}
+};
+
+static struct pci_driver etnaviv_pci_driver = {
+	.name = "etnaviv",
+	.id_table = etnaviv_pci_id_lists,
+	.probe = etnaviv_pci_probe,
+	.remove = etnaviv_pci_remove,
+};
+#endif
+
 
 static struct platform_device *etnaviv_drm;
 
@@ -640,6 +678,9 @@ static int __init etnaviv_init(void)
 	struct platform_device *pdev;
 	int ret;
 	struct device_node *np;
+
+	if (etnaviv_enable == 0)
+		return -ENODEV;
 
 	etnaviv_validate_init();
 
@@ -651,13 +692,23 @@ static int __init etnaviv_init(void)
 	if (ret != 0)
 		goto unregister_gpu_driver;
 
+#ifdef CONFIG_DRM_ETNAVIV_PCI_DRIVER
+	ret = pci_register_driver(&etnaviv_pci_driver);
+	if (ret != 0)
+		goto unregister_platform_driver;
+#endif
+
 	/*
 	 * If the DT contains at least one available GPU device, instantiate
 	 * the DRM platform device.
 	 */
 	for_each_compatible_node(np, NULL, "vivante,gc") {
-		if (!of_device_is_available(np))
+
+		if (!of_device_is_available(np)) {
+			DRM_WARN("%s is not available %d\n",
+				__func__, __LINE__);
 			continue;
+		}
 
 		pdev = platform_device_alloc("etnaviv", -1);
 		if (!pdev) {
@@ -665,7 +716,8 @@ static int __init etnaviv_init(void)
 			of_node_put(np);
 			goto unregister_platform_driver;
 		}
-		pdev->dev.coherent_dma_mask = DMA_BIT_MASK(40);
+
+		pdev->dev.coherent_dma_mask = DMA_BIT_MASK(32);
 		pdev->dev.dma_mask = &pdev->dev.coherent_dma_mask;
 
 		/*
@@ -673,7 +725,9 @@ static int __init etnaviv_init(void)
 		 * device as the GPU we found. This assumes that all Vivante
 		 * GPUs in the system share the same DMA constraints.
 		 */
-		of_dma_configure(&pdev->dev, np, true);
+		ret = of_dma_configure(&pdev->dev, np, true);
+		if (ret)
+			DRM_WARN("%s, %d\n", __func__, ret);
 
 		ret = platform_device_add(pdev);
 		if (ret) {
@@ -693,6 +747,7 @@ unregister_platform_driver:
 	platform_driver_unregister(&etnaviv_platform_driver);
 unregister_gpu_driver:
 	platform_driver_unregister(&etnaviv_gpu_driver);
+
 	return ret;
 }
 module_init(etnaviv_init);
@@ -700,6 +755,10 @@ module_init(etnaviv_init);
 static void __exit etnaviv_exit(void)
 {
 	platform_device_unregister(etnaviv_drm);
+
+#ifdef CONFIG_DRM_ETNAVIV_PCI_DRIVER
+	pci_unregister_driver(&etnaviv_pci_driver);
+#endif
 	platform_driver_unregister(&etnaviv_platform_driver);
 	platform_driver_unregister(&etnaviv_gpu_driver);
 }
@@ -711,3 +770,6 @@ MODULE_AUTHOR("Lucas Stach <l.stach@pengutronix.de>");
 MODULE_DESCRIPTION("etnaviv DRM Driver");
 MODULE_LICENSE("GPL v2");
 MODULE_ALIAS("platform:etnaviv");
+#ifdef CONFIG_DRM_ETNAVIV_PCI_DRIVER
+MODULE_DEVICE_TABLE(pci, etnaviv_pci_id_lists);
+#endif

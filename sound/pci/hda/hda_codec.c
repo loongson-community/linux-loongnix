@@ -81,6 +81,24 @@ static int codec_exec_verb(struct hdac_device *dev, unsigned int cmd,
 	return err;
 }
 
+int snd_hda_codec_exec_verb(struct hda_codec *codec, unsigned int raw_cmd,
+			   unsigned int *res)
+{
+	unsigned cmd;
+	unsigned int _res;
+	int r;
+
+	cmd = (u32)codec->addr << 28;
+	cmd |= raw_cmd;
+
+	r = codec_exec_verb(&codec->core, cmd, 0, (res || codec->bus->core.sync_write) ? &_res : NULL);
+	if (res)
+		*res = _res;
+
+	return r;
+}
+EXPORT_SYMBOL_GPL(snd_hda_codec_exec_verb);
+
 /**
  * snd_hda_sequence_write - sequence writes
  * @codec: the HDA codec
@@ -984,6 +1002,11 @@ int snd_hda_codec_device_new(struct hda_bus *bus, struct snd_card *card,
 	err = snd_device_new(card, SNDRV_DEV_CODEC, codec, &dev_ops);
 	if (err < 0)
 		goto error;
+
+#ifdef CONFIG_PM
+	/* PM runtime needs to be enabled later after binding codec */
+	pm_runtime_forbid(&codec->core.dev);
+#endif
 
 	return 0;
 

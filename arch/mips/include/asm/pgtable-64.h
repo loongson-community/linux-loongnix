@@ -272,7 +272,7 @@ static inline int pmd_present(pmd_t pmd)
 {
 #ifdef CONFIG_MIPS_HUGE_TLB_SUPPORT
 	if (unlikely(pmd_val(pmd) & _PAGE_HUGE))
-		return pmd_val(pmd) & _PAGE_PRESENT;
+		return pmd_val(pmd) & (_PAGE_PRESENT | _PAGE_PROTNONE);
 #endif
 
 	return pmd_val(pmd) != (unsigned long) invalid_pte_table;
@@ -361,9 +361,9 @@ static inline pmd_t *pmd_offset(pud_t * pud, unsigned long address)
 /*
  * Initialize a new pgd / pmd table with invalid pointers.
  */
-extern void pgd_init(unsigned long page);
+extern void pgd_init(void *page);
 extern void pud_init(unsigned long page, unsigned long pagetable);
-extern void pmd_init(unsigned long page, unsigned long pagetable);
+extern void pmd_init(void *page);
 
 /*
  * Non-present pages:  high 40 bits are offset, next 8 bits type,
@@ -377,5 +377,9 @@ static inline pte_t mk_swap_pte(unsigned long type, unsigned long offset)
 #define __swp_entry(type, offset) ((swp_entry_t) { pte_val(mk_swap_pte((type), (offset))) })
 #define __pte_to_swp_entry(pte) ((swp_entry_t) { pte_val(pte) })
 #define __swp_entry_to_pte(x)	((pte_t) { (x).val })
+#ifdef CONFIG_ARCH_ENABLE_THP_MIGRATION
+#define __pmd_to_swp_entry(pmd) ((swp_entry_t) { pmd_val(pmd) })
+#define __swp_entry_to_pmd(x)  ((pmd_t) { (x).val | _PAGE_HUGE })
+#endif
 
 #endif /* _ASM_PGTABLE_64_H */

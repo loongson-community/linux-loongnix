@@ -17,8 +17,19 @@
 struct quicklist {
 	void *page;
 	int nr_pages;
+#if defined(CONFIG_CPU_LOONGSON3) || defined(CONFIG_CPU_LOONGSON2K) || \
+	defined(CONFIG_LOONGARCH)
+	int order;
+	unsigned long val;
+	int hit;
+	int miss;
+	int threshold;
+	int reserverd;
+#endif
 };
 
+#if !defined(CONFIG_CPU_LOONGSON3) && !defined(CONFIG_CPU_LOONGSON2K) && \
+	!defined(CONFIG_LOONGARCH)
 DECLARE_PER_CPU(struct quicklist, quicklist)[CONFIG_NR_QUICK];
 
 /*
@@ -64,6 +75,10 @@ static inline void __quicklist_free(int nr, void (*dtor)(void *), void *p,
 	q->nr_pages++;
 	put_cpu_var(quicklist);
 }
+#else
+void *quicklist_alloc(int nr, gfp_t flags, void (*ctor)(void *));
+void __quicklist_free(int nr, void (*dtor)(void *), void *p, struct page *page);
+#endif
 
 static inline void quicklist_free(int nr, void (*dtor)(void *), void *pp)
 {

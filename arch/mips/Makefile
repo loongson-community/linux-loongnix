@@ -13,6 +13,7 @@
 #
 
 archscripts: scripts_basic
+	$(Q)$(MAKE) $(build)=arch/mips/tools elf-entry
 	$(Q)$(MAKE) $(build)=arch/mips/boot/tools relocs
 
 KBUILD_DEFCONFIG := 32r2el_defconfig
@@ -52,13 +53,16 @@ ifneq ($(SUBARCH),$(ARCH))
   endif
 endif
 
-ifdef CONFIG_FUNCTION_GRAPH_TRACER
-  ifndef KBUILD_MCOUNT_RA_ADDRESS
-    ifeq ($(call cc-option-yn,-mmcount-ra-address), y)
-      cflags-y += -mmcount-ra-address -DKBUILD_MCOUNT_RA_ADDRESS
+ifndef CONFIG_DYNAMIC_FTRACE_WITH_REGS
+  ifdef CONFIG_FUNCTION_GRAPH_TRACER
+    ifndef KBUILD_MCOUNT_RA_ADDRESS
+      ifeq ($(call cc-option-yn,-mmcount-ra-address), y)
+        cflags-y += -mmcount-ra-address -DKBUILD_MCOUNT_RA_ADDRESS
+      endif
     endif
   endif
 endif
+
 cflags-y += $(call cc-option, -mno-check-zero-division)
 
 ifdef CONFIG_32BIT
@@ -75,6 +79,10 @@ vmlinux-32		= vmlinux.32
 vmlinux-64		= vmlinux
 
 cflags-y		+= -mabi=64
+endif
+
+ifeq ($(call cc-option-yn, -mloongson-amo), y)
+  cflags-y		+= -mloongson-amo -DTOOLCHAIN_SUPPORTS_LAMO
 endif
 
 all-$(CONFIG_BOOT_ELF32)	:= $(vmlinux-32)
@@ -258,13 +266,7 @@ ifdef CONFIG_PHYSICAL_START
 load-y					= $(CONFIG_PHYSICAL_START)
 endif
 
-# Sign-extend the entry point to 64 bits if retrieved as a 32-bit number.
-entry-y		= $(shell $(OBJDUMP) -f vmlinux 2>/dev/null \
-			| sed -n '/^start address / { \
-				s/^.* //; \
-				s/0x\([0-7].......\)$$/0x00000000\1/; \
-				s/0x\(........\)$$/0xffffffff\1/; p }')
-
+entry-y				= $(shell $(objtree)/arch/mips/tools/elf-entry vmlinux)
 cflags-y			+= -I$(srctree)/arch/mips/include/asm/mach-generic
 drivers-$(CONFIG_PCI)		+= arch/mips/pci/
 
@@ -315,6 +317,11 @@ bootvars-y	+= ADDR_BITS=32
 endif
 ifdef CONFIG_64BIT
 bootvars-y	+= ADDR_BITS=64
+endif
+
+ifdef CONFIG_DYNAMIC_FTRACE_WITH_REGS
+	KBUILD_CPPFLAGS += -DCC_USING_PATCHABLE_FUNCTION_ENTRY
+	CC_FLAGS_FTRACE := -fpatchable-function-entry=3
 endif
 
 # This is required to get dwarf unwinding tables into .debug_frame

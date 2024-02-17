@@ -1,0 +1,24 @@
+menuconfig SND_SOC_LOONGSON
+	tristate "ASoC support for loongson"
+
+if SND_SOC_LOONGSON
+
+config SND_SOC_LOONGSON_ES8323
+	tristate "SoC I2S Audio support for ES8323 on LOONGSON"
+	select SND_LS
+	select SND_LS_PCM
+	select SND_SOC_ES8323_I2C
+
+config SND_LS
+	tristate "SoC Audio for ls-i2s"
+	help
+	  Say Y or M if you want to add support for codecs attached to
+	  the I2S interface. You will also need to select the Audio
+		interfaces to support below.
+
+config SND_LS_PCM
+	tristate "SoC Audio for ls-pcm"
+
+
+
+endif #SND_SOC_LOONGSON

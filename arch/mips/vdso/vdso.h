@@ -77,13 +77,9 @@ static inline const union mips_vdso_data *get_vdso_data(void)
 	return (const union mips_vdso_data *)(get_vdso_base() - PAGE_SIZE);
 }
 
-#ifdef CONFIG_CLKSRC_MIPS_GIC
-
-static inline void __iomem *get_gic(const union mips_vdso_data *data)
+static inline void __iomem *get_extimer(const union mips_vdso_data *data)
 {
 	return (void __iomem *)data - PAGE_SIZE;
 }
-
-#endif /* CONFIG_CLKSRC_MIPS_GIC */
 
 #endif /* __ASSEMBLY__ */

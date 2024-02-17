@@ -560,6 +560,7 @@ static int rs600_gart_enable(struct radeon_device *rdev)
 	r = radeon_gart_table_vram_pin(rdev);
 	if (r)
 		return r;
+	radeon_gart_restore(rdev);
 	/* Enable bus master */
 	tmp = RREG32(RADEON_BUS_CNTL) & ~RS600_BUS_MASTER_DIS;
 	WREG32(RADEON_BUS_CNTL, tmp);
@@ -642,6 +643,9 @@ uint64_t rs600_gart_get_page_entry(uint64_t addr, uint32_t flags)
 		addr |= R600_PTE_WRITEABLE;
 	if (flags & RADEON_GART_PAGE_SNOOP)
 		addr |= R600_PTE_SNOOPED;
+#ifdef CONFIG_CRASH_DUMP
+	addr |= R600_PTE_VALID | R600_PTE_READABLE | R600_PTE_WRITEABLE;
+#endif
 	return addr;
 }
 

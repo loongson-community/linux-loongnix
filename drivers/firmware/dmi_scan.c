@@ -359,7 +359,8 @@ static void __init dmi_save_extended_devices(const struct dmi_header *dm)
 		return;
 
 	name = dmi_string_nosave(dm, d[0x4]);
-	dmi_save_dev_pciaddr(d[0x6], *(u16 *)(d + 0x7), d[0x9], d[0xA], name,
+	dmi_save_dev_pciaddr(d[0x6], get_unaligned_le16((u16 *)(d + 0x7)),
+			     d[0x9], d[0xA], name,
 			     DMI_DEV_TYPE_DEV_ONBOARD);
 	dmi_save_one_device(d[0x5] & 0x7f, name);
 }
@@ -371,8 +372,10 @@ static void __init dmi_save_system_slot(const struct dmi_header *dm)
 	/* Need SMBIOS 2.6+ structure */
 	if (dm->length < 0x11)
 		return;
-	dmi_save_dev_pciaddr(*(u16 *)(d + 0x9), *(u16 *)(d + 0xD), d[0xF],
-			     d[0x10], dmi_string_nosave(dm, d[0x4]),
+	dmi_save_dev_pciaddr(get_unaligned_le16((u16 *)(d + 0x9)),
+			     get_unaligned_le16((u16 *)(d + 0xD)),
+			     d[0xF],d[0x10],
+			     dmi_string_nosave(dm, d[0x4]),
 			     DMI_DEV_TYPE_DEV_SLOT);
 }
 
@@ -663,6 +666,7 @@ void __init dmi_scan_machine(void)
 			return;
 		}
 	} else if (IS_ENABLED(CONFIG_DMI_SCAN_MACHINE_NON_EFI_FALLBACK)) {
+
 		p = dmi_early_remap(0xF0000, 0x10000);
 		if (p == NULL)
 			goto error;

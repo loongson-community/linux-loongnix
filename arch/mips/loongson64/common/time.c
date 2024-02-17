@@ -16,14 +16,19 @@
 
 #include <loongson.h>
 #include <cs5536/cs5536_mfgpt.h>
+#include <loongson-pch.h>
 
 void __init plat_time_init(void)
 {
 	/* setup mips r4k timer */
 	mips_hpt_frequency = cpu_clock_freq / 2;
 
-#ifdef CONFIG_RS780_HPET
-	setup_hpet_timer();
+	if (cpu_guestmode)
+		preset_lpj = cpu_clock_freq / HZ;
+
+#ifdef CONFIG_LOONGSON_HPET
+	if (!cpu_guestmode)
+		setup_hpet_timer();
 #else
 	setup_mfgpt0_timer();
 #endif
@@ -31,6 +36,9 @@ void __init plat_time_init(void)
 
 void read_persistent_clock64(struct timespec64 *ts)
 {
-	ts->tv_sec = mc146818_get_cmos_time();
+	if (loongson_pch->type == LS7A)
+		ts->tv_sec = loongson_ls7a_get_rtc_time();
+	else if (loongson_pch->type == RS780E)
+		ts->tv_sec = mc146818_get_cmos_time();
 	ts->tv_nsec = 0;
 }

@@ -7,12 +7,14 @@ config MIPS
 	select ARCH_DISCARD_MEMBLOCK
 	select ARCH_HAS_ELF_RANDOMIZE
 	select ARCH_HAS_TICK_BROADCAST if GENERIC_CLOCKEVENTS_BROADCAST
+	select ARCH_SUPPORTS_NUMA_BALANCING
 	select ARCH_SUPPORTS_UPROBES
 	select ARCH_USE_BUILTIN_BSWAP
 	select ARCH_USE_CMPXCHG_LOCKREF if 64BIT
 	select ARCH_USE_QUEUED_RWLOCKS
 	select ARCH_USE_QUEUED_SPINLOCKS
 	select ARCH_WANT_IPC_PARSE_VERSION
+	select AUDIT_ARCH
 	select BUILDTIME_EXTABLE_SORT
 	select CLONE_BACKWARDS
 	select CPU_PM if CPU_IDLE
@@ -33,6 +35,7 @@ config MIPS
 	select GENERIC_SMP_IDLE_THREAD
 	select GENERIC_TIME_VSYSCALL
 	select HANDLE_DOMAIN_IRQ
+	select HAVE_ARCH_AUDITSYSCALL
 	select HAVE_ARCH_COMPILER_H
 	select HAVE_ARCH_JUMP_LABEL
 	select HAVE_ARCH_KGDB
@@ -50,6 +53,9 @@ config MIPS
 	select HAVE_DEBUG_STACKOVERFLOW
 	select HAVE_DMA_CONTIGUOUS
 	select HAVE_DYNAMIC_FTRACE
+	select HAVE_DYNAMIC_FTRACE_WITH_REGS \
+		if $(cc-option, -fpatchable-function-entry=3)
+	select HAVE_KPROBES_ON_FTRACE
 	select HAVE_EXIT_THREAD
 	select HAVE_FTRACE_MCOUNT_RECORD
 	select HAVE_FUNCTION_GRAPH_TRACER
@@ -66,6 +72,8 @@ config MIPS
 	select HAVE_NMI
 	select HAVE_OPROFILE
 	select HAVE_PERF_EVENTS
+	select HAVE_PERF_REGS
+	select HAVE_PERF_USER_STACK_DUMP
 	select HAVE_REGS_AND_STACK_ACCESS_API
 	select HAVE_RSEQ
 	select HAVE_STACKPROTECTOR
@@ -78,6 +86,10 @@ config MIPS
 	select RTC_LIB if !MACH_LOONGSON64
 	select SYSCTL_EXCEPTION_TRACE
 	select VIRT_TO_BUS
+	select ARCH_HAS_ACPI_TABLE_UPGRADE	if ACPI
+	select ACPI_SYSTEM_POWER_STATES_SUPPORT	if ACPI
+	select NO_BOOTMEM
+	select ARCH_HAS_PTE_SPECIAL
 
 menu "Machine selection"
 
@@ -445,6 +457,7 @@ config MACH_LOONGSON32
 config MACH_LOONGSON64
 	bool "Loongson-2/3 family of machines"
 	select SYS_SUPPORTS_ZBOOT
+	select SYS_SUPPORTS_RELOCATABLE
 	help
 	  This enables the support of Loongson-2/3 family of machines.
 
@@ -1038,10 +1051,11 @@ endmenu
 
 config RWSEM_GENERIC_SPINLOCK
 	bool
-	default y
+	default n
 
 config RWSEM_XCHGADD_ALGORITHM
 	bool
+	default y
 
 config GENERIC_HWEIGHT
 	bool
@@ -1062,6 +1076,15 @@ config FW_ARC
 	bool
 
 config ARCH_MAY_HAVE_PC_FDC
+	bool
+
+config AUDIT_ARCH
+	bool
+
+config AUDITSYSCALL_O32
+	bool
+
+config AUDITSYSCALL_N32
 	bool
 
 config BOOT_RAW
@@ -1229,6 +1252,10 @@ config SYS_SUPPORTS_HUGETLBFS
 config MIPS_HUGE_TLB_SUPPORT
 	def_bool HUGETLB_PAGE || TRANSPARENT_HUGEPAGE
 
+config ARCH_ENABLE_THP_MIGRATION
+       def_bool y
+       depends on TRANSPARENT_HUGEPAGE
+
 config IRQ_CPU_RM7K
 	bool
 
@@ -1371,15 +1398,57 @@ config CPU_LOONGSON3
 	select CPU_SUPPORTS_64BIT_KERNEL
 	select CPU_SUPPORTS_HIGHMEM
 	select CPU_SUPPORTS_HUGEPAGES
+	select CPU_SUPPORTS_MSA
+	select CPU_SUPPORTS_LASX
 	select WEAK_ORDERING
 	select WEAK_REORDERING_BEYOND_LLSC
 	select MIPS_PGD_C0_CONTEXT
 	select MIPS_L1_CACHE_SHIFT_6
 	select GPIOLIB
 	select SWIOTLB
+	select MIPS_ASID_BITS_VARIABLE
+	select CPU_MIPSR2_IRQ_VI
+	select ARCH_SUPPORTS_ACPI
+	select HAVE_KVM
+	select ARCH_SUPPORTS_ATOMIC_RMW
+	select ARCH_INLINE_READ_LOCK		if !PREEMPT
+	select ARCH_INLINE_READ_LOCK_BH		if !PREEMPT
+	select ARCH_INLINE_READ_LOCK_IRQ	if !PREEMPT
+	select ARCH_INLINE_READ_LOCK_IRQSAVE	if !PREEMPT
+	select ARCH_INLINE_READ_UNLOCK		if !PREEMPT
+	select ARCH_INLINE_READ_UNLOCK_BH	if !PREEMPT
+	select ARCH_INLINE_READ_UNLOCK_IRQ	if !PREEMPT
+	select ARCH_INLINE_READ_UNLOCK_IRQRESTORE	if !PREEMPT
+	select ARCH_INLINE_WRITE_LOCK		if !PREEMPT
+	select ARCH_INLINE_WRITE_LOCK_BH	if !PREEMPT
+	select ARCH_INLINE_WRITE_LOCK_IRQ	if !PREEMPT
+	select ARCH_INLINE_WRITE_LOCK_IRQSAVE	if !PREEMPT
+	select ARCH_INLINE_WRITE_UNLOCK		if !PREEMPT
+	select ARCH_INLINE_WRITE_UNLOCK_BH	if !PREEMPT
+	select ARCH_INLINE_WRITE_UNLOCK_IRQ	if !PREEMPT
+	select ARCH_INLINE_WRITE_UNLOCK_IRQRESTORE	if !PREEMPT
+	select ARCH_INLINE_SPIN_TRYLOCK		if !PREEMPT
+	select ARCH_INLINE_SPIN_TRYLOCK_BH	if !PREEMPT
+	select ARCH_INLINE_SPIN_LOCK		if !PREEMPT
+	select ARCH_INLINE_SPIN_LOCK_BH		if !PREEMPT
+	select ARCH_INLINE_SPIN_LOCK_IRQ	if !PREEMPT
+	select ARCH_INLINE_SPIN_LOCK_IRQSAVE	if !PREEMPT
+	select ARCH_INLINE_SPIN_UNLOCK		if !PREEMPT
+	select ARCH_INLINE_SPIN_UNLOCK_BH	if !PREEMPT
+	select ARCH_INLINE_SPIN_UNLOCK_IRQ	if !PREEMPT
+	select ARCH_INLINE_SPIN_UNLOCK_IRQRESTORE	if !PREEMPT
 	help
 		The Loongson 3 processor implements the MIPS64R2 instruction
 		set with many extensions.
+
+config LOONGSON3_CPUAUTOPLUG
+	tristate "Loongson 3 CPUAutoplug Driver"
+	depends on CPU_LOONGSON3 && HOTPLUG_CPU
+	help
+	  This option adds a CPUAutoplug driver for Loongson-3 multi-core processors
+	  which cpu frequencies of all cores should be configured together.
+
+	  If in doubt, say N.
 
 config LOONGSON3_ENHANCEMENT
 	bool "New Loongson 3 CPU Enhancements"
@@ -1398,6 +1467,26 @@ config LOONGSON3_ENHANCEMENT
 	  time. If you want a generic kernel to run on all Loongson 3 machines,
 	  please say 'N' here. If you want a high-performance kernel to run on
 	  new Loongson 3 machines only, please say 'Y' here.
+
+config CPU_LOONGSON3_WORKAROUNDS
+	bool "Old Loongson 3 LLSC Workarounds"
+	default y if SMP
+	depends on CPU_LOONGSON3
+	help
+	  Loongson 3 processors have the llsc issues which require workarounds.
+	  Without workarounds the system may hang unexpectedly.
+
+	  Newer Loongson 3 will fix these issues and no workarounds are needed.
+	  The workarounds have no significant side effect on them but may
+	  decrease the performance of the system so this option should be
+	  disabled unless the kernel is intended to be run on old systems.
+
+	  If unsure, please say Y.
+
+config CPU_HAS_LBT
+	bool "Support for Loongson Binary Tranlatition"
+	depends on CPU_LOONGSON3
+	default y
 
 config CPU_LOONGSON2E
 	bool "Loongson 2E"
@@ -1422,6 +1511,26 @@ config CPU_LOONGSON2F
 	  Loongson2F have built-in DDR2 and PCIX controller. The PCIX controller
 	  have a similar programming interface with FPGA northbridge used in
 	  Loongson2E.
+
+config CPU_LOONGSON2K
+	bool "Loongson 2K1000"
+	depends on SYS_HAS_CPU_LOONGSON2K
+	select CPU_SUPPORTS_MSA
+	select WEAK_ORDERING
+	select WEAK_REORDERING_BEYOND_LLSC
+	select CPU_SUPPORTS_32BIT_KERNEL
+	select CPU_SUPPORTS_64BIT_KERNEL
+	select CPU_SUPPORTS_HIGHMEM
+	select CPU_SUPPORTS_HUGEPAGES
+	select IRQ_MIPS_CPU
+	select CPU_MIPSR2_IRQ_VI
+	select USE_OF
+	select GPIOLIB
+	select SWIOTLB
+	select CPU_SUPPORTS_CPUFREQ
+	help
+	  The Loongson 2K is a dual core 64bit SoC, which implements with the MIPS64
+	  release 5 instruction set.
 
 config CPU_LOONGSON1B
 	bool "Loongson 1B"
@@ -1885,6 +1994,9 @@ config SYS_HAS_CPU_LOONGSON2F
 	select CPU_SUPPORTS_ADDRWINCFG if 64BIT
 	select CPU_SUPPORTS_UNCACHED_ACCELERATED
 
+config SYS_HAS_CPU_LOONGSON2K
+	bool
+
 config SYS_HAS_CPU_LOONGSON1B
 	bool
 
@@ -1998,6 +2110,26 @@ config WEAK_ORDERING
 #
 config WEAK_REORDERING_BEYOND_LLSC
 	bool
+
+
+
+config EFI
+	bool "EFI runtime service support"
+	depends on ACPI
+	select UCS2_STRING
+	select EFI_RUNTIME_WRAPPERS
+	---help---
+	  This enables the kernel to use EFI runtime services that are
+	  available (such as the EFI variable services).
+
+	  This option is only useful on systems that have EFI firmware.
+	  In addition, you should use the latest ELILO loader available
+	  at <http://elilo.sourceforge.net> in order to take advantage
+	  of EFI runtime services. However, even with this option, the
+	  resultant kernel should continue to boot on existing non-EFI
+	  platforms.
+
+
 endmenu
 
 #
@@ -2119,6 +2251,14 @@ config MIPS_VA_BITS_48
 	  overhead as well as slower TLB fault handling.
 
 	  If unsure, say N.
+
+config CPU_SUPPORTS_LAMO_INSTRUCTIONS
+	bool "Loongson support lamo instructions"
+	default n
+	depends on CPU_LOONGSON3
+	help
+	  This option enable new atomic instructions which is supported in Loongson3A4000 and later.
+	  You need a special compiler that support these instructions to compile.
 
 choice
 	prompt "Kernel page size"
@@ -2447,6 +2587,16 @@ config CPU_HAS_MSA
 
 	  If unsure, say Y.
 
+config CPU_HAS_LASX
+    bool "Support for the Loongson Advanced SIMD Extension (EXPERIMENTAL)"
+    depends on CPU_SUPPORTS_LASX
+    depends on 64BIT && CPU_HAS_MSA
+    help
+      Loongson Advanced SIMD Extension is 256bit wide SIMD extension first
+      introduced in Loongson 3A4000
+
+	  If unsure, say Y.
+
 config CPU_HAS_WB
 	bool
 
@@ -2543,6 +2693,9 @@ config SYS_SUPPORTS_MIPS16
 config CPU_SUPPORTS_MSA
 	bool
 
+config CPU_SUPPORTS_LASX
+	bool
+
 config ARCH_FLATMEM_ENABLE
 	def_bool y
 	depends on !NUMA && !CPU_LOONGSON2
@@ -2575,7 +2728,10 @@ config SYS_SUPPORTS_NUMA
 
 config RELOCATABLE
 	bool "Relocatable kernel"
-	depends on SYS_SUPPORTS_RELOCATABLE && (CPU_MIPS32_R2 || CPU_MIPS64_R2 || CPU_MIPS32_R6 || CPU_MIPS64_R6 || CAVIUM_OCTEON_SOC)
+	depends on SYS_SUPPORTS_RELOCATABLE
+	depends on CPU_MIPS32_R2 || CPU_MIPS64_R2 \
+		|| CPU_MIPS32_R6 || CPU_MIPS64_R6 \
+		|| CAVIUM_OCTEON_SOC || CPU_LOONGSON3
 	help
 	  This builds a kernel image that retains relocation information
 	  so it can be loaded someplace besides the default 1MB.
@@ -2586,6 +2742,7 @@ config RELOCATION_TABLE_SIZE
 	hex "Relocation table size"
 	depends on RELOCATABLE
 	range 0x0 0x01000000
+	default "0x00200000" if CPU_LOONGSON3
 	default "0x00100000"
 	---help---
 	  A table of relocation data will be appended to the kernel binary
@@ -2635,11 +2792,32 @@ config NODES_SHIFT
 
 config HW_PERF_EVENTS
 	bool "Enable hardware performance counter support for perf events"
-	depends on PERF_EVENTS && !OPROFILE && (CPU_MIPS32 || CPU_MIPS64 || CPU_R10000 || CPU_SB1 || CPU_CAVIUM_OCTEON || CPU_XLP || CPU_LOONGSON3)
+	depends on PERF_EVENTS && !OPROFILE && (CPU_MIPS32 || CPU_MIPS64 || CPU_R10000 || CPU_SB1 || CPU_CAVIUM_OCTEON || CPU_XLP || CPU_LOONGSON3 || CPU_LOONGSON2K)
 	default y
 	help
 	  Enable hardware performance counter support for perf events. If
 	  disabled, perf events will use software events only.
+config DMI
+	default y
+	select DMI_SCAN_MACHINE_NON_EFI_FALLBACK
+	bool "Enable DMI scanning" if EXPERT
+	---help---
+	Enabled scanning of DMI to identify machine quirks. Say Y
+	here unless you have verified that your setup is not
+	affected by entries in the DMI blacklist. Required by PNP
+	BIOS code.
+
+
+
+config DMI
+	default y
+	select DMI_SCAN_MACHINE_NON_EFI_FALLBACK
+	bool "Enable DMI scanning" if EXPERT
+	help
+	  Enabled scanning of DMI to identify machine quirks. Say Y
+	  here unless you have verified that your setup is not
+	  affected by entries in the DMI blacklist. Required by PNP
+	  BIOS code.
 
 config SMP
 	bool "Multi-Processing support"
@@ -2950,7 +3128,7 @@ endchoice
 choice
 	prompt "Kernel command line type" if !CMDLINE_OVERRIDE
 	default MIPS_CMDLINE_FROM_DTB if USE_OF && !ATH79 && !MACH_INGENIC && \
-					 !MIPS_MALTA && \
+					 !MACH_LOONGSON64 && !MIPS_MALTA && \
 					 !CAVIUM_OCTEON_SOC
 	default MIPS_CMDLINE_FROM_BOOTLOADER
 
@@ -2971,6 +3149,22 @@ choice
 endchoice
 
 endmenu
+
+config ARCH_ENABLE_MEMORY_HOTPLUG
+	def_bool y
+	depends on MIPS
+
+config ARCH_ENABLE_MEMORY_HOTREMOVE
+	def_bool y
+	depends on MEMORY_HOTPLUG
+
+config ARCH_MEMORY_PROBE
+	def_bool y
+	depends on MEMORY_HOTPLUG
+
+config HAVE_ARCH_NODEDATA_EXTENSION
+	def_bool y
+	depends on NUMA && ARCH_ENABLE_MEMORY_HOTPLUG
 
 config LOCKDEP_SUPPORT
 	bool
@@ -3035,6 +3229,11 @@ config PCI_DRIVERS_LEGACY
 	def_bool !PCI_DRIVERS_GENERIC
 	select NO_GENERIC_PCI_IOPORT_MAP
 
+config PCI_MMCONFIG
+	bool
+	default y
+	depends on PCI && ACPI && CPU_LOONGSON3
+
 source "drivers/pci/Kconfig"
 
 #
@@ -3077,6 +3276,16 @@ config TC
 	  <http://www.computer-refuge.org/classiccmp/ftp.digital.com/pub/DEC/TriAdd/>
 	  Linux driver support status is documented at:
 	  <http://www.linux-mips.org/wiki/DECstation>
+
+config QUICKLIST
+	bool
+	default y if CPU_LOONGSON3
+	default n
+
+config NR_QUICK
+	int
+	depends on QUICKLIST
+	default "3"
 
 config MMU
 	bool
@@ -3144,6 +3353,7 @@ config MIPS32_O32
 	select COMPAT
 	select MIPS32_COMPAT
 	select SYSVIPC_COMPAT if SYSVIPC
+	select AUDITSYSCALL_O32 if AUDITSYSCALL
 	help
 	  Select this option if you want to run o32 binaries.  These are pure
 	  32-bit binaries as used by the 32-bit Linux/MIPS port.  Most of
@@ -3158,6 +3368,7 @@ config MIPS32_N32
 	select COMPAT
 	select MIPS32_COMPAT
 	select SYSVIPC_COMPAT if SYSVIPC
+	select AUDITSYSCALL_N32 if AUDITSYSCALL
 	help
 	  Select this option if you want to run n32 binaries.  These are
 	  64-bit binaries using 32-bit quantities for addressing and certain
@@ -3182,6 +3393,10 @@ config ARCH_SUSPEND_POSSIBLE
 	depends on SYS_SUPPORTS_HOTPLUG_CPU || !SMP
 
 source "kernel/power/Kconfig"
+
+if CPU_LOONGSON3
+source "drivers/acpi/Kconfig"
+endif
 
 endmenu
 

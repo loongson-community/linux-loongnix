@@ -24,6 +24,7 @@
 #include <linux/i2c.h>
 #include <linux/module.h>
 #include <linux/regmap.h>
+#include <linux/of_device.h>
 
 #include <drm/drmP.h>
 #include <drm/drm_atomic_helper.h>
@@ -80,12 +81,17 @@
 
 #define SII902X_I2C_BUS_ACQUISITION_TIMEOUT_MS	500
 
+struct sii9022_usage {
+	bool is_cripple;
+};
+
 struct sii902x {
 	struct i2c_client *i2c;
 	struct regmap *regmap;
 	struct drm_bridge bridge;
 	struct drm_connector connector;
 	struct gpio_desc *reset_gpio;
+	struct sii9022_usage *usage;
 };
 
 static inline struct sii902x *bridge_to_sii902x(struct drm_bridge *bridge)
@@ -123,6 +129,22 @@ sii902x_connector_detect(struct drm_connector *connector, bool force)
 	       connector_status_connected : connector_status_disconnected;
 }
 
+static enum drm_connector_status
+sii902x_cripple_connector_detect(struct drm_connector *connector, bool force)
+{
+	struct sii902x *sii902x = connector_to_sii902x(connector);
+	struct i2c_adapter *ddc = sii902x->i2c->adapter;
+
+	if (ddc) {
+		if (drm_probe_ddc(ddc))
+			return connector_status_connected;
+		else
+			return connector_status_disconnected;
+	}
+
+	return connector_status_unknown;
+}
+
 static const struct drm_connector_funcs sii902x_connector_funcs = {
 	.detect = sii902x_connector_detect,
 	.fill_modes = drm_helper_probe_single_connector_modes,
@@ -131,6 +153,49 @@ static const struct drm_connector_funcs sii902x_connector_funcs = {
 	.atomic_duplicate_state = drm_atomic_helper_connector_duplicate_state,
 	.atomic_destroy_state = drm_atomic_helper_connector_destroy_state,
 };
+
+static const struct drm_connector_funcs sii902x_cripple_connector_funcs = {
+	.detect = sii902x_cripple_connector_detect,
+	.fill_modes = drm_helper_probe_single_connector_modes,
+	.destroy = drm_connector_cleanup,
+	.reset = drm_atomic_helper_connector_reset,
+	.atomic_duplicate_state = drm_atomic_helper_connector_duplicate_state,
+	.atomic_destroy_state = drm_atomic_helper_connector_destroy_state,
+};
+
+static int sii9022_cripple_get_modes(struct drm_connector *connector)
+{
+	struct sii902x *sii902x = connector_to_sii902x(connector);
+	struct i2c_adapter *ddc = sii902x->i2c->adapter;
+	struct edid *edid;
+	int ret;
+
+	if (!ddc)
+		goto fallback;
+
+	edid = drm_get_edid(connector, ddc);
+	if (!edid) {
+		DRM_INFO("EDID read failed. Fallback to standard modes\n");
+		goto fallback;
+	}
+
+	drm_connector_update_edid_property(connector, edid);
+
+	ret = drm_add_edid_modes(connector, edid);
+
+	kfree(edid);
+
+	return ret;
+
+fallback:
+	/* No EDID, fallback on the XGA standard modes */
+	ret = drm_add_modes_noedid(connector, 1920, 1200);
+
+	/* And prefer a mode pretty much anything can handle */
+	drm_set_preferred_mode(connector, 1024, 768);
+
+	return ret;
+}
 
 static int sii902x_get_modes(struct drm_connector *connector)
 {
@@ -233,6 +298,11 @@ static const struct drm_connector_helper_funcs sii902x_connector_helper_funcs = 
 	.mode_valid = sii902x_mode_valid,
 };
 
+static const struct drm_connector_helper_funcs sii902x_cripple_connector_helper_funcs = {
+	.get_modes = sii9022_cripple_get_modes,
+	.mode_valid = sii902x_mode_valid,
+};
+
 static void sii902x_bridge_disable(struct drm_bridge *bridge)
 {
 	struct sii902x *sii902x = bridge_to_sii902x(bridge);
@@ -305,7 +375,11 @@ static int sii902x_bridge_attach(struct drm_bridge *bridge)
 	struct drm_device *drm = bridge->dev;
 	int ret;
 
-	drm_connector_helper_add(&sii902x->connector,
+	if (sii902x->usage->is_cripple)
+		drm_connector_helper_add(&sii902x->connector,
+				 &sii902x_cripple_connector_helper_funcs);
+	else
+		drm_connector_helper_add(&sii902x->connector,
 				 &sii902x_connector_helper_funcs);
 
 	if (!drm_core_check_feature(drm, DRIVER_ATOMIC)) {
@@ -314,9 +388,16 @@ static int sii902x_bridge_attach(struct drm_bridge *bridge)
 		return -ENOTSUPP;
 	}
 
-	ret = drm_connector_init(drm, &sii902x->connector,
+
+	if (sii902x->usage->is_cripple)
+		ret = drm_connector_init(drm, &sii902x->connector,
+				 &sii902x_cripple_connector_funcs,
+				 DRM_MODE_CONNECTOR_HDMIA);
+	else
+		ret = drm_connector_init(drm, &sii902x->connector,
 				 &sii902x_connector_funcs,
 				 DRM_MODE_CONNECTOR_HDMIA);
+
 	if (ret)
 		return ret;
 
@@ -373,12 +454,22 @@ static int sii902x_probe(struct i2c_client *client,
 	struct device *dev = &client->dev;
 	unsigned int status = 0;
 	struct sii902x *sii902x;
+	struct sii9022_usage *usage;
 	u8 chipid[4];
 	int ret;
 
 	sii902x = devm_kzalloc(dev, sizeof(*sii902x), GFP_KERNEL);
 	if (!sii902x)
 		return -ENOMEM;
+
+	usage = (struct sii9022_usage *) of_device_get_match_data(dev);
+	if (IS_ERR(usage))
+		return PTR_ERR(usage);
+
+	sii902x->usage = usage;
+
+	dev_info(dev, "usage: is cripple ? %s\n",
+			usage->is_cripple ? "Yes" : "No");
 
 	sii902x->i2c = client;
 	sii902x->regmap = devm_regmap_init_i2c(client, &sii902x_regmap_config);
@@ -447,8 +538,17 @@ static int sii902x_remove(struct i2c_client *client)
 	return 0;
 }
 
+static const struct sii9022_usage sii9022_normal_usage = {
+	.is_cripple = false,
+};
+
+static const struct sii9022_usage sii9022_cripple_usage = {
+	.is_cripple = true,
+};
+
 static const struct of_device_id sii902x_dt_ids[] = {
-	{ .compatible = "sil,sii9022", },
+	{ .compatible = "sil,sii9022", .data = &sii9022_normal_usage},
+	{ .compatible = "sil,sii9022-cripple", .data = &sii9022_cripple_usage,},
 	{ }
 };
 MODULE_DEVICE_TABLE(of, sii902x_dt_ids);

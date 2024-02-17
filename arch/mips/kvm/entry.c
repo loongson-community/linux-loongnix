@@ -51,11 +51,13 @@
 #define RA		31
 
 /* Some CP0 registers */
+#define C0_PAGEMASK	5, 0
 #define C0_PWBASE	5, 5
 #define C0_HWRENA	7, 0
 #define C0_BADVADDR	8, 0
 #define C0_BADINSTR	8, 1
 #define C0_BADINSTRP	8, 2
+#define C0_PGD		9, 7
 #define C0_ENTRYHI	10, 0
 #define C0_GUESTCTL1	10, 4
 #define C0_STATUS	12, 0
@@ -64,6 +66,7 @@
 #define C0_EPC		14, 0
 #define C0_EBASE	15, 1
 #define C0_CONFIG5	16, 5
+#define C0_GSCAUSE	22, 1
 #define C0_DDATA_LO	28, 3
 #define C0_ERROREPC	30, 0
 
@@ -192,6 +195,7 @@ static inline void build_set_exc_base(u32 **p, unsigned int reg)
 		/* Set WG so that all the bits get written */
 		uasm_i_ori(p, reg, reg, MIPS_EBASE_WG);
 		UASM_i_MTC0(p, reg, C0_EBASE);
+		UASM_i_MTC0(p, reg, C0_EBASE);
 	} else {
 		uasm_i_mtc0(p, reg, C0_EBASE);
 	}
@@ -307,7 +311,10 @@ static void *kvm_mips_build_enter_guest(void *addr)
 
 #ifdef CONFIG_KVM_MIPS_VZ
 	/* Save normal linux process pgd (VZ guarantees pgd_reg is set) */
-	UASM_i_MFC0(&p, K0, c0_kscratch(), pgd_reg);
+	if (cpu_has_ldpte)
+		UASM_i_MFC0(&p, K0, C0_PWBASE);
+	else
+		UASM_i_MFC0(&p, K0, c0_kscratch(), pgd_reg);
 	UASM_i_SW(&p, K0, offsetof(struct kvm_vcpu_arch, host_pgd), K1);
 
 	/*
@@ -469,8 +476,10 @@ void *kvm_mips_build_tlb_refill_exception(void *addr, void *handler)
 	u32 *p = addr;
 	struct uasm_label labels[2];
 	struct uasm_reloc relocs[2];
+#ifndef CONFIG_CPU_LOONGSON3
 	struct uasm_label *l = labels;
 	struct uasm_reloc *r = relocs;
+#endif
 
 	memset(labels, 0, sizeof(labels));
 	memset(relocs, 0, sizeof(relocs));
@@ -489,7 +498,29 @@ void *kvm_mips_build_tlb_refill_exception(void *addr, void *handler)
 	 * assume symmetry and just disable preemption to silence the warning.
 	 */
 	preempt_disable();
+#ifdef CONFIG_CPU_LOONGSON3
+	UASM_i_MFC0(&p, K1, C0_PGD);
 
+	uasm_i_lddir(&p, K0, K1, 3);  /* global page dir */
+#ifndef __PAGETABLE_PMD_FOLDED
+	uasm_i_lddir(&p, K1, K0, 1);  /* middle page dir */
+#endif
+	uasm_i_ldpte(&p, K1, 0);      /* even */
+	uasm_i_ldpte(&p, K1, 1);      /* odd */
+	uasm_i_tlbwr(&p);
+
+	/* restore page mask */
+	if (PM_DEFAULT_MASK >> 16) {
+		uasm_i_lui(&p, K0, PM_DEFAULT_MASK >> 16);
+		uasm_i_ori(&p, K0, K0, PM_DEFAULT_MASK & 0xffff);
+		uasm_i_mtc0(&p, K0, C0_PAGEMASK);
+	} else if (PM_DEFAULT_MASK) {
+		uasm_i_ori(&p, K0, 0, PM_DEFAULT_MASK);
+		uasm_i_mtc0(&p, K0, C0_PAGEMASK);
+	} else {
+		uasm_i_mtc0(&p, 0, C0_PAGEMASK);
+	}
+#else
 	/*
 	 * Now for the actual refill bit. A lot of this can be common with the
 	 * Linux TLB refill handler, however we don't need to handle so many
@@ -512,6 +543,7 @@ void *kvm_mips_build_tlb_refill_exception(void *addr, void *handler)
 	build_get_ptep(&p, K0, K1);
 	build_update_entries(&p, K0, K1);
 	build_tlb_write_entry(&p, &l, &r, tlb_random);
+#endif
 
 	preempt_enable();
 
@@ -525,6 +557,7 @@ void *kvm_mips_build_tlb_refill_exception(void *addr, void *handler)
 
 	/* Jump to guest */
 	uasm_i_eret(&p);
+	uasm_resolve_relocs(relocs, labels);
 
 	return p;
 }
@@ -646,6 +679,9 @@ void *kvm_mips_build_exit(void *addr)
 
 	uasm_i_mfc0(&p, K0, C0_CAUSE);
 	uasm_i_sw(&p, K0, offsetof(struct kvm_vcpu_arch, host_cp0_cause), K1);
+
+	uasm_i_mfc0(&p, K0, C0_GSCAUSE);
+	uasm_i_sw(&p, K0, offsetof(struct kvm_vcpu_arch, host_cp0_gscause), K1);
 
 	if (cpu_has_badinstr) {
 		uasm_i_mfc0(&p, K0, C0_BADINSTR);
@@ -846,6 +882,7 @@ static void *kvm_mips_build_ret_from_exit(void *addr)
 	uasm_il_bnez(&p, &r, T0, label_return_to_host);
 	 uasm_i_nop(&p);
 
+	uasm_i_sw(&p, ZERO, offsetof(struct kvm_vcpu_arch, is_hypcall), K1);
 	p = kvm_mips_build_ret_to_guest(p);
 
 	uasm_l_return_to_host(&l, p);

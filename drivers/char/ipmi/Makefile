@@ -8,6 +8,7 @@ ipmi_si-y := ipmi_si_intf.o ipmi_kcs_sm.o ipmi_smic_sm.o ipmi_bt_sm.o \
 	ipmi_si_port_io.o ipmi_si_mem_io.o
 ifdef CONFIG_PCI
 ipmi_si-y += ipmi_si_pci.o
+ipmi_si-y += ipmi_si_ls2k500.o
 endif
 ifdef CONFIG_PARISC
 ipmi_si-y += ipmi_si_parisc.o

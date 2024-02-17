@@ -31,6 +31,13 @@
 	cfi_rel_offset \reg, \offset, \docfi
 	.endm
 
+	.macro cfi_sq reg1 reg2 offset=0 docfi=0
+	.set push
+	.set loongson-ext
+	gssq	\reg2, \reg1, \offset(sp)
+	.set pop
+	.endm
+
 	.macro cfi_restore reg offset=0 docfi=0
 	.if \docfi
 	.cfi_restore \reg
@@ -41,6 +48,14 @@
 	LONG_L	\reg, \offset(sp)
 	cfi_restore \reg \offset \docfi
 	.endm
+
+	.macro cfi_lq reg1 reg2 offset=0 docfi=0
+	.set push
+	.set loongson-ext
+	gslq	\reg2, \reg1, \offset(sp)
+	.set pop
+	.endm
+
 
 #if defined(CONFIG_CPU_R3000) || defined(CONFIG_CPU_TX39XX)
 #define STATMASK 0x3f
@@ -70,16 +85,22 @@
 		cfi_st	$8, PT_R8, \docfi
 		cfi_st	$9, PT_R9, \docfi
 #endif
+#if defined(CONFIG_CPU_LOONGSON3) && defined(TOOLCHAIN_SUPPORTS_EXT)
+		cfi_sq	$10, $11, PT_R10, \docfi
+		cfi_sq	$12, $13, PT_R12, \docfi
+		cfi_sq	$14, $15, PT_R14, \docfi
+#else
 		cfi_st	$10, PT_R10, \docfi
 		cfi_st	$11, PT_R11, \docfi
 		cfi_st	$12, PT_R12, \docfi
+		cfi_st	$13, PT_R13, \docfi
+		cfi_st	$14, PT_R14, \docfi
+		cfi_st	$15, PT_R15, \docfi
+#endif
 #if !defined(CONFIG_CPU_HAS_SMARTMIPS) && !defined(CONFIG_CPU_MIPSR6)
 		LONG_S	v1, PT_HI(sp)
 		mflo	v1
 #endif
-		cfi_st	$13, PT_R13, \docfi
-		cfi_st	$14, PT_R14, \docfi
-		cfi_st	$15, PT_R15, \docfi
 		cfi_st	$24, PT_R24, \docfi
 #if !defined(CONFIG_CPU_HAS_SMARTMIPS) && !defined(CONFIG_CPU_MIPSR6)
 		LONG_S	v1, PT_LO(sp)
@@ -95,6 +116,12 @@
 		.endm
 
 		.macro	SAVE_STATIC docfi=0
+#if defined(CONFIG_CPU_LOONGSON3) && defined(TOOLCHAIN_SUPPORTS_EXT)
+		cfi_sq	$16, $17, PT_R16, \docfi
+		cfi_sq	$18, $19, PT_R18, \docfi
+		cfi_sq	$20, $21, PT_R20, \docfi
+		cfi_sq	$22, $23, PT_R22, \docfi
+#else
 		cfi_st	$16, PT_R16, \docfi
 		cfi_st	$17, PT_R17, \docfi
 		cfi_st	$18, PT_R18, \docfi
@@ -103,6 +130,7 @@
 		cfi_st	$21, PT_R21, \docfi
 		cfi_st	$22, PT_R22, \docfi
 		cfi_st	$23, PT_R23, \docfi
+#endif
 		cfi_st	$30, PT_R30, \docfi
 		.endm
 
@@ -244,12 +272,26 @@
 		.endif
 		cfi_st	k0, PT_R29, \docfi
 		cfi_rel_offset  sp, PT_R29, \docfi
+#if defined(CONFIG_CPU_LOONGSON3) && defined(TOOLCHAIN_SUPPORTS_EXT)
+		cfi_sq	$0, $1, PT_R0, \docfi
+		cfi_sq	v0, v1, PT_R2, \docfi
+		cfi_sq	$4, $5, PT_R4, \docfi
+		cfi_sq	$6, $7, PT_R6, \docfi
+#else
 		cfi_st	v1, PT_R3, \docfi
+#endif
 		/*
 		 * You might think that you don't need to save $0,
 		 * but the FPU emulator and gdb remote debug stub
 		 * need it to operate correctly
 		 */
+#if defined(CONFIG_CPU_LOONGSON3) && defined(TOOLCHAIN_SUPPORTS_EXT)
+		cfi_st  ra, PT_R31, \docfi
+                MFC0    ra, CP0_EPC
+                mfc0    k0, CP0_STATUS
+                mfc0    v1, CP0_CAUSE
+                cfi_sq  k0, v1, PT_STATUS, \docfi
+#else
 		LONG_S	$0, PT_R0(sp)
 		mfc0	v1, CP0_STATUS
 		cfi_st	v0, PT_R2, \docfi
@@ -259,12 +301,17 @@
 		cfi_st	$5, PT_R5, \docfi
 		LONG_S	v1, PT_CAUSE(sp)
 		cfi_st	$6, PT_R6, \docfi
-		cfi_st	ra, PT_R31, \docfi
-		MFC0	ra, CP0_EPC
-		cfi_st	$7, PT_R7, \docfi
+		cfi_st  ra, PT_R31, \docfi
+                MFC0    ra, CP0_EPC
+                cfi_st  $7, PT_R7, \docfi
+#endif
 #ifdef CONFIG_64BIT
+#if defined(CONFIG_CPU_LOONGSON3) && defined(TOOLCHAIN_SUPPORTS_EXT)
+		cfi_sq	$8, $9, PT_R8, \docfi
+#else
 		cfi_st	$8, PT_R8, \docfi
 		cfi_st	$9, PT_R9, \docfi
+#endif
 #endif
 		LONG_S	ra, PT_EPC(sp)
 		.if \docfi
@@ -315,25 +362,43 @@
 		LONG_L	$24, PT_LO(sp)
 		mtlhx	$24
 #elif !defined(CONFIG_CPU_MIPSR6)
+#if defined(CONFIG_CPU_LOONGSON3) && defined(TOOLCHAIN_SUPPORTS_EXT)
+		cfi_lq	$10, $11, PT_LO, \docfi
+		mtlo	$10
+		mthi	$11
+#else
 		LONG_L	$24, PT_LO(sp)
 		mtlo	$24
 		LONG_L	$24, PT_HI(sp)
 		mthi	$24
 #endif
+#endif
 #ifdef CONFIG_32BIT
 		cfi_ld	$8, PT_R8, \docfi
 		cfi_ld	$9, PT_R9, \docfi
 #endif
+#if defined(CONFIG_CPU_LOONGSON3) && defined(TOOLCHAIN_SUPPORTS_EXT)
+		cfi_lq	$10, $11, PT_R10, \docfi
+		cfi_lq	$12, $13, PT_R12, \docfi
+		cfi_lq	$14, $15, PT_R14, \docfi
+#else
 		cfi_ld	$10, PT_R10, \docfi
 		cfi_ld	$11, PT_R11, \docfi
 		cfi_ld	$12, PT_R12, \docfi
 		cfi_ld	$13, PT_R13, \docfi
 		cfi_ld	$14, PT_R14, \docfi
 		cfi_ld	$15, PT_R15, \docfi
+#endif
 		cfi_ld	$24, PT_R24, \docfi
 		.endm
 
 		.macro	RESTORE_STATIC docfi=0
+#if defined(CONFIG_CPU_LOONGSON3) && defined(TOOLCHAIN_SUPPORTS_EXT)
+		cfi_lq	$16, $17, PT_R16, \docfi
+		cfi_lq	$18, $19, PT_R18, \docfi
+		cfi_lq	$20, $21, PT_R20, \docfi
+		cfi_lq	$22, $23, PT_R22, \docfi
+#else
 		cfi_ld	$16, PT_R16, \docfi
 		cfi_ld	$17, PT_R17, \docfi
 		cfi_ld	$18, PT_R18, \docfi
@@ -342,6 +407,7 @@
 		cfi_ld	$21, PT_R21, \docfi
 		cfi_ld	$22, PT_R22, \docfi
 		cfi_ld	$23, PT_R23, \docfi
+#endif
 		cfi_ld	$30, PT_R30, \docfi
 		.endm
 
@@ -410,15 +476,25 @@
 		cfi_ld	$28, PT_R28, \docfi
 		cfi_ld	$25, PT_R25, \docfi
 #ifdef CONFIG_64BIT
+#if defined(CONFIG_CPU_LOONGSON3) && defined(TOOLCHAIN_SUPPORTS_EXT)
+		cfi_lq	$8, $9, PT_R8, \docfi
+#else
 		cfi_ld	$8, PT_R8, \docfi
 		cfi_ld	$9, PT_R9, \docfi
 #endif
+#endif
+#if defined(CONFIG_CPU_LOONGSON3) && defined(TOOLCHAIN_SUPPORTS_EXT)
+		cfi_lq	$2, $3, PT_R2, \docfi
+		cfi_lq	$4, $5, PT_R4, \docfi
+		cfi_lq	$6, $7, PT_R6, \docfi
+#else
 		cfi_ld	$7,  PT_R7, \docfi
 		cfi_ld	$6,  PT_R6, \docfi
 		cfi_ld	$5,  PT_R5, \docfi
 		cfi_ld	$4,  PT_R4, \docfi
 		cfi_ld	$3,  PT_R3, \docfi
 		cfi_ld	$2,  PT_R2, \docfi
+#endif
 		.set	pop
 		.endm
 
@@ -449,7 +525,11 @@
  */
 		.macro	CLI
 		mfc0	t0, CP0_STATUS
+#ifdef CONFIG_CPU_LOONGSON3
+		li	t1, ST0_CU0 | ST0_MM | STATMASK
+#else
 		li	t1, ST0_CU0 | STATMASK
+#endif
 		or	t0, t1
 		xori	t0, STATMASK
 		mtc0	t0, CP0_STATUS
@@ -462,7 +542,11 @@
  */
 		.macro	STI
 		mfc0	t0, CP0_STATUS
+#ifdef CONFIG_CPU_LOONGSON3
+		li	t1, ST0_CU0 | ST0_MM | STATMASK
+#else
 		li	t1, ST0_CU0 | STATMASK
+#endif
 		or	t0, t1
 		xori	t0, STATMASK & ~1
 		mtc0	t0, CP0_STATUS
@@ -476,7 +560,11 @@
  */
 		.macro	KMODE
 		mfc0	t0, CP0_STATUS
+#ifdef CONFIG_CPU_LOONGSON3
+		li	t1, ST0_CU0 | ST0_MM | (STATMASK & ~1)
+#else
 		li	t1, ST0_CU0 | (STATMASK & ~1)
+#endif
 #if defined(CONFIG_CPU_R3000) || defined(CONFIG_CPU_TX39XX)
 		andi	t2, t0, ST0_IEP
 		srl	t2, 2

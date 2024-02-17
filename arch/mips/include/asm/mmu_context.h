@@ -93,6 +93,14 @@ static inline u64 asid_first_version(unsigned int cpu)
 #define cpu_asid(cpu, mm) \
 	(cpu_context((cpu), (mm)) & cpu_asid_mask(&cpu_data[cpu]))
 
+static inline int asid_valid(struct mm_struct *mm, unsigned int cpu)
+{
+	if ((cpu_context(cpu, mm) ^ asid_cache(cpu)) & asid_version_mask(cpu))
+		return 0;
+
+	return 1;
+}
+
 static inline void enter_lazy_tlb(struct mm_struct *mm, struct task_struct *tsk)
 {
 }
@@ -141,7 +149,7 @@ static inline void switch_mm(struct mm_struct *prev, struct mm_struct *next,
 
 	htw_stop();
 	/* Check if our ASID is of an older version and thus invalid */
-	if ((cpu_context(cpu, next) ^ asid_cache(cpu)) & asid_version_mask(cpu))
+	if (asid_valid(next, cpu) == 0)
 		get_new_mmu_context(next, cpu);
 	write_c0_entryhi(cpu_asid(cpu, next));
 	TLBMISS_HANDLER_SETUP_PGD(next->pgd);
@@ -150,7 +158,6 @@ static inline void switch_mm(struct mm_struct *prev, struct mm_struct *next,
 	 * Mark current->active_mm as not "active" anymore.
 	 * We don't want to mislead possible IPI tlb flush routines.
 	 */
-	cpumask_clear_cpu(cpu, mm_cpumask(prev));
 	cpumask_set_cpu(cpu, mm_cpumask(next));
 	htw_start();
 
@@ -188,7 +195,6 @@ activate_mm(struct mm_struct *prev, struct mm_struct *next)
 	TLBMISS_HANDLER_SETUP_PGD(next->pgd);
 
 	/* mark mmu ownership change */
-	cpumask_clear_cpu(cpu, mm_cpumask(prev));
 	cpumask_set_cpu(cpu, mm_cpumask(next));
 	htw_start();
 
@@ -203,17 +209,33 @@ static inline void
 drop_mmu_context(struct mm_struct *mm, unsigned cpu)
 {
 	unsigned long flags;
+	int pid;
 
 	local_irq_save(flags);
 	htw_stop();
 
-	if (cpumask_test_cpu(cpu, mm_cpumask(mm)))  {
-		get_new_mmu_context(mm, cpu);
-		write_c0_entryhi(cpu_asid(cpu, mm));
-	} else {
-		/* will get a new context next time */
-		cpu_context(cpu, mm) = 0;
+	pid = read_c0_entryhi();
+	if ((pid & cpu_asid_mask(&current_cpu_data)) == (cpu_asid(cpu, mm))) {
+		/* there are four conditions:
+		 * 1. for lazy tlb, current->mm is null
+		 * 2. current thread is running and it is user thread
+		 * 3. happened in context_switch, current pointer is
+		 *    not updated to next thread
+		 * 4. mm is overtimed, its asid is equal to current asid,
+		 *    hardware entryhi should be overwritten here
+		 */
+		if (!(current->mm && (current->mm != mm))) {
+			get_new_mmu_context(mm, cpu);
+			write_c0_entryhi(cpu_asid(cpu, mm));
+			htw_start();
+			local_irq_restore(flags);
+			return;
+		}
 	}
+
+	/* will get a new context next time */
+	cpu_context(cpu, mm) = 0;
+	cpumask_clear_cpu(cpu, mm_cpumask(mm));
 	htw_start();
 	local_irq_restore(flags);
 }

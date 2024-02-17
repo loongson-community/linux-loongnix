@@ -262,16 +262,16 @@ pipe_read(struct kiocb *iocb, struct iov_iter *to)
 	size_t total_len = iov_iter_count(to);
 	struct file *filp = iocb->ki_filp;
 	struct pipe_inode_info *pipe = filp->private_data;
-	int do_wakeup;
+	bool was_full = false;
 	ssize_t ret;
 
 	/* Null read succeeds. */
 	if (unlikely(total_len == 0))
 		return 0;
 
-	do_wakeup = 0;
 	ret = 0;
 	__pipe_lock(pipe);
+	was_full = pipe->nrbufs == pipe->buffers;
 	for (;;) {
 		int bufs = pipe->nrbufs;
 		if (bufs) {
@@ -312,7 +312,6 @@ pipe_read(struct kiocb *iocb, struct iov_iter *to)
 				curbuf = (curbuf + 1) & (pipe->buffers - 1);
 				pipe->curbuf = curbuf;
 				pipe->nrbufs = --bufs;
-				do_wakeup = 1;
 			}
 			total_len -= chars;
 			if (!total_len)
@@ -340,16 +339,17 @@ pipe_read(struct kiocb *iocb, struct iov_iter *to)
 				ret = -ERESTARTSYS;
 			break;
 		}
-		if (do_wakeup) {
+		if (unlikely(was_full)) {
 			wake_up_interruptible_sync_poll(&pipe->wait, EPOLLOUT | EPOLLWRNORM);
  			kill_fasync(&pipe->fasync_writers, SIGIO, POLL_OUT);
 		}
 		pipe_wait(pipe);
+		was_full = pipe->nrbufs == pipe->buffers;
 	}
 	__pipe_unlock(pipe);
 
 	/* Signal writers asynchronously that there is more room. */
-	if (do_wakeup) {
+	if (was_full) {
 		wake_up_interruptible_sync_poll(&pipe->wait, EPOLLOUT | EPOLLWRNORM);
 		kill_fasync(&pipe->fasync_writers, SIGIO, POLL_OUT);
 	}
@@ -369,7 +369,7 @@ pipe_write(struct kiocb *iocb, struct iov_iter *from)
 	struct file *filp = iocb->ki_filp;
 	struct pipe_inode_info *pipe = filp->private_data;
 	ssize_t ret = 0;
-	int do_wakeup = 0;
+	bool was_empty = false;
 	size_t total_len = iov_iter_count(from);
 	ssize_t chars;
 
@@ -378,6 +378,11 @@ pipe_write(struct kiocb *iocb, struct iov_iter *from)
 		return 0;
 
 	__pipe_lock(pipe);
+	/*
+	 * Epoll nonsensically wants a wakeup whether the pipe
+	 * was already empty or not.
+	 */
+	was_empty = true;
 
 	if (!pipe->readers) {
 		send_sig(SIGPIPE, current, 0);
@@ -403,7 +408,6 @@ pipe_write(struct kiocb *iocb, struct iov_iter *from)
 				ret = -EFAULT;
 				goto out;
 			}
-			do_wakeup = 1;
 			buf->len += ret;
 			if (!iov_iter_count(from))
 				goto out;
@@ -439,7 +443,6 @@ pipe_write(struct kiocb *iocb, struct iov_iter *from)
 			 * syscall merging.
 			 * FIXME! Is this really true?
 			 */
-			do_wakeup = 1;
 			copied = copy_page_from_iter(page, 0, PAGE_SIZE, from);
 			if (unlikely(copied < PAGE_SIZE && iov_iter_count(from))) {
 				if (!ret)
@@ -476,18 +479,18 @@ pipe_write(struct kiocb *iocb, struct iov_iter *from)
 				ret = -ERESTARTSYS;
 			break;
 		}
-		if (do_wakeup) {
+		if (unlikely(was_empty)) {
 			wake_up_interruptible_sync_poll(&pipe->wait, EPOLLIN | EPOLLRDNORM);
 			kill_fasync(&pipe->fasync_readers, SIGIO, POLL_IN);
-			do_wakeup = 0;
 		}
 		pipe->waiting_writers++;
 		pipe_wait(pipe);
 		pipe->waiting_writers--;
+		was_empty = pipe->nrbufs == 0;
 	}
 out:
 	__pipe_unlock(pipe);
-	if (do_wakeup) {
+	if (was_empty) {
 		wake_up_interruptible_sync_poll(&pipe->wait, EPOLLIN | EPOLLRDNORM);
 		kill_fasync(&pipe->fasync_readers, SIGIO, POLL_IN);
 	}

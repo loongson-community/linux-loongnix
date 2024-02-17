@@ -26,6 +26,8 @@ extern spinlock_t rtc_lock;
  */
 extern void plat_time_init(void);
 
+extern unsigned int mips_cpu_frequency;
+
 /*
  * mips_hpt_frequency - must be set if you intend to use an R4k-compatible
  * counter as a timer interrupt source.
@@ -44,11 +46,17 @@ extern int __weak get_c0_perfcount_int(void);
  */
 extern unsigned int get_c0_compare_int(void);
 extern int r4k_clockevent_init(void);
+extern int stable_clockevent_init(void);
 
 static inline int mips_clockevent_init(void)
 {
 #ifdef CONFIG_CEVT_R4K
-	return r4k_clockevent_init();
+#ifdef CONFIG_CPU_LOONGSON3
+	if (loongson_cpu_has_lft)
+		return stable_clockevent_init();
+	else
+#endif
+		return r4k_clockevent_init();
 #else
 	return -ENXIO;
 #endif
@@ -58,11 +66,17 @@ static inline int mips_clockevent_init(void)
  * Initialize the count register as a clocksource
  */
 extern int init_r4k_clocksource(void);
+extern int init_stable_clocksource(void);
 
 static inline int init_mips_clocksource(void)
 {
 #ifdef CONFIG_CSRC_R4K
-	return init_r4k_clocksource();
+#ifdef CONFIG_CPU_LOONGSON3
+	if (loongson_cpu_has_lft)
+		return init_stable_clocksource();
+	else
+#endif
+		return init_r4k_clocksource();
 #else
 	return 0;
 #endif

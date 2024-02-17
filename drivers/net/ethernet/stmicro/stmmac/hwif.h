@@ -165,6 +165,7 @@ struct stmmac_dma_ops {
 	void (*dma_diagnostic_fr) (void *data, struct stmmac_extra_stats *x,
 				   void __iomem *ioaddr);
 	void (*enable_dma_transmission) (void __iomem *ioaddr);
+	void (*enable_dma_transmission_chan)(void __iomem *ioaddr, u32 chan);
 	void (*enable_dma_irq)(void __iomem *ioaddr, u32 chan);
 	void (*disable_dma_irq)(void __iomem *ioaddr, u32 chan);
 	void (*start_tx)(void __iomem *ioaddr, u32 chan);
@@ -209,6 +210,8 @@ struct stmmac_dma_ops {
 	stmmac_do_void_callback(__priv, dma, dma_diagnostic_fr, __args)
 #define stmmac_enable_dma_transmission(__priv, __args...) \
 	stmmac_do_void_callback(__priv, dma, enable_dma_transmission, __args)
+#define stmmac_enable_dma_transmission_chan(__priv, __args...) \
+	stmmac_do_void_callback(__priv, dma, enable_dma_transmission_chan, __args)
 #define stmmac_enable_dma_irq(__priv, __args...) \
 	stmmac_do_void_callback(__priv, dma, enable_dma_irq, __args)
 #define stmmac_disable_dma_irq(__priv, __args...) \
@@ -482,6 +485,8 @@ extern const struct stmmac_tc_ops dwmac510_tc_ops;
 extern const struct stmmac_ops dwxgmac210_ops;
 extern const struct stmmac_dma_ops dwxgmac210_dma_ops;
 extern const struct stmmac_desc_ops dwxgmac210_desc_ops;
+extern const struct stmmac_ops dwmac_loongson_ops;
+extern const struct stmmac_dma_ops dwmac_loongson_dma_ops;
 
 #define GMAC_VERSION		0x00000020	/* GMAC CORE Version */
 #define GMAC4_VERSION		0x00000110	/* GMAC4+ CORE Version */

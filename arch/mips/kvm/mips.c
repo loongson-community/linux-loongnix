@@ -19,6 +19,7 @@
 #include <linux/sched/signal.h>
 #include <linux/fs.h>
 #include <linux/bootmem.h>
+#include <linux/mod_devicetable.h>
 
 #include <asm/fpu.h>
 #include <asm/page.h>
@@ -26,11 +27,17 @@
 #include <asm/mmu_context.h>
 #include <asm/pgalloc.h>
 #include <asm/pgtable.h>
+#include <asm/cpufeature.h>
 
 #include <linux/kvm_host.h>
 
 #include "interrupt.h"
 #include "commpage.h"
+#ifdef CONFIG_CPU_LOONGSON3
+#include "ls3a.h"
+#include <loongson_cpu.h>
+#include <asm/mipsregs.h>
+#endif
 
 #define CREATE_TRACE_POINTS
 #include "trace.h"
@@ -40,6 +47,7 @@
 #endif
 
 #define VCPU_STAT(x) offsetof(struct kvm_vcpu, stat.x)
+#define VM_STAT(x) offsetof(struct kvm, stat.x)
 struct kvm_stats_debugfs_item debugfs_entries[] = {
 	{ "wait",	  VCPU_STAT(wait_exits),	 KVM_STAT_VCPU },
 	{ "cache",	  VCPU_STAT(cache_exits),	 KVM_STAT_VCPU },
@@ -57,7 +65,10 @@ struct kvm_stats_debugfs_item debugfs_entries[] = {
 	{ "trap_inst",	  VCPU_STAT(trap_inst_exits),	 KVM_STAT_VCPU },
 	{ "msa_fpe",	  VCPU_STAT(msa_fpe_exits),	 KVM_STAT_VCPU },
 	{ "fpe",	  VCPU_STAT(fpe_exits),		 KVM_STAT_VCPU },
+	{ "tlbri",	  VCPU_STAT(tlbri_exits),	 KVM_STAT_VCPU },
+	{ "tlbxi",	  VCPU_STAT(tlbxi_exits),	 KVM_STAT_VCPU },
 	{ "msa_disabled", VCPU_STAT(msa_disabled_exits), KVM_STAT_VCPU },
+	{ "lasx_disabled", VCPU_STAT(lasx_disabled_exits), KVM_STAT_VCPU },
 	{ "flush_dcache", VCPU_STAT(flush_dcache_exits), KVM_STAT_VCPU },
 #ifdef CONFIG_KVM_MIPS_VZ
 	{ "vz_gpsi",	  VCPU_STAT(vz_gpsi_exits),	 KVM_STAT_VCPU },
@@ -69,10 +80,73 @@ struct kvm_stats_debugfs_item debugfs_entries[] = {
 	{ "vz_gpa",	  VCPU_STAT(vz_gpa_exits),	 KVM_STAT_VCPU },
 	{ "vz_resvd",	  VCPU_STAT(vz_resvd_exits),	 KVM_STAT_VCPU },
 #endif
+#ifdef CONFIG_CPU_LOONGSON3
+	{ "lsvz_mmio",	  VCPU_STAT(lsvz_mmio_exits),	 KVM_STAT_VCPU },
+	{ "lsvz_general", VCPU_STAT(lsvz_general_exits), KVM_STAT_VCPU },
+	{ "lsvz_ignore",  VCPU_STAT(lsvz_ignore_exits),  KVM_STAT_VCPU },
+	{ "lsvz_nodecounter",	VCPU_STAT(lsvz_nc_exits),  KVM_STAT_VCPU },
+	{ "lsvz_hc_tlbmiss",  VCPU_STAT(lsvz_hc_tlbmiss_exits),  KVM_STAT_VCPU },
+	{ "lsvz_hc_tlbm",  VCPU_STAT(lsvz_hc_tlbm_exits),  KVM_STAT_VCPU },
+	{ "lsvz_hc_tlbl",  VCPU_STAT(lsvz_hc_tlbl_exits),  KVM_STAT_VCPU },
+	{ "lsvz_hc_tlbs",  VCPU_STAT(lsvz_hc_tlbs_exits),  KVM_STAT_VCPU },
+	{ "lsvz_hc_emulate",  VCPU_STAT(lsvz_hc_emulate_exits),  KVM_STAT_VCPU },
+	{ "lsvz_hc_missvalid",  VCPU_STAT(lsvz_hc_missvalid_exits),  KVM_STAT_VCPU },
+	{ "lsvz_gpsi_cop0",  VCPU_STAT(lsvz_gpsi_cop0_exits),  KVM_STAT_VCPU },
+	{ "lsvz_gpsi_cache",  VCPU_STAT(lsvz_gpsi_cache_exits),  KVM_STAT_VCPU },
+	{ "lsvz_gpsi_spec3",  VCPU_STAT(lsvz_gpsi_spec3_exits),  KVM_STAT_VCPU },
+	{ "lsvz_tlb_refill",  VCPU_STAT(lsvz_tlb_refill_exits),  KVM_STAT_VCPU },
+	{ "lsvz_tlb_refill_fail",  VCPU_STAT(lsvz_tlb_refill_fail),  KVM_STAT_VCPU },
+	{ "lsvz_tlb_add_replace",  VCPU_STAT(lsvz_tlb_add_replace),  KVM_STAT_VCPU },
+	{ "lsvz_tlb_add_refresh",  VCPU_STAT(lsvz_tlb_add_refresh),  KVM_STAT_VCPU },
+	{ "lsvz_gpsi_lwc2",  VCPU_STAT(lsvz_gpsi_lwc2_exits),  KVM_STAT_VCPU },
+	{ "lsvz_rdcsr",  VCPU_STAT(lsvz_rdcsr_exits),  KVM_STAT_VCPU },
+	{ "lsvz_rdcsr_cpu_feature",  VCPU_STAT(lsvz_rdcsr_cpu_feature_exits),  KVM_STAT_VCPU },
+	{ "lsvz_rdcsr_cpu_temp",  VCPU_STAT(lsvz_rdcsr_cpu_temperature_exits),  KVM_STAT_VCPU },
+	{ "lsvz_rdcsr_node_counter",  VCPU_STAT(lsvz_rdcsr_node_counter_exits),  KVM_STAT_VCPU },
+	{ "lsvz_rdcsr_other_func",  VCPU_STAT(lsvz_rdcsr_other_func_exits),  KVM_STAT_VCPU },
+	{ "lsvz_rdcsr_ipi_access",  VCPU_STAT(lsvz_rdcsr_ipi_access_exits),  KVM_STAT_VCPU },
+	{ "lsvz_wrcsr",  VCPU_STAT(lsvz_wrcsr_exits),  KVM_STAT_VCPU },
+	{ "lsvz_drdcsr",  VCPU_STAT(lsvz_drdcsr_exits),  KVM_STAT_VCPU },
+	{ "lsvz_dwrcsr",  VCPU_STAT(lsvz_dwrcsr_exits),  KVM_STAT_VCPU },
+	{ "lsvz_cpucfg",  VCPU_STAT(lsvz_cpucfg_exits),  KVM_STAT_VCPU },
+	{ "lsvz_stable_counter",  VCPU_STAT(lsvz_stable_counter_exits),  KVM_STAT_VCPU },
+	{ "lsvz_huge_dec",  VCPU_STAT(lsvz_huge_dec_exits),  KVM_STAT_VCPU },
+	{ "lsvz_huge_thp",  VCPU_STAT(lsvz_huge_thp_exits),  KVM_STAT_VCPU },
+	{ "lsvz_huge_adj",  VCPU_STAT(lsvz_huge_adjust_exits),  KVM_STAT_VCPU },
+	{ "lsvz_huge_set",  VCPU_STAT(lsvz_huge_set_exits),  KVM_STAT_VCPU },
+	{ "lsvz_huge_merg",  VCPU_STAT(lsvz_huge_merge_exits),  KVM_STAT_VCPU },
+#endif
 	{ "halt_successful_poll", VCPU_STAT(halt_successful_poll), KVM_STAT_VCPU },
 	{ "halt_attempted_poll", VCPU_STAT(halt_attempted_poll), KVM_STAT_VCPU },
 	{ "halt_poll_invalid", VCPU_STAT(halt_poll_invalid), KVM_STAT_VCPU },
 	{ "halt_wakeup",  VCPU_STAT(halt_wakeup),	 KVM_STAT_VCPU },
+
+	{ "lsvz_kvm_pip_read_exits",  VM_STAT(lsvz_kvm_pip_read_exits),  KVM_STAT_VM },
+	{ "lsvz_kvm_pip_write_exits",  VM_STAT(lsvz_kvm_pip_write_exits),  KVM_STAT_VM },
+	{ "lsvz_kvm_ls7a_pic_read_exits",  VM_STAT(lsvz_kvm_ls7a_pic_read_exits),  KVM_STAT_VM },
+	{ "lsvz_kvm_ls7a_pic_write_exits",  VM_STAT(lsvz_kvm_ls7a_pic_write_exits),  KVM_STAT_VM },
+	{ "lsvz_kvm_ls3a_ht_write_exits",  VM_STAT(lsvz_kvm_ls3a_ht_write_exits),  KVM_STAT_VM },
+	{ "lsvz_kvm_ls3a_ht_read_exits",  VM_STAT(lsvz_kvm_ls3a_ht_read_exits),  KVM_STAT_VM },
+	{ "lsvz_kvm_ls3a_router_write_exits",  VM_STAT(lsvz_kvm_ls3a_router_write_exits),  KVM_STAT_VM },
+	{ "lsvz_kvm_ls3a_router_read_exits",  VM_STAT(lsvz_kvm_ls3a_router_read_exits),  KVM_STAT_VM},
+	{ "lsvz_kvm_vm_ioctl_irq_line",  VM_STAT(lsvz_kvm_vm_ioctl_irq_line),  KVM_STAT_VM },
+	{ "lsvz_kvm_ls7a_ioapic_update",  VM_STAT(lsvz_kvm_ls7a_ioapic_update),  KVM_STAT_VM },
+	{ "lsvz_kvm_ls7a_ioapic_lower", VM_STAT(lsvz_kvm_ls7a_ioapic_lower),
+						KVM_STAT_VM },
+	{ "lsvz_kvm_ls7a_ioapic_set_irq",  VM_STAT(lsvz_kvm_ls7a_ioapic_set_irq),  KVM_STAT_VM },
+	{ "lsvz_ls7a_ioapic_reg_write",  VM_STAT(lsvz_ls7a_ioapic_reg_write),  KVM_STAT_VM },
+	{ "lsvz_ls7a_ioapic_reg_read",  VM_STAT(lsvz_ls7a_ioapic_reg_read),  KVM_STAT_VM },
+	{ "lsvz_kvm_set_ls7a_ioapic",  VM_STAT(lsvz_kvm_set_ls7a_ioapic),  KVM_STAT_VM },
+	{ "lsvz_kvm_get_ls7a_ioapic",  VM_STAT(lsvz_kvm_get_ls7a_ioapic),  KVM_STAT_VM },
+	{ "lsvz_kvm_set_ls3a_ht_irq",  VM_STAT(lsvz_kvm_set_ls3a_ht_irq),  KVM_STAT_VM },
+	{ "lsvz_kvm_get_ls3a_ht_irq",  VM_STAT(lsvz_kvm_get_ls3a_ht_irq),  KVM_STAT_VM },
+	{ "lsvz_kvm_set_ls3a_router_irq",  VM_STAT(lsvz_kvm_set_ls3a_router_irq),  KVM_STAT_VM },
+	{ "lsvz_kvm_get_ls3a_router_irq",  VM_STAT(lsvz_kvm_get_ls3a_router_irq),  KVM_STAT_VM },
+	{ "lsvz_kvm_set_ls3a_ext_irq",  VM_STAT(lsvz_kvm_set_ls3a_ext_irq),  KVM_STAT_VM },
+	{ "lsvz_kvm_get_ls3a_ext_irq",  VM_STAT(lsvz_kvm_get_ls3a_ext_irq),  KVM_STAT_VM },
+	{ "lsvz_kvm_set_ls3a_ipmask",  VM_STAT(lsvz_kvm_set_ls3a_ipmask),  KVM_STAT_VM },
+	{ "lsvz_kvm_get_ls3a_ipmask",  VM_STAT(lsvz_kvm_get_ls3a_ipmask),  KVM_STAT_VM },
+	{ "lsvz_kvm_ls7a_msi_irq",  VM_STAT(lsvz_kvm_ls7a_msi_irq),  KVM_STAT_VM },
 	{NULL}
 };
 
@@ -120,6 +194,13 @@ void kvm_arch_hardware_disable(void)
 
 int kvm_arch_hardware_setup(void)
 {
+	/* Initialize basic count/compare timer callbacks */
+	kvm_mips_timer_init(&kvm_timer_callbacks);
+
+	if ((boot_cpu_type() == CPU_LOONGSON3_COMP) &&
+				(read_c0_config6() & MIPS_CONF6_EXTIMER))
+		kvm_ls3acomp_timer_init(&kvm_timer_callbacks);
+
 	return 0;
 }
 
@@ -146,9 +227,19 @@ int kvm_arch_init_vm(struct kvm *kvm, unsigned long type)
 
 	/* Allocate page table to map GPA -> RPA */
 	kvm->arch.gpa_mm.pgd = kvm_pgd_alloc();
+	kvm_info("gpm_mm.pgd @ %lx\n", (ulong)kvm->arch.gpa_mm.pgd);
 	if (!kvm->arch.gpa_mm.pgd)
 		return -ENOMEM;
 
+	if (boot_cpu_type() == CPU_LOONGSON3_COMP) {
+		if (read_c0_config6() & MIPS_CONF6_EXTIMER) {
+			kvm->arch.use_stable_timer = 1;
+		}
+		kvm->arch.node_shift = 44;
+		kvm->arch.cpucfg_lasx = (read_cfg(LOONGSON_CFG1) &
+						  LOONGSON_CFG1_LASX);
+
+	}
 	return 0;
 }
 
@@ -299,7 +390,6 @@ struct kvm_vcpu *kvm_arch_vcpu_create(struct kvm *kvm, unsigned int id)
 	int i;
 
 	struct kvm_vcpu *vcpu = kzalloc(sizeof(struct kvm_vcpu), GFP_KERNEL);
-
 	if (!vcpu) {
 		err = -ENOMEM;
 		goto out;
@@ -310,7 +400,10 @@ struct kvm_vcpu *kvm_arch_vcpu_create(struct kvm *kvm, unsigned int id)
 	if (err)
 		goto out_free_cpu;
 
-	kvm_debug("kvm @ %p: create cpu %d at %p\n", kvm, id, vcpu);
+	kvm_info("kvm @ %lx: create cpu %d at %lx\n",
+			(unsigned long)kvm, id, (unsigned long)vcpu);
+
+	kvm->arch.online_vcpus = id + 1;
 
 	/*
 	 * Allocate space for host mode exception handlers that handle
@@ -381,6 +474,7 @@ struct kvm_vcpu *kvm_arch_vcpu_create(struct kvm *kvm, unsigned int id)
 	dump_handler("kvm_tlb_refill", refill_start, refill_end);
 	dump_handler("kvm_gen_exc", gebase + 0x180, gebase + 0x200);
 	dump_handler("kvm_exit", gebase + 0x2000, vcpu->arch.vcpu_run);
+	kvm_info("start %lx end %lx handler %lx\n",(unsigned long)refill_start,(unsigned long)refill_end,(unsigned long)handler);
 
 	/* Invalidate the icache for these ranges */
 	flush_icache_range((unsigned long)gebase,
@@ -400,6 +494,19 @@ struct kvm_vcpu *kvm_arch_vcpu_create(struct kvm *kvm, unsigned int id)
 	kvm_debug("Allocated COMM page @ %p\n", vcpu->arch.kseg0_commpage);
 	kvm_mips_commpage_init(vcpu);
 
+	kvm_info("guest cop0 page @ %lx gprs @ %lx tlb @ %lx pc @ %lx\n",
+		  (unsigned long)vcpu->arch.cop0, (unsigned long)vcpu->arch.gprs,
+		  (unsigned long)vcpu->arch.guest_tlb, (unsigned long)&vcpu->arch.pc);
+	kvm_info("pending exception @ %lx\n", (ulong)&vcpu->arch.pending_exceptions);
+	kvm_info("fcr31 @ %lx\n", (ulong)&vcpu->arch.fpu.fcr31);
+	kvm_info("count_bias @ %lx period @ %lx\n", (ulong)&vcpu->arch.count_bias, (ulong)&vcpu->arch.count_period);
+	kvm_info("vzguestid @ %lx\n", (unsigned long)vcpu->arch.vzguestid);
+	kvm_info("exit_reason @ %lx\n", (ulong)&vcpu->run->exit_reason);
+	kvm_info("run @ %lx\n", (ulong)vcpu->run);
+	kvm_info("wait @ %lx\n", (ulong)&vcpu->arch.wait);
+	kvm_info("stable timer @ %lx\n", (ulong)&vcpu->arch.stable_timer_tick);
+	kvm_info("use stable timer %x\n", vcpu->kvm->arch.use_stable_timer);
+	kvm_info("\n\n");
 	/* Init */
 	vcpu->arch.last_sched_cpu = -1;
 	vcpu->arch.last_exec_cpu = -1;
@@ -438,10 +545,27 @@ void kvm_arch_vcpu_destroy(struct kvm_vcpu *vcpu)
 	kvm_arch_vcpu_free(vcpu);
 }
 
+#define KVM_GUESTDBG_VALID_MASK (KVM_GUESTDBG_ENABLE | \
+		KVM_GUESTDBG_USE_SW_BP |\
+		KVM_GUESTDBG_SINGLESTEP)
+
 int kvm_arch_vcpu_ioctl_set_guest_debug(struct kvm_vcpu *vcpu,
 					struct kvm_guest_debug *dbg)
 {
-	return -ENOIOCTLCMD;
+	int ret = 0;
+
+	if (dbg->control & ~KVM_GUESTDBG_VALID_MASK) {
+		ret = -EINVAL;
+		goto out;
+	}
+	if (dbg->control & KVM_GUESTDBG_ENABLE) {
+		vcpu->guest_debug = dbg->control;
+		/*  Hardware not support*/
+	} else {
+		vcpu->guest_debug = 0;
+	}
+out:
+	return ret;
 }
 
 int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
@@ -456,6 +580,10 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 		if (!vcpu->mmio_is_write)
 			kvm_mips_complete_mmio_load(vcpu, run);
 		vcpu->mmio_needed = 0;
+	} else if(vcpu->arch.is_hypcall) {
+		/* set return value for hypercall v0 register */
+		vcpu->arch.gprs[2] = run->hypercall.ret;
+		vcpu->arch.is_hypcall = 0;
 	}
 
 	if (run->immediate_exit)
@@ -493,8 +621,11 @@ int kvm_vcpu_ioctl_interrupt(struct kvm_vcpu *vcpu,
 {
 	int intr = (int)irq->irq;
 	struct kvm_vcpu *dvcpu = NULL;
-
+#ifdef CONFIG_CPU_LOONGSON3
+	if (intr == 3 || intr == -3 || intr == 6 || intr == -6)
+#else
 	if (intr == 3 || intr == -3 || intr == 4 || intr == -4)
+#endif
 		kvm_debug("%s: CPU: %d, INTR: %d\n", __func__, irq->cpu,
 			  (int)intr);
 
@@ -503,10 +634,18 @@ int kvm_vcpu_ioctl_interrupt(struct kvm_vcpu *vcpu,
 	else
 		dvcpu = vcpu->kvm->vcpus[irq->cpu];
 
+#ifdef CONFIG_CPU_LOONGSON3
+	if (intr == 2 || intr == 3 || intr == 4 || intr == 1 || intr == 6) {
+#else
 	if (intr == 2 || intr == 3 || intr == 4) {
+#endif
 		kvm_mips_callbacks->queue_io_int(dvcpu, irq);
 
+#ifdef CONFIG_CPU_LOONGSON3
+	} else if (intr == -2 || intr == -3 || intr == -4 || intr == -1 || intr == -6) {
+#else
 	} else if (intr == -2 || intr == -3 || intr == -4) {
+#endif
 		kvm_mips_callbacks->dequeue_io_int(dvcpu, irq);
 	} else {
 		kvm_err("%s: invalid interrupt ioctl (%d:%d)\n", __func__,
@@ -598,6 +737,8 @@ static unsigned long kvm_mips_num_regs(struct kvm_vcpu *vcpu)
 	}
 	if (kvm_mips_guest_can_have_msa(&vcpu->arch))
 		ret += ARRAY_SIZE(kvm_mips_get_one_regs_msa) + 32;
+	if (kvm_mips_guest_has_lasx(vcpu))
+		ret += 32;
 	ret += kvm_mips_callbacks->num_regs(vcpu);
 
 	return ret;
@@ -642,11 +783,20 @@ static int kvm_mips_copy_reg_indices(struct kvm_vcpu *vcpu, u64 __user *indices)
 			return -EFAULT;
 		indices += ARRAY_SIZE(kvm_mips_get_one_regs_msa);
 
-		for (i = 0; i < 32; ++i) {
-			index = KVM_REG_MIPS_VEC_128(i);
-			if (copy_to_user(indices, &index, sizeof(index)))
-				return -EFAULT;
-			++indices;
+		if (kvm_mips_guest_has_lasx(vcpu)) {
+			for (i = 0; i < 32; ++i) {
+				index = KVM_REG_MIPS_VEC_256(i);
+				if (copy_to_user(indices, &index, sizeof(index)))
+					return -EFAULT;
+				++indices;
+			}
+		} else {
+			for (i = 0; i < 32; ++i) {
+				index = KVM_REG_MIPS_VEC_128(i);
+				if (copy_to_user(indices, &index, sizeof(index)))
+					return -EFAULT;
+				++indices;
+			}
 		}
 	}
 
@@ -661,6 +811,7 @@ static int kvm_mips_get_reg(struct kvm_vcpu *vcpu,
 	int ret;
 	s64 v;
 	s64 vs[2];
+	s64 lasx[4];
 	unsigned int idx;
 
 	switch (reg->id) {
@@ -719,6 +870,7 @@ static int kvm_mips_get_reg(struct kvm_vcpu *vcpu,
 		if (!(kvm_read_c0_guest_status(cop0) & ST0_FR))
 			return -EINVAL;
 		idx = reg->id - KVM_REG_MIPS_VEC_128(0);
+
 #ifdef CONFIG_CPU_LITTLE_ENDIAN
 		/* least significant byte first */
 		vs[0] = get_fpr64(&fpu->fpr[idx], 0);
@@ -727,6 +879,28 @@ static int kvm_mips_get_reg(struct kvm_vcpu *vcpu,
 		/* most significant byte first */
 		vs[0] = get_fpr64(&fpu->fpr[idx], 1);
 		vs[1] = get_fpr64(&fpu->fpr[idx], 0);
+#endif
+		break;
+	/* LOONGSON SIMD Architecture Extention (LASX) registers */
+	case KVM_REG_MIPS_VEC_256(0) ... KVM_REG_MIPS_VEC_256(31):
+		if (!kvm_mips_guest_has_lasx(vcpu))
+			return -EINVAL;
+		/* Can't access MSA registers in FR=0 mode */
+		if (!(kvm_read_c0_guest_status(cop0) & ST0_FR))
+			return -EINVAL;
+		idx = reg->id - KVM_REG_MIPS_VEC_256(0);
+#ifdef CONFIG_CPU_LITTLE_ENDIAN
+		/* least significant byte first */
+		lasx[0] = get_fpr64(&fpu->fpr[idx], 0);
+		lasx[1] = get_fpr64(&fpu->fpr[idx], 1);
+		lasx[2] = get_fpr64(&fpu->fpr[idx], 2);
+		lasx[3] = get_fpr64(&fpu->fpr[idx], 3);
+#else
+		/* most significant byte first */
+		lasx[0] = get_fpr64(&fpu->fpr[idx], 3);
+		lasx[1] = get_fpr64(&fpu->fpr[idx], 2);
+		lasx[2] = get_fpr64(&fpu->fpr[idx], 1);
+		lasx[3] = get_fpr64(&fpu->fpr[idx], 0);
 #endif
 		break;
 	case KVM_REG_MIPS_MSA_IR:
@@ -760,6 +934,10 @@ static int kvm_mips_get_reg(struct kvm_vcpu *vcpu,
 		void __user *uaddr = (void __user *)(long)reg->addr;
 
 		return copy_to_user(uaddr, vs, 16) ? -EFAULT : 0;
+	} else if ((reg->id & KVM_REG_SIZE_MASK) == KVM_REG_SIZE_U256) {
+		void __user *uaddr = (void __user *)(long)reg->addr;
+
+		return copy_to_user(uaddr, lasx, 32) ? -EFAULT : 0;
 	} else {
 		return -EINVAL;
 	}
@@ -772,6 +950,7 @@ static int kvm_mips_set_reg(struct kvm_vcpu *vcpu,
 	struct mips_fpu_struct *fpu = &vcpu->arch.fpu;
 	s64 v;
 	s64 vs[2];
+	s64 lasx[4];
 	unsigned int idx;
 
 	if ((reg->id & KVM_REG_SIZE_MASK) == KVM_REG_SIZE_U64) {
@@ -790,6 +969,10 @@ static int kvm_mips_set_reg(struct kvm_vcpu *vcpu,
 		void __user *uaddr = (void __user *)(long)reg->addr;
 
 		return copy_from_user(vs, uaddr, 16) ? -EFAULT : 0;
+	} else if ((reg->id & KVM_REG_SIZE_MASK) == KVM_REG_SIZE_U256) {
+		void __user *uaddr = (void __user *)(long)reg->addr;
+
+		return copy_from_user(lasx, uaddr, 32) ? -EFAULT : 0;
 	} else {
 		return -EINVAL;
 	}
@@ -860,6 +1043,26 @@ static int kvm_mips_set_reg(struct kvm_vcpu *vcpu,
 		set_fpr64(&fpu->fpr[idx], 0, vs[1]);
 #endif
 		break;
+
+	/* LOONGSON SIMD Architecture Extention (LASX) registers */
+	case KVM_REG_MIPS_VEC_256(0) ... KVM_REG_MIPS_VEC_256(31):
+		if (!kvm_mips_guest_has_lasx(vcpu))
+			return -EINVAL;
+		idx = reg->id - KVM_REG_MIPS_VEC_256(0);
+#ifdef CONFIG_CPU_LITTLE_ENDIAN
+		/* least significant byte first */
+		set_fpr64(&fpu->fpr[idx], 0, lasx[0]);
+		set_fpr64(&fpu->fpr[idx], 1, lasx[1]);
+		set_fpr64(&fpu->fpr[idx], 2, lasx[2]);
+		set_fpr64(&fpu->fpr[idx], 3, lasx[3]);
+#else
+		/* most significant byte first */
+		set_fpr64(&fpu->fpr[idx], 3, lasx[0]);
+		set_fpr64(&fpu->fpr[idx], 2, lasx[1]);
+		set_fpr64(&fpu->fpr[idx], 1, lasx[2]);
+		set_fpr64(&fpu->fpr[idx], 0, lasx[3]);
+#endif
+		break;
 	case KVM_REG_MIPS_MSA_IR:
 		if (!kvm_mips_guest_has_msa(&vcpu->arch))
 			return -EINVAL;
@@ -925,6 +1128,96 @@ long kvm_arch_vcpu_async_ioctl(struct file *filp, unsigned int ioctl,
 	return -ENOIOCTLCMD;
 }
 
+int kvm_vm_ioctl_irq_line(struct kvm *kvm, struct kvm_irq_level *irq_level,
+			  bool line_status)
+{
+	u32 irq = irq_level->irq;
+	unsigned int irq_type, vcpu_idx, irq_num,ret;
+	int nrcpus = atomic_read(&kvm->online_vcpus);
+	bool level = irq_level->level;
+	unsigned long flags;
+
+	irq_type = (irq >> KVM_LOONGSON_IRQ_TYPE_SHIFT) & KVM_LOONGSON_IRQ_TYPE_MASK;
+	vcpu_idx = (irq >> KVM_LOONGSON_IRQ_VCPU_SHIFT) & KVM_LOONGSON_IRQ_VCPU_MASK;
+	irq_num = (irq >> KVM_LOONGSON_IRQ_NUM_SHIFT) & KVM_LOONGSON_IRQ_NUM_MASK;
+
+	switch (irq_type) {
+	case KVM_LOONGSON_IRQ_TYPE_IOAPIC:
+		if (!ls7a_ioapic_in_kernel(kvm))
+			return -ENXIO;
+
+		if (vcpu_idx >= nrcpus)
+			return -EINVAL;
+
+		ls7a_ioapic_lock(ls7a_ioapic_irqchip(kvm), &flags);
+		ret = kvm_ls7a_ioapic_set_irq(kvm,irq_num,level);
+		ls7a_ioapic_unlock(ls7a_ioapic_irqchip(kvm), &flags);
+		return ret;
+		break;
+	}
+	kvm->stat.lsvz_kvm_vm_ioctl_irq_line++;
+
+	return -EINVAL;
+}
+
+static int kvm_vm_ioctl_get_irqchip(struct kvm *kvm, struct loongson_kvm_irqchip *chip)
+{
+	int r;
+
+	r = 0;
+	switch(chip->chip_id){
+	case KVM_IRQCHIP_LS7A_IOAPIC:
+		r = kvm_get_ls7a_ioapic(kvm, &(chip->chip.ls7a_ioapic));
+		break;
+	case KVM_IRQCHIP_LS3A_GIPI:
+		r = kvm_get_ls3a_ipi(kvm, &(chip->chip.ls3a_gipistate));
+		break;
+	case KVM_IRQCHIP_LS3A_HT_IRQ:
+	case KVM_IRQCHIP_LS3A_ROUTE:
+		break;
+	case KVM_IRQCHIP_LS3A_EXTIRQ:
+		r = kvm_get_ls3a_extirq(kvm,&(chip->chip.ls3a_extirq));
+		break;
+	case KVM_IRQCHIP_LS3A_IPMASK:
+		r = kvm_get_ls3a_ipmask(kvm,(uint16_t *)chip->chip.core_ipmask);
+		break;
+	default:
+		r = -EINVAL;
+		break;
+	}
+	return r;
+
+}
+
+static int kvm_vm_ioctl_set_irqchip(struct kvm *kvm, struct loongson_kvm_irqchip *chip)
+{
+	int r;
+
+	r = 0;
+	switch (chip->chip_id) {
+	case KVM_IRQCHIP_LS7A_IOAPIC:
+		r = kvm_set_ls7a_ioapic(kvm, &(chip->chip.ls7a_ioapic));
+		break;
+	case KVM_IRQCHIP_LS3A_GIPI:
+		r = kvm_set_ls3a_ipi(kvm, &(chip->chip.ls3a_gipistate));
+		break;
+	case KVM_IRQCHIP_LS3A_HT_IRQ:
+	case KVM_IRQCHIP_LS3A_ROUTE:
+		break;
+	case KVM_IRQCHIP_LS3A_EXTIRQ:
+		r = kvm_set_ls3a_extirq(kvm,&(chip->chip.ls3a_extirq));
+		break;
+	case KVM_IRQCHIP_LS3A_IPMASK:
+		r = kvm_set_ls3a_ipmask(kvm,(uint16_t *)chip->chip.core_ipmask);
+		break;
+	default:
+		r = -EINVAL;
+		break;
+	}
+	return r;
+}
+
+
 long kvm_arch_vcpu_ioctl(struct file *filp, unsigned int ioctl,
 			 unsigned long arg)
 {
@@ -973,6 +1266,101 @@ long kvm_arch_vcpu_ioctl(struct file *filp, unsigned int ioctl,
 		if (copy_from_user(&cap, argp, sizeof(cap)))
 			break;
 		r = kvm_vcpu_ioctl_enable_cap(vcpu, &cap);
+		break;
+	}
+	case KVM_CHECK_EXTENSION: {
+		unsigned int ext;
+		if (copy_from_user(&ext, argp, sizeof(ext)))
+			return -EFAULT;
+		switch (ext) {
+		case KVM_CAP_MIPS_FPU:
+			r = !!raw_cpu_has_fpu;
+			break;
+		case KVM_CAP_MIPS_MSA:
+			r = !!cpu_has_msa;
+			break;
+		default:
+			break;
+		}
+	}
+
+	case KVM_MIPS_GET_VCPU_STATE:
+	{
+		int i;
+		struct  kvm_mips_vcpu_state vcpu_state;
+		r = -EFAULT;
+
+		vcpu_state.online_vcpus = vcpu->kvm->arch.online_vcpus;
+		vcpu_state.is_migrate = 1;
+		for (i = 0; i < 4; i++)
+			vcpu_state.core_ext_ioisr[i] = vcpu->arch.core_ext_ioisr[i];
+
+		vcpu_state.pending_exceptions =  vcpu->arch.pending_exceptions;
+		vcpu_state.pending_exceptions_clr =  vcpu->arch.pending_exceptions_clr;
+		if (vcpu->kvm->arch.use_stable_timer)
+			vcpu_state.cpu_freq =  vcpu->arch.stable_timer_hz;
+		else
+			vcpu_state.cpu_freq =  vcpu->arch.count_hz;
+
+		vcpu_state.count_ctl =  vcpu->arch.count_ctl;
+
+		if (copy_to_user(argp, &vcpu_state, sizeof(struct kvm_mips_vcpu_state)))
+			break;
+		r = 0;
+		break;
+	}
+
+	case KVM_MIPS_SET_VCPU_STATE:
+	{
+		int i;
+		struct  kvm_mips_vcpu_state vcpu_state;
+		r = -EFAULT;
+
+		if (copy_from_user(&vcpu_state, argp, sizeof(struct kvm_mips_vcpu_state)))
+			return -EFAULT;
+
+		vcpu->kvm->arch.online_vcpus = vcpu_state.online_vcpus;
+		vcpu->kvm->arch.is_migrate = vcpu_state.is_migrate;
+		for(i = 0; i < 4; i++)
+			 vcpu->arch.core_ext_ioisr[i] = vcpu_state.core_ext_ioisr[i];
+
+		vcpu->arch.pending_exceptions = vcpu_state.pending_exceptions;
+		vcpu->arch.pending_exceptions_clr = vcpu_state.pending_exceptions_clr;
+		vcpu->arch.count_ctl = vcpu_state.count_ctl;
+
+		if (vcpu->kvm->arch.use_stable_timer) {
+			if ((vcpu_state.cpu_freq != vcpu->arch.stable_timer_hz) &&
+							   (vcpu->vcpu_id == 0)) {
+				struct kvm_mips_interrupt irq = {0};
+				irq.irq = 1;
+				kvm_info("==migrate between two different freq machine,src_freq 0x%x,dest_freq 0x%llx\n",
+					vcpu_state.cpu_freq,vcpu->arch.stable_timer_hz);
+				kvm_mips_callbacks->queue_io_int(vcpu, &irq);
+			}
+		} else {
+			if ((vcpu_state.cpu_freq != vcpu->arch.count_hz) &&
+							(vcpu->vcpu_id == 0)) {
+				struct kvm_mips_interrupt irq = {0};
+				irq.irq = 1;
+				kvm_info("==migrate between two different freq machine,src_freq 0x%x,dest_freq 0x%x\n",
+					vcpu_state.cpu_freq,vcpu->arch.count_hz);
+				kvm_mips_callbacks->queue_io_int(vcpu, &irq);
+			}
+		}
+
+		r = 0;
+		break;
+	}
+	case KVM_MIPS_GET_CPUCFG: {
+		struct kvm_cpucfg cpucfg;
+		int i;
+
+		if (copy_from_user(&cpucfg, argp, sizeof(cpucfg)))
+			return -EFAULT;
+		for (i = 0; i < 16; i++) {
+			cpucfg.cpucfg[i] = read_cfg(i);
+		}
+		r = copy_to_user(argp, &cpucfg, sizeof(cpucfg)) ? -EFAULT : 0;
 		break;
 	}
 	default:
@@ -1027,12 +1415,91 @@ int kvm_vm_ioctl_get_dirty_log(struct kvm *kvm, struct kvm_dirty_log *log)
 
 long kvm_arch_vm_ioctl(struct file *filp, unsigned int ioctl, unsigned long arg)
 {
+	struct kvm *kvm = filp->private_data;
+	void __user *argp = (void __user *)arg;
 	long r;
 
 	switch (ioctl) {
+	case KVM_CREATE_IRQCHIP:
+	{
+		struct ls7a_kvm_ioapic *vpic;
+		struct ls3a_kvm_ipi *v_gipi;
+		struct ls3a_kvm_extirq *v_extirq;
+		mutex_lock(&kvm->lock);
+		r = -EEXIST;
+		if (kvm->arch.v_ioapic)
+			goto create_irqchip_unlock;
+		r = -EINVAL;
+		vpic = kvm_create_ls7a_ioapic(kvm);
+		if (vpic == NULL) {
+			goto create_irqchip_unlock;
+		}
+		v_gipi = kvm_create_ls3a_ipi(kvm);
+		if(v_gipi == NULL){
+			mutex_lock(&kvm->slots_lock);
+			kvm_destroy_ls7a_ioapic(vpic);
+			mutex_unlock(&kvm->slots_lock);
+			goto create_irqchip_unlock;
+		}
+		v_extirq = kvm_create_ls3a_ext_irq(kvm);
+
+		kvm_ls7a_setup_default_irq_routing(kvm);
+		r = 0;
+		/* Write kvm->irq_routing before kvm->arch.vpic.  */
+		smp_wmb();
+		kvm->arch.v_ioapic = vpic;
+		kvm->arch.v_gipi = v_gipi;
+		kvm->arch.v_extirq = v_extirq;
+create_irqchip_unlock:
+		mutex_unlock(&kvm->lock);
+		break;
+	}
+	case KVM_GET_IRQCHIP: {
+		struct loongson_kvm_irqchip *chip;
+
+		chip = memdup_user(argp, sizeof(struct loongson_kvm_irqchip));
+		if (IS_ERR(chip)) {
+			r = PTR_ERR(chip);
+			goto out;
+		}
+
+		r = -ENXIO;
+		if (!ls7a_ioapic_in_kernel(kvm))
+			goto get_irqchip_out;
+		r= kvm_vm_ioctl_get_irqchip(kvm,chip);
+		if (r)
+			goto get_irqchip_out;
+		if (copy_to_user(argp, chip, sizeof (struct loongson_kvm_irqchip)))
+			goto get_irqchip_out;
+		r = 0;
+get_irqchip_out:
+		kfree(chip);
+		break;
+	}
+	case KVM_SET_IRQCHIP: {
+		struct loongson_kvm_irqchip *chip;
+
+		chip = memdup_user(argp, sizeof(struct loongson_kvm_irqchip));
+		if (IS_ERR(chip)) {
+			r = PTR_ERR(chip);
+			goto out;
+		}
+
+		r = -ENXIO;
+		if (!ls7a_ioapic_in_kernel(kvm))
+			goto set_irqchip_out;
+		r= kvm_vm_ioctl_set_irqchip(kvm,chip);
+		if (r)
+			goto set_irqchip_out;
+		r = 0;
+set_irqchip_out:
+		kfree(chip);
+		break;
+	}
 	default:
 		r = -ENOIOCTLCMD;
 	}
+out:
 
 	return r;
 }
@@ -1044,7 +1511,10 @@ int kvm_arch_init(void *opaque)
 		return -EEXIST;
 	}
 
-	return kvm_mips_emulation_init(&kvm_mips_callbacks);
+	if (boot_cpu_type() == CPU_LOONGSON3_COMP)
+		return kvm_ls3acomp_emulation_init(&kvm_mips_callbacks);
+	else
+		return kvm_mips_emulation_init(&kvm_mips_callbacks);
 }
 
 void kvm_arch_exit(void)
@@ -1092,6 +1562,9 @@ int kvm_vm_ioctl_check_extension(struct kvm *kvm, long ext)
 	case KVM_CAP_ENABLE_CAP:
 	case KVM_CAP_READONLY_MEM:
 	case KVM_CAP_SYNC_MMU:
+#ifdef CONFIG_HAVE_LS_KVM_MSI
+	case KVM_CAP_SIGNAL_MSI:
+#endif
 	case KVM_CAP_IMMEDIATE_EXIT:
 		r = 1;
 		break;
@@ -1219,7 +1692,7 @@ static enum hrtimer_restart kvm_mips_comparecount_wakeup(struct hrtimer *timer)
 
 	vcpu = container_of(timer, struct kvm_vcpu, arch.comparecount_timer);
 	kvm_mips_comparecount_func((unsigned long) vcpu);
-	return kvm_mips_count_timeout(vcpu);
+	return kvm_timer_callbacks->count_timeout(vcpu);
 }
 
 int kvm_arch_vcpu_init(struct kvm_vcpu *vcpu)
@@ -1255,15 +1728,17 @@ int kvm_arch_vcpu_setup(struct kvm_vcpu *vcpu)
 
 static void kvm_mips_set_c0_status(void)
 {
-	u32 status = read_c0_status();
 
-	if (cpu_has_dsp)
+	if (cpu_has_dsp) {
+		u32 status = read_c0_status();
 		status |= (ST0_MX);
 
-	write_c0_status(status);
-	ehb();
+		write_c0_status(status);
+		ehb();
+	}
 }
 
+#define EXCCODE_LASX		16	/* LASX exception */
 /*
  * Return value is in the form (errcode<<2 | RESUME_FLAG_HOST | RESUME_FLAG_NV)
  */
@@ -1399,6 +1874,26 @@ int kvm_mips_handle_exit(struct kvm_run *run, struct kvm_vcpu *vcpu)
 		ret = kvm_mips_callbacks->handle_fpe(vcpu);
 		break;
 
+	case EXCCODE_LASX:
+		if ((((vcpu->arch.host_cp0_gscause &
+				 0x7c) >> 2) & 0x1f) == 7) {
+			++vcpu->stat.lasx_disabled_exits;
+			ret = kvm_mips_callbacks->handle_lasx_disabled(vcpu);
+		} else
+			kvm_err("Unhandled GSEXC %x @ %lx\n",
+			 (((vcpu->arch.host_cp0_gscause) & 0x7c) >> 2), vcpu->arch.pc);
+		break;
+
+	case EXCCODE_TLBRI:
+		++vcpu->stat.tlbri_exits;
+		ret = kvm_mips_callbacks->handle_tlbri(vcpu);
+		break;
+
+	case EXCCODE_TLBXI:
+		++vcpu->stat.tlbxi_exits;
+		ret = kvm_mips_callbacks->handle_tlbxi(vcpu);
+		break;
+
 	case EXCCODE_MSADIS:
 		++vcpu->stat.msa_disabled_exits;
 		ret = kvm_mips_callbacks->handle_msa_disabled(vcpu);
@@ -1428,7 +1923,7 @@ skip_emul:
 	local_irq_disable();
 
 	if (ret == RESUME_GUEST)
-		kvm_vz_acquire_htimer(vcpu);
+		kvm_timer_callbacks->acquire_htimer(vcpu);
 
 	if (er == EMULATE_DONE && !(ret & RESUME_HOST))
 		kvm_mips_deliver_interrupts(vcpu, cause);
@@ -1502,7 +1997,7 @@ void kvm_own_fpu(struct kvm_vcpu *vcpu)
 	 * not to clobber the status register directly via the commpage.
 	 */
 	if (cpu_has_msa && sr & ST0_CU1 && !(sr & ST0_FR) &&
-	    vcpu->arch.aux_inuse & KVM_MIPS_AUX_MSA)
+	    vcpu->arch.aux_inuse & (KVM_MIPS_AUX_MSA | KVM_MIPS_AUX_LASX))
 		kvm_lose_fpu(vcpu);
 
 	/*
@@ -1550,7 +2045,7 @@ void kvm_own_msa(struct kvm_vcpu *vcpu)
 		 */
 		if (!(sr & ST0_FR) &&
 		    (vcpu->arch.aux_inuse & (KVM_MIPS_AUX_FPU |
-				KVM_MIPS_AUX_MSA)) == KVM_MIPS_AUX_FPU)
+			KVM_MIPS_AUX_MSA | KVM_MIPS_AUX_LASX)) == KVM_MIPS_AUX_FPU)
 			kvm_lose_fpu(vcpu);
 
 		change_c0_status(ST0_CU1 | ST0_FR, sr);
@@ -1564,26 +2059,128 @@ void kvm_own_msa(struct kvm_vcpu *vcpu)
 	set_c0_config5(MIPS_CONF5_MSAEN);
 	enable_fpu_hazard();
 
-	switch (vcpu->arch.aux_inuse & (KVM_MIPS_AUX_FPU | KVM_MIPS_AUX_MSA)) {
-	case KVM_MIPS_AUX_FPU:
-		/*
-		 * Guest FPU state already loaded, only restore upper MSA state
-		 */
-		__kvm_restore_msa_upper(&vcpu->arch);
-		vcpu->arch.aux_inuse |= KVM_MIPS_AUX_MSA;
-		trace_kvm_aux(vcpu, KVM_TRACE_AUX_RESTORE, KVM_TRACE_AUX_MSA);
-		break;
-	case 0:
-		/* Neither FPU or MSA already active, restore full MSA state */
-		__kvm_restore_msa(&vcpu->arch);
-		vcpu->arch.aux_inuse |= KVM_MIPS_AUX_MSA;
-		if (kvm_mips_guest_has_fpu(&vcpu->arch))
-			vcpu->arch.aux_inuse |= KVM_MIPS_AUX_FPU;
-		trace_kvm_aux(vcpu, KVM_TRACE_AUX_RESTORE,
-			      KVM_TRACE_AUX_FPU_MSA);
+	switch (vcpu->arch.aux_inuse & (KVM_MIPS_AUX_FPU |
+			 KVM_MIPS_AUX_MSA | KVM_MIPS_AUX_LASX)) {
+		case KVM_MIPS_AUX_FPU:
+			/*
+			 * Guest FPU state already loaded, only restore upper MSA state
+			 */
+			__kvm_restore_msa_upper(&vcpu->arch);
+			vcpu->arch.aux_inuse |= KVM_MIPS_AUX_MSA;
+			trace_kvm_aux(vcpu, KVM_TRACE_AUX_RESTORE, KVM_TRACE_AUX_MSA);
+			break;
+		case 0:
+			/* Neither FPU or MSA already active, restore full MSA state */
+			__kvm_restore_msa(&vcpu->arch);
+			vcpu->arch.aux_inuse |= KVM_MIPS_AUX_MSA;
+			if (kvm_mips_guest_has_fpu(&vcpu->arch))
+				vcpu->arch.aux_inuse |= KVM_MIPS_AUX_FPU;
+			trace_kvm_aux(vcpu, KVM_TRACE_AUX_RESTORE,
+					KVM_TRACE_AUX_FPU_MSA);
 		break;
 	default:
 		trace_kvm_aux(vcpu, KVM_TRACE_AUX_ENABLE, KVM_TRACE_AUX_MSA);
+		break;
+	}
+	/* Check if the guest context whether LASX or not,
+	 * if LASX state live, retsore upper LASX state
+	 */
+	if ((read_gc0_config() & MIPS_CONF_LASXEN)) {
+		set_c0_config(MIPS_CONF_LASXEN);
+		__kvm_restore_lasx_upper(&vcpu->arch);
+		vcpu->arch.aux_inuse |= KVM_MIPS_AUX_LASX;
+	}
+
+	preempt_enable();
+}
+#endif
+
+#ifdef CONFIG_CPU_HAS_LASX
+/* Enable LASX for guest and restore context */
+void kvm_own_lasx(struct kvm_vcpu *vcpu)
+{
+	struct mips_coproc *cop0 = vcpu->arch.cop0;
+	unsigned int sr;
+
+	preempt_disable();
+
+	/*
+	 * Enable FPU if enabled in guest, since we're restoring FPU context
+	 * anyway. We set FR and FRE according to guest context.
+	 */
+	if (kvm_mips_guest_has_msa(&vcpu->arch)) {
+		sr = kvm_read_c0_guest_status(cop0);
+		/*
+		 * If FR=0 FPU state is already live, it is undefined how it
+		 * interacts with 256 vector state, so play it safe and save
+		 * it first.
+		 */
+		if (!(sr & ST0_FR) &&
+		((vcpu->arch.aux_inuse & (KVM_MIPS_AUX_FPU |
+		    KVM_MIPS_AUX_MSA | KVM_MIPS_AUX_LASX)) == KVM_MIPS_AUX_MSA))
+			kvm_lose_fpu(vcpu);
+
+		/* Enable MSA for guest */
+		set_c0_config5(MIPS_CONF5_MSAEN);
+	}
+
+	/*
+	 * Enable FPU if enabled in guest, since we're restoring FPU context
+	 * anyway. We set FR and FRE according to guest context.
+	 */
+	if (kvm_mips_guest_has_fpu(&vcpu->arch)) {
+		sr = kvm_read_c0_guest_status(cop0);
+
+		/*
+		 * If FR=0 FPU state is already live, it is undefined how it
+		 * interacts with MSA state, so play it safe and save it first.
+		 */
+		if (!(sr & ST0_FR) &&
+		    (vcpu->arch.aux_inuse & (KVM_MIPS_AUX_FPU |
+				KVM_MIPS_AUX_MSA | KVM_MIPS_AUX_LASX)) == KVM_MIPS_AUX_FPU)
+			kvm_lose_fpu(vcpu);
+
+		change_c0_status(ST0_CU1 | ST0_FR, sr);
+	}
+
+	/* Enable LASX for guest */
+	set_c0_config(MIPS_CONF_LASXEN);
+	enable_fpu_hazard();
+
+	switch (vcpu->arch.aux_inuse & (KVM_MIPS_AUX_FPU |
+			 KVM_MIPS_AUX_MSA | KVM_MIPS_AUX_LASX)) {
+	case (KVM_MIPS_AUX_MSA | KVM_MIPS_AUX_FPU):
+	case KVM_MIPS_AUX_MSA:
+		/*
+		 * Guest MSA state already loaded, only restore upper LASX state
+		 */
+		__kvm_restore_lasx_upper(&vcpu->arch);
+		vcpu->arch.aux_inuse |= KVM_MIPS_AUX_LASX;
+		trace_kvm_aux(vcpu, KVM_TRACE_AUX_RESTORE, KVM_TRACE_AUX_LASX);
+		break;
+	case KVM_MIPS_AUX_FPU:
+		/*
+		 * Guest FPU state already loaded, only restore 64~256 LASX state
+		 */
+		__kvm_restore_lasx_uppest(&vcpu->arch);
+		vcpu->arch.aux_inuse |= KVM_MIPS_AUX_LASX;
+		if (kvm_mips_guest_has_msa(&vcpu->arch))
+			vcpu->arch.aux_inuse |= KVM_MIPS_AUX_MSA;
+		trace_kvm_aux(vcpu, KVM_TRACE_AUX_RESTORE, KVM_TRACE_AUX_LASX);
+		break;
+	case 0:
+		/* Neither FPU or MSA already active, restore full LASX state */
+		__kvm_restore_lasx(&vcpu->arch);
+		vcpu->arch.aux_inuse |= KVM_MIPS_AUX_LASX;
+		if (kvm_mips_guest_has_msa(&vcpu->arch))
+			vcpu->arch.aux_inuse |= KVM_MIPS_AUX_MSA;
+		if (kvm_mips_guest_has_fpu(&vcpu->arch))
+			vcpu->arch.aux_inuse |= KVM_MIPS_AUX_FPU;
+		trace_kvm_aux(vcpu, KVM_TRACE_AUX_RESTORE,
+			      KVM_TRACE_AUX_FPU_MSA_LASX);
+		break;
+	default:
+		trace_kvm_aux(vcpu, KVM_TRACE_AUX_ENABLE, KVM_TRACE_AUX_LASX);
 		break;
 	}
 
@@ -1595,6 +2192,11 @@ void kvm_own_msa(struct kvm_vcpu *vcpu)
 void kvm_drop_fpu(struct kvm_vcpu *vcpu)
 {
 	preempt_disable();
+	if (cpu_has_lasx && (vcpu->arch.aux_inuse & KVM_MIPS_AUX_LASX)) {
+		disable_lasx();
+		trace_kvm_aux(vcpu, KVM_TRACE_AUX_DISCARD, KVM_TRACE_AUX_LASX);
+		vcpu->arch.aux_inuse &= ~KVM_MIPS_AUX_LASX;
+	}
 	if (cpu_has_msa && vcpu->arch.aux_inuse & KVM_MIPS_AUX_MSA) {
 		disable_msa();
 		trace_kvm_aux(vcpu, KVM_TRACE_AUX_DISCARD, KVM_TRACE_AUX_MSA);
@@ -1608,18 +2210,33 @@ void kvm_drop_fpu(struct kvm_vcpu *vcpu)
 	preempt_enable();
 }
 
-/* Save and disable FPU & MSA */
+/* Save and disable FPU & MSA & LASX */
 void kvm_lose_fpu(struct kvm_vcpu *vcpu)
 {
 	/*
-	 * With T&E, FPU & MSA get disabled in root context (hardware) when it
+	 * With T&E, FPU & MSA & LASX get disabled in root context (hardware) when it
 	 * is disabled in guest context (software), but the register state in
 	 * the hardware may still be in use.
 	 * This is why we explicitly re-enable the hardware before saving.
 	 */
 
 	preempt_disable();
-	if (cpu_has_msa && vcpu->arch.aux_inuse & KVM_MIPS_AUX_MSA) {
+	if (cpu_has_lasx && (vcpu->arch.aux_inuse & KVM_MIPS_AUX_LASX)) {
+
+		__kvm_save_lasx(&vcpu->arch);
+		trace_kvm_aux(vcpu, KVM_TRACE_AUX_SAVE, KVM_TRACE_AUX_FPU_MSA_LASX);
+
+		/* Disable LASX & MAS & FPU */
+		disable_lasx();
+		disable_msa();
+
+		if (vcpu->arch.aux_inuse & KVM_MIPS_AUX_FPU) {
+			clear_c0_status(ST0_CU1 | ST0_FR);
+			disable_fpu_hazard();
+		}
+		vcpu->arch.aux_inuse &= ~(KVM_MIPS_AUX_FPU |
+					 KVM_MIPS_AUX_MSA | KVM_MIPS_AUX_LASX);
+	} else if (cpu_has_msa && vcpu->arch.aux_inuse & KVM_MIPS_AUX_MSA) {
 		if (!IS_ENABLED(CONFIG_KVM_MIPS_VZ)) {
 			set_c0_config5(MIPS_CONF5_MSAEN);
 			enable_fpu_hazard();
@@ -1705,6 +2322,14 @@ static int __init kvm_mips_init(void)
 {
 	int ret;
 
+	if (!cpu_has_vz)
+		return 0;
+
+#ifdef CONFIG_CPU_LOONGSON3
+	if (!loongson_cpu_has_vz)
+		return  0;
+#endif
+
 	ret = kvm_mips_entry_setup();
 	if (ret)
 		return ret;
@@ -1728,5 +2353,11 @@ static void __exit kvm_mips_exit(void)
 
 module_init(kvm_mips_init);
 module_exit(kvm_mips_exit);
+
+static const struct cpu_feature mips_kvm_feature[] = {
+	{ .feature = cpu_feature(MIPS_VZ) },
+	{},
+};
+MODULE_DEVICE_TABLE(cpu, mips_kvm_feature);
 
 EXPORT_TRACEPOINT_SYMBOL(kvm_exit);

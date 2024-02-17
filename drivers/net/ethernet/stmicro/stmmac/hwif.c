@@ -69,10 +69,30 @@ static int stmmac_dwmac4_quirks(struct stmmac_priv *priv)
 	return 0;
 }
 
+static int stmmac_dwmac_loongson_quirks(struct stmmac_priv *priv)
+{
+	struct mac_device_info *mac = priv->hw;
+
+	if (priv->plat->enh_desc) {
+		dev_info(priv->device, "Enhanced/Alternate descriptors\n");
+		dev_info(priv->device, "Enabled extended descriptors\n");
+
+		priv->extend_desc = 1;
+		mac->desc = &enh_desc_ops;
+	} else {
+		dev_info(priv->device, "Normal descriptors\n");
+		mac->desc = &ndesc_ops;
+	}
+
+	stmmac_dwmac_mode_quirk(priv);
+	return 0;
+}
+
 static const struct stmmac_hwif_entry {
 	bool gmac;
 	bool gmac4;
 	bool xgmac;
+	bool lgmac;
 	u32 min_id;
 	const struct stmmac_regs_off regs;
 	const void *desc;
@@ -89,6 +109,7 @@ static const struct stmmac_hwif_entry {
 		.gmac = false,
 		.gmac4 = false,
 		.xgmac = false,
+		.lgmac = false,
 		.min_id = 0,
 		.regs = {
 			.ptp_off = PTP_GMAC3_X_OFFSET,
@@ -106,6 +127,7 @@ static const struct stmmac_hwif_entry {
 		.gmac = true,
 		.gmac4 = false,
 		.xgmac = false,
+		.lgmac = false,
 		.min_id = 0,
 		.regs = {
 			.ptp_off = PTP_GMAC3_X_OFFSET,
@@ -123,6 +145,7 @@ static const struct stmmac_hwif_entry {
 		.gmac = false,
 		.gmac4 = true,
 		.xgmac = false,
+		.lgmac = false,
 		.min_id = 0,
 		.regs = {
 			.ptp_off = PTP_GMAC4_OFFSET,
@@ -140,6 +163,7 @@ static const struct stmmac_hwif_entry {
 		.gmac = false,
 		.gmac4 = true,
 		.xgmac = false,
+		.lgmac = false,
 		.min_id = DWMAC_CORE_4_00,
 		.regs = {
 			.ptp_off = PTP_GMAC4_OFFSET,
@@ -157,6 +181,7 @@ static const struct stmmac_hwif_entry {
 		.gmac = false,
 		.gmac4 = true,
 		.xgmac = false,
+		.lgmac = false,
 		.min_id = DWMAC_CORE_4_10,
 		.regs = {
 			.ptp_off = PTP_GMAC4_OFFSET,
@@ -174,6 +199,7 @@ static const struct stmmac_hwif_entry {
 		.gmac = false,
 		.gmac4 = true,
 		.xgmac = false,
+		.lgmac = false,
 		.min_id = DWMAC_CORE_5_10,
 		.regs = {
 			.ptp_off = PTP_GMAC4_OFFSET,
@@ -191,6 +217,7 @@ static const struct stmmac_hwif_entry {
 		.gmac = false,
 		.gmac4 = false,
 		.xgmac = true,
+		.lgmac = false,
 		.min_id = DWXGMAC_CORE_2_10,
 		.regs = {
 			.ptp_off = PTP_XGMAC_OFFSET,
@@ -204,6 +231,42 @@ static const struct stmmac_hwif_entry {
 		.tc = NULL,
 		.setup = dwxgmac2_setup,
 		.quirks = NULL,
+	}, {
+		.gmac = true,
+		.gmac4 = false,
+		.xgmac = false,
+		.lgmac = true,
+		.min_id = DWLGMAC_CORE_1_00,
+		.regs = {
+			.ptp_off = PTP_GMAC3_X_OFFSET,
+			.mmc_off = MMC_GMAC3_X_OFFSET,
+		},
+		.desc = NULL,
+		.dma = &dwmac_loongson_dma_ops,
+		.mac = &dwmac_loongson_ops,
+		.hwtimestamp = &stmmac_ptp,
+		.mode = NULL,
+		.tc = NULL,
+		.setup = dwmac_loongson_setup,
+		.quirks = stmmac_dwmac_loongson_quirks,
+	}, {
+		.gmac = true,
+		.gmac4 = false,
+		.xgmac = false,
+		.lgmac = true,
+		.min_id = DWMAC_CORE_3_50,
+		.regs = {
+			.ptp_off = PTP_GMAC3_X_OFFSET,
+			.mmc_off = MMC_GMAC3_X_OFFSET,
+		},
+		.desc = NULL,
+		.dma = &dwmac1000_dma_ops,
+		.mac = &dwmac1000_ops,
+		.hwtimestamp = &stmmac_ptp,
+		.mode = NULL,
+		.tc = NULL,
+		.setup = dwmac1000_setup,
+		.quirks = stmmac_dwmac1_quirks,
 	},
 };
 
@@ -212,6 +275,7 @@ int stmmac_hwif_init(struct stmmac_priv *priv)
 	bool needs_xgmac = priv->plat->has_xgmac;
 	bool needs_gmac4 = priv->plat->has_gmac4;
 	bool needs_gmac = priv->plat->has_gmac;
+	bool needs_lgmac = priv->plat->has_lgmac;
 	const struct stmmac_hwif_entry *entry;
 	struct mac_device_info *mac;
 	bool needs_setup = true;
@@ -255,6 +319,8 @@ int stmmac_hwif_init(struct stmmac_priv *priv)
 		if (needs_gmac4 ^ entry->gmac4)
 			continue;
 		if (needs_xgmac ^ entry->xgmac)
+			continue;
+		if (needs_lgmac ^ entry->lgmac)
 			continue;
 		/* Use synopsys_id var because some setups can override this */
 		if (priv->synopsys_id < entry->min_id)

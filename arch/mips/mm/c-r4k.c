@@ -38,6 +38,7 @@
 #include <asm/traps.h>
 #include <asm/dma-coherence.h>
 #include <asm/mips-cps.h>
+#include <loongson.h>
 
 /*
  * Bits describing what cache ops an SMP callback function may perform.
@@ -465,9 +466,10 @@ static void r4k_blast_scache_node_setup(void)
 {
 	unsigned long sc_lsize = cpu_scache_line_size();
 
-	if (current_cpu_type() != CPU_LOONGSON3)
-		r4k_blast_scache_node = (void *)cache_noop;
-	else if (sc_lsize == 16)
+	r4k_blast_scache_node = (void *)cache_noop;
+	if (cpu_guestmode)
+		return;
+	if (sc_lsize == 16)
 		r4k_blast_scache_node = blast_scache16_node;
 	else if (sc_lsize == 32)
 		r4k_blast_scache_node = blast_scache32_node;
@@ -498,6 +500,7 @@ static inline void local_r4k___flush_cache_all(void * args)
 		break;
 
 	case CPU_LOONGSON3:
+	case CPU_LOONGSON3_COMP:
 		/* Use get_ebase_cpunum() for both NUMA=y/n */
 		r4k_blast_scache_node(get_ebase_cpunum() >> 2);
 		break;
@@ -852,6 +855,11 @@ static void r4k_flush_icache_user_range(unsigned long start, unsigned long end)
 	return __r4k_flush_icache_range(start, end, true);
 }
 
+static void local_loongson3_flush_icache_range(unsigned long start, unsigned long end)
+{
+	asm volatile ("\tsynci 0($0)\n"::);
+}
+
 #ifdef CONFIG_DMA_NONCOHERENT
 
 static void r4k_dma_cache_wback_inv(unsigned long addr, unsigned long size)
@@ -863,7 +871,7 @@ static void r4k_dma_cache_wback_inv(unsigned long addr, unsigned long size)
 	preempt_disable();
 	if (cpu_has_inclusive_pcaches) {
 		if (size >= scache_size) {
-			if (current_cpu_type() != CPU_LOONGSON3)
+			if (current_cpu_type() != CPU_LOONGSON3 && current_cpu_type() != CPU_LOONGSON3_COMP)
 				r4k_blast_scache();
 			else
 				r4k_blast_scache_node(pa_to_nid(addr));
@@ -904,7 +912,7 @@ static void r4k_dma_cache_inv(unsigned long addr, unsigned long size)
 	preempt_disable();
 	if (cpu_has_inclusive_pcaches) {
 		if (size >= scache_size) {
-			if (current_cpu_type() != CPU_LOONGSON3)
+			if (current_cpu_type() != CPU_LOONGSON3 && current_cpu_type() != CPU_LOONGSON3_COMP)
 				r4k_blast_scache();
 			else
 				r4k_blast_scache_node(pa_to_nid(addr));
@@ -1357,6 +1365,7 @@ static void probe_pcache(void)
 		break;
 
 	case CPU_LOONGSON3:
+	case CPU_LOONGSON3_COMP:
 		config1 = read_c0_config1();
 		lsize = (config1 >> 19) & 7;
 		if (lsize)
@@ -1381,7 +1390,7 @@ static void probe_pcache(void)
 					  c->dcache.ways *
 					  c->dcache.linesz;
 		c->dcache.waybit = 0;
-		if ((prid & PRID_REV_MASK) >= PRID_REV_LOONGSON3A_R2)
+		if ((prid & PRID_REV_MASK) >= PRID_REV_LOONGSON3A_R2_0)
 			c->options |= MIPS_CPU_PREFETCH;
 		break;
 
@@ -1573,17 +1582,19 @@ static void probe_pcache(void)
 		c->icache.ways = 1;
 	}
 
-	printk("Primary instruction cache %ldkB, %s, %s, linesize %d bytes.\n",
-	       icache_size >> 10,
-	       c->icache.flags & MIPS_CACHE_VTAG ? "VIVT" : "VIPT",
-	       way_string[c->icache.ways], c->icache.linesz);
+	if (system_state == SYSTEM_BOOTING)
+		printk("Primary instruction cache %ldkB, %s, %s, linesize %d bytes.\n",
+		       icache_size >> 10,
+		       c->icache.flags & MIPS_CACHE_VTAG ? "VIVT" : "VIPT",
+		       way_string[c->icache.ways], c->icache.linesz);
 
-	printk("Primary data cache %ldkB, %s, %s, %s, linesize %d bytes\n",
-	       dcache_size >> 10, way_string[c->dcache.ways],
-	       (c->dcache.flags & MIPS_CACHE_PINDEX) ? "PIPT" : "VIPT",
-	       (c->dcache.flags & MIPS_CACHE_ALIASES) ?
-			"cache aliases" : "no aliases",
-	       c->dcache.linesz);
+	if (system_state == SYSTEM_BOOTING)
+		printk("Primary data cache %ldkB, %s, %s, %s, linesize %d bytes\n",
+		       dcache_size >> 10, way_string[c->dcache.ways],
+		       (c->dcache.flags & MIPS_CACHE_PINDEX) ? "PIPT" : "VIPT",
+		       (c->dcache.flags & MIPS_CACHE_ALIASES) ?
+				"cache aliases" : "no aliases",
+		       c->dcache.linesz);
 }
 
 static void probe_vcache(void)
@@ -1591,7 +1602,8 @@ static void probe_vcache(void)
 	struct cpuinfo_mips *c = &current_cpu_data;
 	unsigned int config2, lsize;
 
-	if (current_cpu_type() != CPU_LOONGSON3)
+	if (current_cpu_type() != CPU_LOONGSON3 &&
+			current_cpu_type() != CPU_LOONGSON3_COMP)
 		return;
 
 	config2 = read_c0_config2();
@@ -1608,8 +1620,9 @@ static void probe_vcache(void)
 	c->vcache.waybit = 0;
 	c->vcache.waysize = vcache_size / c->vcache.ways;
 
-	pr_info("Unified victim cache %ldkB %s, linesize %d bytes.\n",
-		vcache_size >> 10, way_string[c->vcache.ways], c->vcache.linesz);
+	if (system_state == SYSTEM_BOOTING)
+		pr_info("Unified victim cache %ldkB %s, linesize %d bytes.\n",
+			vcache_size >> 10, way_string[c->vcache.ways], c->vcache.linesz);
 }
 
 /*
@@ -1703,15 +1716,20 @@ static void __init loongson3_sc_init(void)
 	c->scache.sets = 64 << ((config2 >> 8) & 15);
 	c->scache.ways = 1 + (config2 & 15);
 
-	scache_size = c->scache.sets *
-				  c->scache.ways *
-				  c->scache.linesz;
-	/* Loongson-3 has 4 cores, 1MB scache for each. scaches are shared */
-	scache_size *= 4;
+/* Loongson-3 has 4-Scache banks, while Loongson-2K has only 2 banks */
+#if defined(CONFIG_CPU_LOONGSON3)
+	c->scache.sets *= 4;
+#elif defined(CONFIG_CPU_LOONGSON2K)
+	c->scache.sets *= 2;
+#endif
+
+	scache_size = c->scache.sets * c->scache.ways * c->scache.linesz;
+
 	c->scache.waybit = 0;
 	c->scache.waysize = scache_size / c->scache.ways;
-	pr_info("Unified secondary cache %ldkB %s, linesize %d bytes.\n",
-	       scache_size >> 10, way_string[c->scache.ways], c->scache.linesz);
+	if (system_state == SYSTEM_BOOTING)
+		pr_info("Unified secondary cache %ldkB %s, linesize %d bytes.\n",
+		       scache_size >> 10, way_string[c->scache.ways], c->scache.linesz);
 	if (scache_size)
 		c->options |= MIPS_CPU_INCLUSIVE_CACHES;
 	return;
@@ -1771,6 +1789,8 @@ static void setup_scache(void)
 		return;
 
 	case CPU_LOONGSON3:
+	case CPU_LOONGSON3_COMP:
+	case CPU_LOONGSON2K:
 		loongson3_sc_init();
 		return;
 
@@ -1934,8 +1954,10 @@ static void r4k_cache_error_setup(void)
 
 void r4k_cache_init(void)
 {
+#if !defined(CONFIG_CPU_LOONGSON3) && !defined(CONFIG_CPU_LOONGSON2K)
 	extern void build_clear_page(void);
 	extern void build_copy_page(void);
+#endif
 	struct cpuinfo_mips *c = &current_cpu_data;
 
 	probe_pcache();
@@ -2006,8 +2028,10 @@ void r4k_cache_init(void)
 	}
 #endif
 
+#if !defined(CONFIG_CPU_LOONGSON3) && !defined(CONFIG_CPU_LOONGSON2K)
 	build_clear_page();
 	build_copy_page();
+#endif
 
 	/*
 	 * We want to run CMP kernels on core with and without coherent
@@ -2047,6 +2071,8 @@ void r4k_cache_init(void)
 		current_cpu_data.options |= MIPS_CPU_INCLUSIVE_CACHES;
 		break;
 	case CPU_LOONGSON3:
+	case CPU_LOONGSON3_COMP:
+	case CPU_LOONGSON2K:
 		/* Loongson-3 maintains cache coherency by hardware */
 		__flush_cache_all	= cache_noop;
 		__flush_cache_vmap	= cache_noop;
@@ -2059,6 +2085,12 @@ void r4k_cache_init(void)
 		flush_icache_all	= (void *)cache_noop;
 		flush_data_cache_page	= (void *)cache_noop;
 		local_flush_data_cache_page	= (void *)cache_noop;
+
+		flush_icache_range	= local_loongson3_flush_icache_range;
+		local_flush_icache_range = local_loongson3_flush_icache_range;
+
+		__flush_icache_user_range	= local_loongson3_flush_icache_range;
+		__local_flush_icache_user_range	= local_loongson3_flush_icache_range;
 		break;
 	}
 }

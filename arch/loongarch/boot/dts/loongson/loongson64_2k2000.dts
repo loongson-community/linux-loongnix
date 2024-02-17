@@ -1,0 +1,356 @@
+// SPDX-License-Identifier: GPL-2.0
+/*
+ * loongson ls2k2000 Soc board device tree source
+ */
+
+/dts-v1/;
+/ {
+	model = "loongson,generic";
+	compatible = "loongson,ls2k2000";
+	#address-cells = <2>;
+	#size-cells = <2>;
+
+	aliases {
+		serial0 = &cpu_uart0;
+	};
+
+	chosen {
+		stdout-path = "serial0:115200n8";
+		bootargs = "earlycon";
+	};
+
+	memory {
+		name = "memory";
+		device_type = "memory";
+		reg =  <0 0x00200000 0 0x0ee00000
+			0 0x90000000 0 0x70000000>;
+	};
+
+	reserved-memory {
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+
+		linux,cma {
+			compatible = "shared-dma-pool";
+			reusable;
+			size = <0x0 0x2000000>;
+			linux,cma-default;
+		};
+	};
+	cpus {
+		#address-cells = <1>;
+		#size-cells = <0>;
+		cpu-map {
+			cluster0 {
+				core0 {
+					cpu = <&cpu0>;
+				};
+				core1 {
+					cpu = <&cpu1>;
+				};
+			};
+		};
+
+
+		cpu0: cpu@1 {
+			device_type = "cpu";
+			compatible = "loongarch";
+			reg=<0>;
+			numa-node-id = <0>;
+		};
+		cpu1: cpu@2 {
+			device_type = "cpu";
+			compatible = "loongarch";
+			reg=<1>;
+			numa-node-id = <0>;
+		};
+	};
+
+	cpuic: interrupt-controller {
+		compatible = "loongson,cpu-interrupt-controller";
+		interrupt-controller;
+		#interrupt-cells = <1>;
+	};
+
+	iointc: interrupt-controller@1fe01400 {
+		compatible = "loongson,liointc-2.0";
+		reg = <0 0x1fe01400 0 0x40>,
+		      <0 0x1fe01440 0 0x8>,
+		      <0 0x1fe01448 0 0x8>;
+		reg-names = "main", "isr0", "isr1";
+
+		interrupt-controller;
+		#interrupt-cells = <1>;
+		interrupt-parent = <&cpuic>;
+		interrupts = <2>;
+		interrupt-names = "int0";
+
+		loongson,parent_int_map = <0xffffffff>, /* int0 */
+					<0x00000000>, /* int1 */
+					<0x00000000>, /* int2 */
+					<0x00000000>; /* int3 */
+	};
+
+	extioiic: interrupt-controller@0x1fe01600 {
+		compatible = "loongson,extioi-interrupt-controller";
+		interrupt-controller;
+		#interrupt-cells = <1>;
+		interrupt-parent = <&cpuic>;
+		interrupts = <3>;
+		interrupt-names = "cascade";
+		vec_count=<128>;
+		misc_func=<0x420>;
+		eio_en_off=<48>;
+	};
+
+	platic: interrupt-controller@0x10000040 {
+		compatible = "loongson,ls7a-interrupt-controller";
+		reg = <0x0 0x10000000 0x0 0x400>;
+		interrupt-controller;
+		#interrupt-cells = <1>;
+		interrupts = <3>;
+		interrupt-parent = <&cpuic>;
+	};
+
+	msi: interrupt-controller@0x1fe01140 {
+		compatible = "loongson,pch-msi-1.0";
+		reg = <0 0x1fe01140 0 0x8>;
+		interrupt-controller;
+		#interrupt-cells = <1>;
+		loongson,msi-base-vec = <64>;
+		loongson,msi-num-vecs = <192>;
+		interrupt-parent = <&extioiic>;
+	};
+
+	soc {
+		compatible = "ls,nbus", "simple-bus";
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges = <0 0x10000000 0 0x10000000 0 0x10000000
+			0 0x2000000  0 0x2000000  0 0x2000000
+			0 0x40000000 0 0x40000000 0 0x40000000
+			0xfe 0x00000000 0xfe 0 0 0x40000000>;
+		pcie@0 {
+			compatible = "loongson,ls2k-pci";
+			#interrupt-cells = <1>;
+			bus-range = <0x1 0x10>;
+			#size-cells = <2>;
+			#address-cells = <3>;
+
+			reg = <0xfe 0x00000000 0 0x20000000>;
+			ranges = <0x02000000 0 0x60000000 0 0x60000000 0 0x20000000
+				  0x01000000 0 0x00008000 0 0x18400000 0x0 0x8000>;
+
+			xhci0: usb@0,4,0 {
+				reg = <0x2000 0x0 0x0 0x0 0x0>;
+				interrupts = <112>;
+				interrupt-parent = <&platic>;
+
+				#interrupt-cells = <1>;
+				interrupt-map-mask = <0 0 0 0>;
+				interrupt-map = <0 0 0 0 &platic 112>;
+			};
+
+			gmac0@0,3,0 {
+				reg = <0x1800 0x0 0x0 0x0 0x0>;
+				interrupts = <76>;
+				interrupt-parent = <&platic>;
+
+				#interrupt-cells = <1>;
+				interrupt-map-mask = <0 0 0 0>;
+				interrupt-map = <0 0 0 0 &platic 76>;
+			};
+
+			gmac1@0,3,1 {
+				reg = <0x1900 0x0 0x0 0x0 0x0>;
+				interrupts = <78>;
+				interrupt-parent = <&platic>;
+
+				#interrupt-cells = <1>;
+				interrupt-map-mask = <0 0 0 0>;
+				interrupt-map = <0 0 0 0 &platic 78>;
+			};
+
+			gmac2@0,3,2 {
+				reg = <0x1a00 0x0 0x0 0x0 0x0>;
+				interrupts = <81>;
+				interrupt-parent = <&platic>;
+
+				#interrupt-cells = <1>;
+				interrupt-map-mask = <0 0 0 0>;
+				interrupt-map = <0 0 0 0 &platic 81>;
+			};
+
+			xhci1: usb@0,25,0 {
+				reg = <0xc800 0x0 0x0 0x0 0x0>;
+				interrupts = <86>;
+				interrupt-parent = <&platic>;
+
+				#interrupt-cells = <1>;
+				interrupt-map-mask = <0 0 0 0>;
+				interrupt-map = <0 0 0 0 &platic 86>;
+			};
+
+			dc@0,6,1 {
+				reg = <0x3100 0x0 0x0 0x0 0x0>;
+				interrupts = <92>;
+				interrupt-parent = <&platic>;
+
+				#interrupt-cells = <1>;
+				interrupt-map-mask = <0 0 0 0>;
+				interrupt-map = <0 0 0 0 &platic 92>;
+			};
+
+			hda@0,7 {
+				reg = <0x3800 0x0 0x0 0x0 0x0>;
+				interrupts = <122>;
+				interrupt-parent = <&platic>;
+
+				#interrupt-cells = <1>;
+				interrupt-map-mask = <0 0 0 0>;
+				interrupt-map = <0 0 0 0 &platic 122>;
+			};
+
+			ahci@0,8 {
+				reg = <0x4000 0x0 0x0 0x0 0x0>;
+				interrupts = <80>;
+				interrupt-parent = <&platic>;
+
+				#interrupt-cells = <1>;
+				interrupt-map-mask = <0 0 0 0>;
+				interrupt-map = <0 0 0 0 &platic 80>;
+			};
+
+			pci_bridge@0,9 {
+				compatible = "pciclass060400",
+						   "pciclass0604";
+				reg = <0x4800 0x0 0x0 0x0 0x0>;
+				interrupts = <96>;
+				interrupt-parent = <&platic>;
+
+				#interrupt-cells = <1>;
+				interrupt-map-mask = <0 0 0 0>;
+				interrupt-map = <0 0 0 0 &platic 96>;
+			};
+
+			pci_bridge@0,0xa {
+				compatible = "pciclass060400",
+						   "pciclass0604";
+				reg = <0x5000 0x0 0x0 0x0 0x0>;
+				interrupts = <97>;
+				interrupt-parent = <&platic>;
+
+				#interrupt-cells = <1>;
+				interrupt-map-mask = <0 0 0 0>;
+				interrupt-map = <0 0 0 0 &platic 97>;
+			};
+
+			pci_bridge@0,0xb {
+				compatible = "pciclass060400",
+						   "pciclass0604";
+				reg = <0x5800 0x0 0x0 0x0 0x0>;
+				interrupts = <98>;
+				interrupt-parent = <&platic>;
+
+				#interrupt-cells = <1>;
+				interrupt-map-mask = <0 0 0 0>;
+				interrupt-map = <0 0 0 0 &platic 98>;
+			};
+
+			pci_bridge@0,0xc {
+				compatible = "pciclass060400",
+						   "pciclass0604";
+				reg = <0x6000 0x0 0x0 0x0 0x0>;
+				interrupts = <99>;
+				interrupt-parent = <&platic>;
+
+				#interrupt-cells = <1>;
+				interrupt-map-mask = <0 0 0 0>;
+				interrupt-map = <0 0 0 0 &platic 99>;
+			};
+
+			pci_bridge@0,13 {
+				compatible = "pciclass060400",
+						   "pciclass0604";
+				reg = <0x6800 0x0 0x0 0x0 0x0>;
+				interrupts = <100>;
+				interrupt-parent = <&platic>;
+
+				#interrupt-cells = <1>;
+				interrupt-map-mask = <0 0 0 0>;
+				interrupt-map = <0 0 0 0 &platic 100>;
+			};
+
+			pci_bridge@0,14 {
+				compatible = "pciclass060400",
+						   "pciclass0604";
+				reg = <0x7000 0x0 0x0 0x0 0x0>;
+				interrupts = <101>;
+				interrupt-parent = <&platic>;
+
+				#interrupt-cells = <1>;
+				interrupt-map-mask = <0 0 0 0>;
+				interrupt-map = <0 0 0 0 &platic 101>;
+			};
+
+			pci_bridge@0,0xf {
+				compatible = "pciclass060400",
+						   "pciclass0604";
+				reg = <0x7800 0x0 0x0 0x0 0x0>;
+				interrupts = <104>;
+				interrupt-parent = <&platic>;
+
+				#interrupt-cells = <1>;
+				interrupt-map-mask = <0 0 0 0>;
+				interrupt-map = <0 0 0 0 &platic 104>;
+			};
+
+			pci_bridge@0,0x10 {
+				compatible = "pciclass060400",
+						   "pciclass0604";
+				reg = <0x8000 0x0 0x0 0x0 0x0>;
+				interrupts = <94>;
+				interrupt-parent = <&platic>;
+
+				#interrupt-cells = <1>;
+				interrupt-map-mask = <0 0 0 0>;
+				interrupt-map = <0 0 0 0 &platic 100>;
+			};
+
+			rio0@0,0x18 {
+				compatible = "pciclass060400",
+						   "pciclass0604";
+				reg = <0xc000 0x0 0x0 0x0 0x0>;
+				interrupts = <67>;
+				interrupt-parent = <&platic>;
+
+				#interrupt-cells = <1>;
+				interrupt-map-mask = <0 0 0 0>;
+				interrupt-map = <0 0 0 0 &platic 67>;
+			};
+
+			rio1@0,0x1b {
+				compatible = "pciclass060400",
+						   "pciclass0604";
+				reg = <0xd800 0x0 0x0 0x0 0x0>;
+				interrupts = <66>;
+				interrupt-parent = <&platic>;
+
+				#interrupt-cells = <1>;
+				interrupt-map-mask = <0 0 0 0>;
+				interrupt-map = <0 0 0 0 &platic 66>;
+			};
+		};
+
+		cpu_uart0: serial@0x1fe001e0 {
+			#device_type = "serial";
+			compatible = "ns16550a";
+			reg = <0 0x1fe001e0 0 0x10>;
+			clock-frequency = <100000000>;
+			interrupt-parent = <&iointc>;
+			interrupts = <10>;
+			no-loopback-test;
+		};
+	};
+};

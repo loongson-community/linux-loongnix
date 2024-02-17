@@ -116,10 +116,28 @@ amdgpu_atombios_encoder_set_backlight_level(struct amdgpu_encoder *amdgpu_encode
 }
 
 #if defined(CONFIG_BACKLIGHT_CLASS_DEVICE) || defined(CONFIG_BACKLIGHT_CLASS_DEVICE_MODULE)
+#if defined(CONFIG_LOONGSON_EA_LAPTOP)
+int is_ea_laptop(void);
+int is_ea_minipc(void);
+void ec_set_brightness(int level);
+int ec_get_brightness(void);
+#endif
 
 static u8 amdgpu_atombios_encoder_backlight_level(struct backlight_device *bd)
 {
 	u8 level;
+
+#if defined(CONFIG_LOONGSON_EA_LAPTOP)
+	if (is_ea_laptop() || is_ea_minipc()) {
+		if (bd->props.brightness < 0)
+			level = 0;
+		else if (bd->props.brightness > 100)
+			level = 100;
+		else
+			level = bd->props.brightness;
+		return level;
+	}
+#endif
 
 	/* Convert brightness to hardware level */
 	if (bd->props.brightness < 0)
@@ -137,6 +155,13 @@ static int amdgpu_atombios_encoder_update_backlight_status(struct backlight_devi
 	struct amdgpu_backlight_privdata *pdata = bl_get_data(bd);
 	struct amdgpu_encoder *amdgpu_encoder = pdata->encoder;
 
+#if defined(CONFIG_LOONGSON_EA_LAPTOP)
+	if (is_ea_laptop() || is_ea_minipc()) {
+		ec_set_brightness(amdgpu_atombios_encoder_backlight_level(bd));
+		return 0;
+	}
+#endif
+
 	amdgpu_atombios_encoder_set_backlight_level(amdgpu_encoder,
 					     amdgpu_atombios_encoder_backlight_level(bd));
 
@@ -150,6 +175,11 @@ amdgpu_atombios_encoder_get_backlight_brightness(struct backlight_device *bd)
 	struct amdgpu_encoder *amdgpu_encoder = pdata->encoder;
 	struct drm_device *dev = amdgpu_encoder->base.dev;
 	struct amdgpu_device *adev = dev->dev_private;
+
+#if defined(CONFIG_LOONGSON_EA_LAPTOP)
+	if (is_ea_laptop() || is_ea_minipc())
+		return ec_get_brightness();
+#endif
 
 	return amdgpu_atombios_encoder_get_backlight_level_from_reg(adev);
 }
@@ -192,6 +222,11 @@ void amdgpu_atombios_encoder_init_backlight(struct amdgpu_encoder *amdgpu_encode
 
 	memset(&props, 0, sizeof(props));
 	props.max_brightness = AMDGPU_MAX_BL_LEVEL;
+#if defined(CONFIG_LOONGSON_EA_LAPTOP)
+	if (is_ea_laptop() || is_ea_minipc())
+		props.max_brightness = 100;
+#endif
+
 	props.type = BACKLIGHT_RAW;
 	snprintf(bl_name, sizeof(bl_name),
 		 "amdgpu_bl%d", dev->primary->index);

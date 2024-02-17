@@ -353,6 +353,19 @@ static int phy_bus_match(struct device *dev, struct device_driver *drv)
 	}
 }
 
+static int phy_bus_uevent(struct mdio_device *mdiodev,
+			  struct kobj_uevent_env *env)
+{
+	struct phy_device *phydev;
+
+	phydev = container_of(mdiodev, struct phy_device, mdio);
+
+	add_uevent_var(env, "MODALIAS=" MDIO_MODULE_PREFIX MDIO_ID_FMT,
+		       MDIO_ID_ARGS(phydev->phy_id));
+
+	return 0;
+}
+
 static ssize_t
 phy_id_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
@@ -420,6 +433,7 @@ struct phy_device *phy_device_create(struct mii_bus *bus, int addr, int phy_id,
 	mdiodev->dev.type = &mdio_bus_phy_type;
 	mdiodev->bus = bus;
 	mdiodev->bus_match = phy_bus_match;
+	mdiodev->bus_uevent = phy_bus_uevent;
 	mdiodev->addr = addr;
 	mdiodev->flags = MDIO_DEVICE_FLAG_PHY;
 	mdiodev->device_free = phy_mdio_device_free;
@@ -1532,10 +1546,8 @@ int genphy_update_link(struct phy_device *phydev)
 	if (status < 0)
 		return status;
 
-	if ((status & BMSR_LSTATUS) == 0)
-		phydev->link = 0;
-	else
-		phydev->link = 1;
+	phydev->link = status & BMSR_LSTATUS ? 1 : 0;
+	phydev->autoneg_complete = status & BMSR_ANEGCOMPLETE ? 1 : 0;
 
 	return 0;
 }
@@ -1566,7 +1578,7 @@ int genphy_read_status(struct phy_device *phydev)
 
 	phydev->lp_advertising = 0;
 
-	if (AUTONEG_ENABLE == phydev->autoneg) {
+	if (AUTONEG_ENABLE == phydev->autoneg && phydev->autoneg_complete) {
 		if (phydev->supported & (SUPPORTED_1000baseT_Half
 					| SUPPORTED_1000baseT_Full)) {
 			lpagb = phy_read(phydev, MII_STAT1000);
@@ -1625,7 +1637,7 @@ int genphy_read_status(struct phy_device *phydev)
 			phydev->pause = lpa & LPA_PAUSE_CAP ? 1 : 0;
 			phydev->asym_pause = lpa & LPA_PAUSE_ASYM ? 1 : 0;
 		}
-	} else {
+	} else if (phydev->autoneg == AUTONEG_DISABLE) {
 		int bmcr = phy_read(phydev, MII_BMCR);
 
 		if (bmcr < 0)

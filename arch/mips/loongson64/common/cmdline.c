@@ -21,6 +21,20 @@
 
 #include <loongson.h>
 
+/*
+ * For firmware compatibility UEFI may fill cmdline with 32bit physical address.
+ * If x is physical address then convert to virtual address.
+ */
+#define CMDLINE_TO_CAC(x) ({	\
+	long ret;			\
+	if(((x) & 0xf0000000) != 0x80000000){	\
+		ret = TO_CAC((unsigned int)(x));	\
+	}else{				\
+		ret = (long)(x);	\
+	}					\
+	ret;				\
+})
+
 void __init prom_init_cmdline(void)
 {
 	int prom_argc;
@@ -36,7 +50,7 @@ void __init prom_init_cmdline(void)
 	/* arg[0] is "g", the rest is boot parameters */
 	arcs_cmdline[0] = '\0';
 	for (i = 1; i < prom_argc; i++) {
-		l = (long)_prom_argv[i];
+		l = CMDLINE_TO_CAC(_prom_argv[i]);
 		if (strlen(arcs_cmdline) + strlen(((char *)l) + 1)
 		    >= sizeof(arcs_cmdline))
 			break;

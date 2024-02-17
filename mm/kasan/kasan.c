@@ -248,11 +248,18 @@ static __always_inline void check_memory_region_inline(unsigned long addr,
 	if (unlikely(size == 0))
 		return;
 
+#ifndef __HAVE_ARCH_SHADOW_MAP
 	if (unlikely((void *)addr <
 		kasan_shadow_to_mem((void *)KASAN_SHADOW_START))) {
 		kasan_report(addr, size, write, ret_ip);
 		return;
 	}
+#else
+	if (unlikely(kasan_mem_to_shadow((void *)addr) == NULL)) {
+		kasan_report(addr, size, write, ret_ip);
+		return;
+	}
+#endif
 
 	if (likely(!memory_is_poisoned(addr, size)))
 		return;

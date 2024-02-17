@@ -1331,7 +1331,7 @@ int radeon_device_init(struct radeon_device *rdev,
 	rdev->vm_manager.max_pfn = radeon_vm_size << 18;
 
 	/* Set asic functions */
-	r = radeon_asic_init(rdev);
+	r = radeon_asic_setup(rdev);
 	if (r)
 		return r;
 
@@ -1445,7 +1445,7 @@ int radeon_device_init(struct radeon_device *rdev,
 	if (runtime)
 		vga_switcheroo_init_domain_pm_ops(rdev->dev, &rdev->vga_pm_domain);
 
-	r = radeon_init(rdev);
+	r = radeon_asic_init(rdev);
 	if (r)
 		goto failed;
 
@@ -1464,9 +1464,9 @@ int radeon_device_init(struct radeon_device *rdev,
 		 * with fallback to PCI or PCIE GART
 		 */
 		radeon_asic_reset(rdev);
-		radeon_fini(rdev);
+		radeon_asic_fini(rdev);
 		radeon_agp_disable(rdev);
-		r = radeon_init(rdev);
+		r = radeon_asic_init(rdev);
 		if (r)
 			goto failed;
 	}
@@ -1533,7 +1533,7 @@ void radeon_device_fini(struct radeon_device *rdev)
 	rdev->shutdown = true;
 	/* evict vram memory */
 	radeon_bo_evict_vram(rdev);
-	radeon_fini(rdev);
+	radeon_asic_fini(rdev);
 	if (!pci_is_thunderbolt_attached(rdev->pdev))
 		vga_switcheroo_unregister_client(rdev->pdev);
 	if (rdev->flags & RADEON_IS_PX)
@@ -1658,6 +1658,27 @@ int radeon_suspend_kms(struct drm_device *dev, bool suspend,
 	return 0;
 }
 
+void radeon_recover_callback(struct work_struct *work)
+{
+	int resched;
+	struct radeon_device *rdev = container_of(to_delayed_work(work),
+			struct radeon_device, recover_work);
+
+	printk("Radeon GPU Recover...\n");
+	down_write(&rdev->exclusive_lock);
+	radeon_save_bios_scratch_regs(rdev);
+	resched = ttm_bo_lock_delayed_workqueue(&rdev->mman.bdev);
+	radeon_pm_suspend(rdev);
+	radeon_suspend(rdev);
+	radeon_resume(rdev);
+	radeon_restore_bios_scratch_regs(rdev);
+	radeon_ib_ring_tests(rdev);
+	radeon_pm_resume(rdev);
+	drm_helper_resume_force_mode(rdev->ddev);
+	ttm_bo_unlock_delayed_workqueue(&rdev->mman.bdev, resched);
+	up_write(&rdev->exclusive_lock);
+}
+
 /**
  * radeon_resume_kms - initiate device resume
  *
@@ -1694,8 +1715,10 @@ int radeon_resume_kms(struct drm_device *dev, bool resume, bool fbcon)
 	radeon_resume(rdev);
 
 	r = radeon_ib_ring_tests(rdev);
-	if (r)
+	if (r) {
+		rdev->need_recover = 1;
 		DRM_ERROR("ib ring test failed (%d).\n", r);
+	}
 
 	if ((rdev->pm.pm_method == PM_METHOD_DPM) && rdev->pm.dpm_enabled) {
 		/* do dpm late init */
@@ -1768,6 +1791,11 @@ int radeon_resume_kms(struct drm_device *dev, bool resume, bool fbcon)
 		console_unlock();
 	}
 
+
+	if (rdev->need_recover) {
+		rdev->need_recover = 0;
+		schedule_delayed_work_on(0, &rdev->recover_work, msecs_to_jiffies(2000));
+	}
 	return 0;
 }
 

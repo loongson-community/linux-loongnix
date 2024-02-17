@@ -144,7 +144,8 @@ typedef u64 acpi_physical_address;
  * Note: EM64T and other X86-64 processors support misaligned transfers,
  * so there is no need to define this flag.
  */
-#if defined (__IA64__) || defined (__ia64__)
+
+#if defined (__IA64__) || defined (__ia64__) || defined (CONFIG_CPU_LOONGSON3)
 #define ACPI_MISALIGNMENT_NOT_SUPPORTED
 #endif
 
@@ -709,7 +710,8 @@ typedef u32 acpi_event_type;
 #define ACPI_EVENT_POWER_BUTTON         2
 #define ACPI_EVENT_SLEEP_BUTTON         3
 #define ACPI_EVENT_RTC                  4
-#define ACPI_EVENT_MAX                  4
+#define ACPI_EVENT_PCIE_WAKE            5
+#define ACPI_EVENT_MAX                  5
 #define ACPI_NUM_FIXED_EVENTS           ACPI_EVENT_MAX + 1
 
 /*

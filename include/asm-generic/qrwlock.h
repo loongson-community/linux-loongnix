@@ -122,6 +122,9 @@ static inline void queued_read_unlock(struct qrwlock *lock)
 static inline void queued_write_unlock(struct qrwlock *lock)
 {
 	smp_store_release(&lock->wlocked, 0);
+#if defined(CONFIG_CPU_LOONGSON3) || defined(CONFIG_CPU_LOONGSON2K)
+	cpu_relax();
+#endif
 }
 
 /*

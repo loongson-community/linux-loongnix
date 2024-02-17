@@ -17,6 +17,8 @@
 #define VDSO_CLOCK_NONE		0	/* No suitable clocksource. */
 #define VDSO_CLOCK_R4K		1	/* Use the coprocessor 0 count. */
 #define VDSO_CLOCK_GIC		2	/* Use the GIC. */
+#define VDSO_CLOCK_STABLE	3	/* Use the stable counter. */
+#define VDSO_CLOCK_HPET		4	/* Use the hpte counter. */
 
 /**
  * struct arch_clocksource_data - Architecture-specific clocksource information.

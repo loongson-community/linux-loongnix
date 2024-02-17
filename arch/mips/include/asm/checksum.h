@@ -162,8 +162,14 @@ static inline __sum16 ip_fast_csum(const void *iph, unsigned int ihl)
 
 static inline __wsum csum_tcpudp_nofold(__be32 saddr, __be32 daddr,
 					__u32 len, __u8 proto,
-					__wsum sum)
+					__wsum sum_in)
 {
+#ifdef __clang__
+	unsigned long sum = (__force unsigned long)sum_in;
+#else
+	__wsum sum = sum_in;
+#endif
+
 	__asm__(
 	"	.set	push		# csum_tcpudp_nofold\n"
 	"	.set	noat		\n"
@@ -201,7 +207,7 @@ static inline __wsum csum_tcpudp_nofold(__be32 saddr, __be32 daddr,
 #endif
 	  "r" ((__force unsigned long)sum));
 
-	return sum;
+	return (__force __wsum)sum;
 }
 #define csum_tcpudp_nofold csum_tcpudp_nofold
 

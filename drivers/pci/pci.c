@@ -33,6 +33,7 @@
 #include <asm/setup.h>
 #include <asm/dma.h>
 #include <linux/aer.h>
+#include <linux/suspend.h>
 #include "pci.h"
 
 DEFINE_MUTEX(pci_slot_mutex);
@@ -128,6 +129,11 @@ bool pci_ats_disabled(void)
 static bool pci_bridge_d3_disable;
 /* Force bridge_d3 for all PCIe ports */
 static bool pci_bridge_d3_force;
+
+#ifndef CONFIG_PM_SLEEP
+suspend_state_t pm_suspend_target_state;
+#define pm_suspend_target_state (PM_SUSPEND_ON)
+#endif
 
 static int __init pcie_port_pm_setup(char *str)
 {
@@ -5429,6 +5435,13 @@ int pcie_set_readrq(struct pci_dev *dev, int rq)
 	}
 
 	v = (ffs(rq) - 8) << 12;
+
+	/* mrrs should be restored during resume. */
+	if (pm_suspend_target_state == PM_SUSPEND_ON &&
+		dev->dev_flags & PCI_DEV_FLAGS_NO_INCREASE_MRRS) {
+		if (rq > pcie_get_readrq(dev))
+			 return -EINVAL;
+	}
 
 	return pcie_capability_clear_and_set_word(dev, PCI_EXP_DEVCTL,
 						  PCI_EXP_DEVCTL_READRQ, v);

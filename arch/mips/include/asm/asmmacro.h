@@ -81,10 +81,139 @@
 	.endm
 #endif /* CONFIG_CPU_MIPSR2 */
 
+	.macro	parse_v var val
+	\var	= \val
+	.endm
+
+	.macro	parse_r var r
+	\var	= -1
+	.ifc	\r, $0
+	\var	= 0
+	.endif
+	.ifc	\r, $1
+	\var	= 1
+	.endif
+	.ifc	\r, $2
+	\var	= 2
+	.endif
+	.ifc	\r, $3
+	\var	= 3
+	.endif
+	.ifc	\r, $4
+	\var	= 4
+	.endif
+	.ifc	\r, $5
+	\var	= 5
+	.endif
+	.ifc	\r, $6
+	\var	= 6
+	.endif
+	.ifc	\r, $7
+	\var	= 7
+	.endif
+	.ifc	\r, $8
+	\var	= 8
+	.endif
+	.ifc	\r, $9
+	\var	= 9
+	.endif
+	.ifc	\r, $10
+	\var	= 10
+	.endif
+	.ifc	\r, $11
+	\var	= 11
+	.endif
+	.ifc	\r, $12
+	\var	= 12
+	.endif
+	.ifc	\r, $13
+	\var	= 13
+	.endif
+	.ifc	\r, $14
+	\var	= 14
+	.endif
+	.ifc	\r, $15
+	\var	= 15
+	.endif
+	.ifc	\r, $16
+	\var	= 16
+	.endif
+	.ifc	\r, $17
+	\var	= 17
+	.endif
+	.ifc	\r, $18
+	\var	= 18
+	.endif
+	.ifc	\r, $19
+	\var	= 19
+	.endif
+	.ifc	\r, $20
+	\var	= 20
+	.endif
+	.ifc	\r, $21
+	\var	= 21
+	.endif
+	.ifc	\r, $22
+	\var	= 22
+	.endif
+	.ifc	\r, $23
+	\var	= 23
+	.endif
+	.ifc	\r, $24
+	\var	= 24
+	.endif
+	.ifc	\r, $25
+	\var	= 25
+	.endif
+	.ifc	\r, $26
+	\var	= 26
+	.endif
+	.ifc	\r, $27
+	\var	= 27
+	.endif
+	.ifc	\r, $28
+	\var	= 28
+	.endif
+	.ifc	\r, $29
+	\var	= 29
+	.endif
+	.ifc	\r, $30
+	\var	= 30
+	.endif
+	.ifc	\r, $31
+	\var	= 31
+	.endif
+	.iflt	\var
+	.error	"Unable to parse register name \r"
+	.endif
+	.endm
+
 	.macro	fpu_save_16even thread tmp=t0
 	.set	push
 	SET_HARDFLOAT
+
+
 	cfc1	\tmp, fcr31
+	sw	\tmp, THREAD_FCR31(\thread)
+#ifdef CONFIG_CPU_HAS_LBT
+	.set push
+	.set noat
+	.set noreorder
+
+	/* TM bit is always 0 if LBT not supported */
+	lui	 $at, 0x10
+	and    \tmp, \tmp, $at
+	beqz    \tmp, 1f
+	dins    \tmp, zero, 20, 20
+	ctc1    fcr31, \tmp
+	/* save ftop */
+	parse_r __tmp, \tmp
+	.word   0x700000f6 | (__tmp << 11) /* move from top t1 */
+	sw  \tmp, THREAD_FTOP(\thread)
+1:
+	.set pop
+#endif
+
 	sdc1	$f0,  THREAD_FPR0(\thread)
 	sdc1	$f2,  THREAD_FPR2(\thread)
 	sdc1	$f4,  THREAD_FPR4(\thread)
@@ -101,7 +230,6 @@
 	sdc1	$f26, THREAD_FPR26(\thread)
 	sdc1	$f28, THREAD_FPR28(\thread)
 	sdc1	$f30, THREAD_FPR30(\thread)
-	sw	\tmp, THREAD_FCR31(\thread)
 	.set	pop
 	.endm
 
@@ -140,10 +268,48 @@
 	fpu_save_16even \thread \tmp
 	.endm
 
+#ifdef CONFIG_CPU_HAS_LBT
+	.macro  fpu_restore_top tmp
+	.set    push
+	.set    mips64r2
+	SET_HARDFLOAT
+	.word 0x700000B6 /* move to top 0 */
+	beqz \tmp, 200f
+	addiu \tmp, \tmp, -1
+101:
+	.word 0x700001B6
+	beqz \tmp, 200f
+	addiu \tmp, \tmp, -1
+102:
+	.word 0x700002B6
+	beqz \tmp, 200f
+	addiu \tmp, \tmp, -1
+103:
+	.word 0x700003B6
+	beqz \tmp, 200f
+	addiu \tmp, \tmp, -1
+104:
+	.word 0x700004B6
+	beqz \tmp, 200f
+	addiu \tmp, \tmp, -1
+105:
+	.word 0x700005B6
+	beqz \tmp, 200f
+	addiu \tmp, \tmp, -1
+106:
+	.word 0x700006B6
+	beqz \tmp, 200f
+	addiu \tmp, \tmp, -1
+107:
+	.word 0x700007B6
+200:
+	.set    pop
+	.endm
+#endif
+
 	.macro	fpu_restore_16even thread tmp=t0
 	.set	push
 	SET_HARDFLOAT
-	lw	\tmp, THREAD_FCR31(\thread)
 	ldc1	$f0,  THREAD_FPR0(\thread)
 	ldc1	$f2,  THREAD_FPR2(\thread)
 	ldc1	$f4,  THREAD_FPR4(\thread)
@@ -160,7 +326,23 @@
 	ldc1	$f26, THREAD_FPR26(\thread)
 	ldc1	$f28, THREAD_FPR28(\thread)
 	ldc1	$f30, THREAD_FPR30(\thread)
+
+	lw      \tmp, THREAD_FCR31(\thread)
 	ctc1	\tmp, fcr31
+#ifdef CONFIG_CPU_HAS_LBT
+	/* TM bit is always 0 if LBT not supported */
+	.set push
+	.set noreorder
+	.set noat
+	lui		$at, 0x10 /*bit 20*/
+	and    \tmp, \tmp, $at
+	beqz    \tmp, 1f
+	nop
+	lw  \tmp, THREAD_FTOP(\thread)
+	fpu_restore_top \tmp
+1:
+	.set pop
+#endif
 	.set	pop
 	.endm
 
@@ -188,12 +370,12 @@
 	.set	pop
 	.endm
 
+
 	.macro	fpu_restore_double thread status tmp
 #if defined(CONFIG_64BIT) || defined(CONFIG_CPU_MIPSR2) || \
 		defined(CONFIG_CPU_MIPSR6)
 	sll	\tmp, \status, 5
 	bgez	\tmp, 10f				# 16 register mode?
-
 	fpu_restore_16odd \thread
 10:
 #endif
@@ -502,6 +684,72 @@
 	SET_HARDFLOAT
 	insn_if_mips 0x79380819 | (\n << 16) | (\wd << 6)
 	insn32_if_mm 0x59380816 | (\n << 16) | (\wd << 6)
+	.set	pop
+	.endm
+#endif
+
+#ifdef CONFIG_CPU_HAS_LASX
+	.macro	xvld_b	wd, off, base
+	.set	push
+	.set	noat
+	SET_HARDFLOAT
+	PTR_ADDU $1, \base, \off
+	insn_if_mips 0xc8000819 | (\wd << 6)
+	.set	pop
+	.endm
+
+	.macro	xvst_b	wd, off, base
+	.set	push
+	.set	noat
+	SET_HARDFLOAT
+	PTR_ADDU $1, \base, \off
+	insn_if_mips 0xe8000819 | (\wd << 6)
+	.set	pop
+	.endm
+
+	.macro xvsd wd, off, base, sel
+	.set	push
+	.set	noat
+	SET_HARDFLOAT
+	PTR_ADDU $1, \base, \off
+	insn_if_mips 0xf8380894 | (\wd << 6) | (\sel << 16)
+	.set	pop
+	.endm
+
+	.macro xinsert_d wd, n
+	.set	push
+	.set	noat
+	SET_HARDFLOAT
+	insn_if_mips 0x79380819 | (\n << 16) | (\wd << 6)
+	.set	pop
+	.endm
+
+	.macro xvcopy_s_d ws, n
+	.set	push
+	.set	noat
+	SET_HARDFLOAT
+	insn_if_mips 0x78b80059 | (\n << 16) | (\ws << 11)
+	.set	pop
+	.endm
+
+	.macro  xvst_b_off wd, off
+	.set	push
+	.set	noat
+	.word	0xe8000819 | (\wd << 6) | (\off << 16)
+	.set	pop
+	.endm
+
+	.macro  xvld_b_off wd, off
+	.set	push
+	.set	noat
+	.word	0xc8000819 | (\wd << 6) | (\off << 16)
+	.set	pop
+	.endm
+
+	.macro	xvseli_d patt, ws, wd
+	.set	push
+	.set	noat
+	.word	0xed00000a | (\wd << 6) | (\ws << 11) | (\patt << 16)
 	.set	pop
 	.endm
 #endif

@@ -158,6 +158,24 @@ config IRQ_MIPS_CPU
 	select IRQ_DOMAIN_HIERARCHY if GENERIC_IRQ_IPI
 	select GENERIC_IRQ_EFFECTIVE_AFF_MASK
 
+config IRQ_LOONGARCH_CPU
+	bool
+	select GENERIC_IRQ_CHIP
+	select IRQ_DOMAIN
+	select GENERIC_IRQ_EFFECTIVE_AFF_MASK
+
+config LOONGSON2_LIOINTC
+	bool "Loongson2 SOC Series LIOINTC IRQ controller"
+	select GENERIC_IRQ_CHIP
+	select IRQ_DOMAIN
+	select GENERIC_IRQ_EFFECTIVE_AFF_MASK
+
+config LOONGSON2_MSI
+	bool "Loongson2 SOC Series MSI IRQ controller"
+	select GENERIC_IRQ_CHIP
+	select IRQ_DOMAIN
+	select GENERIC_IRQ_EFFECTIVE_AFF_MASK
+
 config CLPS711X_IRQCHIP
 	bool
 	depends on ARCH_CLPS711X
@@ -370,6 +388,70 @@ config QCOM_PDC
 	help
 	  Power Domain Controller driver to manage and configure wakeup
 	  IRQs for Qualcomm Technologies Inc (QTI) mobile chips.
+
+config LOONGSON_LIOINTC
+	bool "Loongson Local I/O Interrupt Controller"
+	depends on MACH_LOONGSON64
+	default y
+	select IRQ_DOMAIN
+	select GENERIC_IRQ_CHIP
+	help
+	  Support for the Loongson Local I/O Interrupt Controller.
+
+config LOONGSON_PCH_MSI
+	bool "Loongson PCH MSI Controller"
+	depends on MACH_LOONGSON64 && !CPU_LOONGSON2K || COMPILE_TEST
+	depends on PCI
+	default MACH_LOONGSON64
+	select IRQ_DOMAIN_HIERARCHY
+	select PCI_MSI
+	select PCI_MSI_IRQ_DOMAIN
+	help
+	  Support for the Loongson PCH MSI Controller.
+
+config LOONGSON_HTVEC
+	bool "Loongson3 HyperTransport Interrupt Vector Controller"
+	depends on MACH_LOONGSON64 || COMPILE_TEST
+	default MACH_LOONGSON64
+	select IRQ_DOMAIN_HIERARCHY
+	help
+	  Support for the Loongson3 HyperTransport Interrupt Vector Controller.
+
+config LOONGSON_EXTIOI
+	bool "Loongson3 Extend I/O Interrupt Vector Controller"
+	depends on IRQ_MIPS_CPU || COMPILE_TEST
+	default MACH_LOONGSON64
+	select IRQ_DOMAIN_HIERARCHY
+	help
+	  Support for the Loongson3 Extend I/O Interrupt Vector Controller.
+
+config LOONGARCH_EXTIOI
+	bool "Loongson3 Extend I/O Interrupt Vector Controller"
+	depends on IRQ_LOONGARCH_CPU || COMPILE_TEST
+	default MACH_LOONGSON64
+	select IRQ_DOMAIN_HIERARCHY
+	select REGMAP
+	select MFD_SYSCON
+	help
+	  Support for the Loongson3 Extend I/O Interrupt Vector Controller.
+
+config LOONGSON_PCH_LPC
+	bool "Loongson PCH LPC Controller"
+	depends on MACH_LOONGSON64 || COMPILE_TEST
+	depends on PCI
+	default MACH_LOONGSON64
+	select IRQ_DOMAIN_HIERARCHY
+	help
+	  Support for the Loongson PCH LPC Controller.
+
+config LOONGSON_PCH_PIC
+	bool "Loongson PCH PIC Controller"
+	depends on MACH_LOONGSON64 || COMPILE_TEST
+	default MACH_LOONGSON64
+	select IRQ_DOMAIN_HIERARCHY
+	select IRQ_FASTEOI_HIERARCHY_HANDLERS
+	help
+	  Support for the Loongson PCH PIC Controller.
 
 config SIFIVE_PLIC
 	bool "SiFive Platform-Level Interrupt Controller"

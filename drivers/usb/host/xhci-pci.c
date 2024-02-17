@@ -32,6 +32,7 @@
 
 #define PCI_VENDOR_ID_ETRON		0x1b6f
 #define PCI_DEVICE_ID_EJ168		0x7023
+#define PCI_DEVICE_ID_ETRON_EJ188	0x7052
 
 #define PCI_DEVICE_ID_INTEL_LYNXPOINT_XHCI	0x8c31
 #define PCI_DEVICE_ID_INTEL_LYNXPOINT_LP_XHCI	0x9c31
@@ -211,7 +212,8 @@ static void xhci_pci_quirks(struct device *dev, struct xhci_hcd *xhci)
 		xhci->quirks |= XHCI_MISSING_CAS;
 
 	if (pdev->vendor == PCI_VENDOR_ID_ETRON &&
-			pdev->device == PCI_DEVICE_ID_EJ168) {
+			(pdev->device == PCI_DEVICE_ID_EJ168 ||
+			 pdev->device == PCI_DEVICE_ID_ETRON_EJ188)) {
 		xhci->quirks |= XHCI_RESET_ON_RESUME;
 		xhci->quirks |= XHCI_TRUST_TX_LENGTH;
 		xhci->quirks |= XHCI_BROKEN_STREAMS;
@@ -220,6 +222,7 @@ static void xhci_pci_quirks(struct device *dev, struct xhci_hcd *xhci)
 	    pdev->device == 0x0014) {
 		xhci->quirks |= XHCI_TRUST_TX_LENGTH;
 		xhci->quirks |= XHCI_ZERO_64B_REGS;
+		xhci->quirks |= XHCI_LWP_QUIRK;
 	}
 	if (pdev->vendor == PCI_VENDOR_ID_RENESAS &&
 	    pdev->device == 0x0015) {
@@ -393,6 +396,10 @@ static void xhci_pci_remove(struct pci_dev *dev)
 		pci_set_power_state(dev, PCI_D3hot);
 
 	usb_hcd_pci_remove(dev);
+
+	/* Workaround for decreasing power consumption after S5 */
+	if (xhci->quirks & XHCI_LWP_QUIRK)
+		pci_set_power_state(dev, PCI_D3hot);
 }
 
 #ifdef CONFIG_PM
@@ -534,6 +541,10 @@ static void xhci_pci_shutdown(struct usb_hcd *hcd)
 
 	/* Yet another workaround for spurious wakeups at shutdown with HSW */
 	if (xhci->quirks & XHCI_SPURIOUS_WAKEUP)
+		pci_set_power_state(pdev, PCI_D3hot);
+
+	/* Workaround for decreasing power consumption after S5 */
+	if (xhci->quirks & XHCI_LWP_QUIRK)
 		pci_set_power_state(pdev, PCI_D3hot);
 }
 #endif /* CONFIG_PM */

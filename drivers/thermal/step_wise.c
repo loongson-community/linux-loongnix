@@ -58,7 +58,8 @@ static unsigned long get_target_state(struct thermal_instance *instance,
 	 * Otherwise, we use the current state of the
 	 * cdev in use to determine the next_target.
 	 */
-	cdev->ops->get_cur_state(cdev, &cur_state);
+	if (cdev->ops->get_cur_state(cdev, &cur_state) < 0)
+		return THERMAL_NO_TARGET;
 	next_target = instance->target;
 	dev_dbg(&cdev->device, "cur_state=%ld\n", cur_state);
 

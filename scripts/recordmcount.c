@@ -39,6 +39,14 @@
 #define R_AARCH64_ABS64	257
 #endif
 
+#ifndef EM_LOONGARCH
+#define EM_LOONGARCH	258
+#define R_LARCH_32 1
+#define R_LARCH_64 2
+#define R_LARCH_MARK_LA			20
+#define R_LARCH_SOP_PUSH_PLT_PCREL		29
+#endif
+
 #define R_ARM_PC24		1
 #define R_ARM_THM_CALL		10
 #define R_ARM_CALL		28
@@ -430,6 +438,27 @@ static int arm_is_fake_mcount(Elf32_Rel const *rp)
 	return 1;
 }
 
+static int LARCH32_is_fake_mcount(Elf32_Rel const *rp)
+{
+	switch (ELF64_R_TYPE(w(rp->r_info))) {
+	case R_LARCH_MARK_LA:
+	case R_LARCH_SOP_PUSH_PLT_PCREL:
+		return 0;
+	}
+
+	return 1;
+}
+
+static int LARCH64_is_fake_mcount(Elf64_Rel const *rp)
+{
+	switch (ELF64_R_TYPE(w(rp->r_info))) {
+	case R_LARCH_MARK_LA:
+	case R_LARCH_SOP_PUSH_PLT_PCREL:
+		return 0;
+	}
+
+	return 1;
+}
 /* 64-bit EM_MIPS has weird ELF64_Rela.r_info.
  * http://techpubs.sgi.com/library/manuals/4000/007-4658-001/pdf/007-4658-001.pdf
  * We interpret Table 29 Relocation Operation (Elf64_Rel, Elf64_Rela) [p.40]
@@ -542,6 +571,7 @@ do_file(char const *const fname)
 			break;
 	case EM_IA_64:	 reltype = R_IA64_IMM64;   gpfx = '_'; break;
 	case EM_MIPS:	 /* reltype: e_class    */ gpfx = '_'; break;
+	case EM_LOONGARCH:	 /* reltype: e_class    */ gpfx = '_'; break;
 	case EM_PPC:	 reltype = R_PPC_ADDR32;   gpfx = '_'; break;
 	case EM_PPC64:	 reltype = R_PPC64_ADDR64; gpfx = '_'; break;
 	case EM_S390:    /* reltype: e_class    */ gpfx = '_'; break;
@@ -573,6 +603,10 @@ do_file(char const *const fname)
 			reltype = R_MIPS_32;
 			is_fake_mcount32 = MIPS32_is_fake_mcount;
 		}
+		if (w2(ehdr->e_machine) == EM_LOONGARCH) {
+			reltype = R_LARCH_32;
+			is_fake_mcount32 = LARCH32_is_fake_mcount;
+		}
 		do32(ehdr, fname, reltype);
 		break;
 	case ELFCLASS64: {
@@ -592,6 +626,10 @@ do_file(char const *const fname)
 			Elf64_r_sym = MIPS64_r_sym;
 			Elf64_r_info = MIPS64_r_info;
 			is_fake_mcount64 = MIPS64_is_fake_mcount;
+		}
+		if (w2(ghdr->e_machine) == EM_LOONGARCH) {
+			reltype = R_LARCH_64;
+			is_fake_mcount64 = LARCH64_is_fake_mcount;
 		}
 		do64(ghdr, fname, reltype);
 		break;

@@ -25,7 +25,10 @@
 #define MIPS_EXC_EXECUTE            9
 #define MIPS_EXC_INT_IPI_1          10
 #define MIPS_EXC_INT_IPI_2          11
-#define MIPS_EXC_MAX                12
+#define MIPS_EXC_INT_HT             11
+#define MIPS_EXC_INT_FREQ           13
+#define MIPS_EXC_INT_IPI            14
+#define MIPS_EXC_MAX                15
 /* XXXSL More to follow */
 
 #define C_TI        (_ULCAST_(1) << 30)

@@ -32,6 +32,55 @@
 #include <asm/spram.h>
 #include <linux/uaccess.h>
 
+#include <linux/printk.h>
+#include <loongson.h>
+#include <asm/cpu.h>
+
+#ifdef CONFIG_CPU_LOONGSON3
+static void decode_loongson_options(struct cpuinfo_mips *c)
+{
+	unsigned int cpucfg1, cpucfg2, cpucfg3;
+	unsigned long long  chip_feature;
+
+	cpucfg1 = read_cpucfg(LOONGSON_CFG1);
+	if (cpucfg1 & LOONGSON_CFG1_LASX) {
+		c->loongson_options |= LOONGSON_CPU_LASX;
+		set_c0_config6(MIPS_CONF6_LASXMODE);
+	}
+
+	cpucfg2 = read_cpucfg(LOONGSON_CFG2);
+	if (cpucfg2 & LOONGSON_CFG2_LCSRP)
+		c->loongson_options |= LOONGSON_CPU_CSR;
+	if (cpucfg2 & LOONGSON_CFG2_LAMO)
+		c->loongson_options |= LOONGSON_CPU_LAMO;
+	if (cpucfg2 & LOONGSON_CFG2_LVZP)
+		c->loongson_options |= LOONGSON_CPU_VZ;
+	if (cpucfg2 & LOONGSON_CFG2_LGFTP)
+		c->loongson_options |= LOONGSON_CPU_GFT;
+	if (cpucfg2 & LOONGSON_CFG2_LLFTP)
+		c->loongson_options |= LOONGSON_CPU_LFT;
+
+	if (cpucfg2 & (LOONGSON_CFG2_LBT1 | LOONGSON_CFG2_LBT2 | LOONGSON_CFG2_LBT3)) {
+		c->loongson_options |= LOONGSON_CPU_LBT;
+		elf_hwcap |= HWCAP_MIPS_LBT;
+	}
+
+	cpucfg3 = read_cpucfg(LOONGSON_CFG3);
+	if (cpucfg3 & LOONGSON_CFG3_LCAMP)
+		c->loongson_options |= LOONGSON_CPU_CAM;
+
+	chip_feature = csr_readq(LOONGSON_CSR_FEATURES);
+	if (chip_feature & LOONGSON_CSRF_EXTIOI)
+		c->loongson_options |= LOONGSON_CPU_EXTIOI;
+	if (chip_feature & LOONGSON_CSRF_MSI)
+		c->loongson_options |= LOONGSON_CPU_MSI256;
+	if (chip_feature & LOONGSON_CSRF_IPI)
+		c->loongson_options |= LOONGSON_CPU_CSRIPI;
+	if (chip_feature & LOONGSON_CSRF_FREQ)
+		c->loongson_options |= LOONGSON_CPU_SCALEFREQ;
+}
+#endif
+
 /* Hardware capabilities */
 unsigned int elf_hwcap __read_mostly;
 EXPORT_SYMBOL_GPL(elf_hwcap);
@@ -155,7 +204,7 @@ static void cpu_set_fpu_2008(struct cpuinfo_mips *c)
  * IEEE 754 conformance mode to use.  Affects the NaN encoding and the
  * ABS.fmt/NEG.fmt execution mode.
  */
-static enum { STRICT, LEGACY, STD2008, RELAXED } ieee754 = STRICT;
+static enum { STRICT, LEGACY, STD2008, RELAXED } ieee754 = RELAXED;
 
 /*
  * Set the IEEE 754 NaN encodings and the ABS.fmt/NEG.fmt execution modes
@@ -578,6 +627,7 @@ static int set_ftlb_enable(struct cpuinfo_mips *c, enum ftlb_flags flags)
 			return 1;
 		return 0;
 	case CPU_LOONGSON3:
+	case CPU_LOONGSON3_COMP:
 		/* Flush ITLB, DTLB, VTLB and FTLB */
 		write_c0_diag(LOONGSON_DIAG_ITLB | LOONGSON_DIAG_DTLB |
 			      LOONGSON_DIAG_VTLB | LOONGSON_DIAG_FTLB);
@@ -859,6 +909,9 @@ static inline unsigned int decode_config5(struct cpuinfo_mips *c)
 	if (config5 & MIPS_CONF5_CRCP)
 		elf_hwcap |= HWCAP_MIPS_CRC32;
 
+	if (config5 & MIPS_CONF5_NF)
+		c->options |= MIPS_CPU_NF;
+
 	return config5 & MIPS_CONF_M;
 }
 
@@ -1087,6 +1140,9 @@ static inline unsigned int decode_guest_config5(struct cpuinfo_mips *c)
 
 	if (config5 & MIPS_CONF5_MVH)
 		c->guest.options |= MIPS_CPU_MVH;
+
+	if (config5 & MIPS_CONF5_NF)
+		c->guest.options |= MIPS_CPU_NF;
 
 	if (config5 & MIPS_CONF_M)
 		c->guest.conf |= BIT(6);
@@ -1472,34 +1528,46 @@ static inline void cpu_probe_legacy(struct cpuinfo_mips *c, unsigned int cpu)
 		switch (c->processor_id & PRID_REV_MASK) {
 		case PRID_REV_LOONGSON2E:
 			c->cputype = CPU_LOONGSON2;
-			__cpu_name[cpu] = "ICT Loongson-2";
+			__cpu_name[cpu] = "Loongson-2";
 			set_elf_platform(cpu, "loongson2e");
 			set_isa(c, MIPS_CPU_ISA_III);
 			c->fpu_msk31 |= FPU_CSR_CONDX;
+			__cpu_full_name[cpu] = "Loongson-2E";
 			break;
 		case PRID_REV_LOONGSON2F:
 			c->cputype = CPU_LOONGSON2;
-			__cpu_name[cpu] = "ICT Loongson-2";
+			__cpu_name[cpu] = "Loongson-2";
 			set_elf_platform(cpu, "loongson2f");
 			set_isa(c, MIPS_CPU_ISA_III);
 			c->fpu_msk31 |= FPU_CSR_CONDX;
+			__cpu_full_name[cpu] = "Loongson-2F";
 			break;
 		case PRID_REV_LOONGSON3A_R1:
 			c->cputype = CPU_LOONGSON3;
-			__cpu_name[cpu] = "ICT Loongson-3";
+			__cpu_name[cpu] = "Loongson-3";
 			set_elf_platform(cpu, "loongson3a");
 			set_isa(c, MIPS_CPU_ISA_M64R1);
 			c->ases |= (MIPS_ASE_LOONGSON_MMI | MIPS_ASE_LOONGSON_CAM |
 				MIPS_ASE_LOONGSON_EXT);
+			__cpu_full_name[cpu] = "Loongson-3A R1 (Loongson-3A1000)";
 			break;
 		case PRID_REV_LOONGSON3B_R1:
-		case PRID_REV_LOONGSON3B_R2:
 			c->cputype = CPU_LOONGSON3;
-			__cpu_name[cpu] = "ICT Loongson-3";
+			__cpu_name[cpu] = "Loongson-3";
 			set_elf_platform(cpu, "loongson3b");
 			set_isa(c, MIPS_CPU_ISA_M64R1);
 			c->ases |= (MIPS_ASE_LOONGSON_MMI | MIPS_ASE_LOONGSON_CAM |
 				MIPS_ASE_LOONGSON_EXT);
+			__cpu_full_name[cpu] = "Loongson-3B R1 (Loongson-3B1000)";
+			break;
+		case PRID_REV_LOONGSON3B_R2:
+			c->cputype = CPU_LOONGSON3;
+			__cpu_name[cpu] = "Loongson-3";
+			set_elf_platform(cpu, "loongson3b");
+			set_isa(c, MIPS_CPU_ISA_M64R1);
+			c->ases |= (MIPS_ASE_LOONGSON_MMI | MIPS_ASE_LOONGSON_CAM |
+				MIPS_ASE_LOONGSON_EXT);
+			__cpu_full_name[cpu] = "Loongson-3B R2 (Loongson-3B1500)";
 			break;
 		}
 
@@ -1847,30 +1915,71 @@ static inline void cpu_probe_loongson(struct cpuinfo_mips *c, unsigned int cpu)
 	switch (c->processor_id & PRID_IMP_MASK) {
 	case PRID_IMP_LOONGSON_64:  /* Loongson-2/3 */
 		switch (c->processor_id & PRID_REV_MASK) {
-		case PRID_REV_LOONGSON3A_R2:
+		case PRID_REV_LOONGSON3A_R2_0:
+		case PRID_REV_LOONGSON3A_R2_1:
 			c->cputype = CPU_LOONGSON3;
-			__cpu_name[cpu] = "ICT Loongson-3";
+			__cpu_name[cpu] = "Loongson-3";
 			set_elf_platform(cpu, "loongson3a");
 			set_isa(c, MIPS_CPU_ISA_M64R2);
+			__cpu_full_name[cpu] = "Loongson-3A R2 (Loongson-3A2000)";
 			break;
 		case PRID_REV_LOONGSON3A_R3_0:
 		case PRID_REV_LOONGSON3A_R3_1:
 			c->cputype = CPU_LOONGSON3;
-			__cpu_name[cpu] = "ICT Loongson-3";
+			__cpu_name[cpu] = "Loongson-3";
 			set_elf_platform(cpu, "loongson3a");
 			set_isa(c, MIPS_CPU_ISA_M64R2);
+			__cpu_full_name[cpu] = "Loongson-3A R3 (Loongson-3A3000)";
 			break;
 		}
+
 
 		decode_configs(c);
 		c->options |= MIPS_CPU_FTLB | MIPS_CPU_TLBINV | MIPS_CPU_LDPTE;
 		c->writecombine = _CACHE_UNCACHED_ACCELERATED;
 		c->ases |= (MIPS_ASE_LOONGSON_MMI | MIPS_ASE_LOONGSON_CAM |
 			MIPS_ASE_LOONGSON_EXT | MIPS_ASE_LOONGSON_EXT2);
+#ifdef CONFIG_CPU_LOONGSON3
+		c->loongson_options = LOONGSON_CPU_MSI128;
+#endif
 		break;
+
+	case PRID_IMP_LOONGSON2K:
+		switch (c->processor_id & PRID_REV_MASK) {
+		case PRID_REV_LOONGSON2K_R1:
+		case PRID_REV_LOONGSON2K_R2:
+		default:
+			c->isa_level = MIPS_CPU_ISA_M64R2;
+			c->options = R4K_OPTS | MIPS_CPU_FPU | MIPS_CPU_LLSC |
+				MIPS_CPU_32FPR | MIPS_CPU_PREFETCH;
+			c->cputype = CPU_LOONGSON2K;
+			__cpu_name[cpu] = "Loongson-2K";
+			__cpu_full_name[cpu] = "Loongson-2K1000";
+			decode_configs(c);
+			break;
+		}
+		break;
+
+#ifdef CONFIG_CPU_LOONGSON3
 	default:
-		panic("Unknown Loongson Processor ID!");
+		c->cputype = CPU_LOONGSON3_COMP;
+		__cpu_name[cpu] = "ICT Loongson-3";
+		set_elf_platform(cpu, "loongson3a");
+		set_isa(c, MIPS_CPU_ISA_M64R2);
+		__cpu_full_name[cpu] = "ICT Loongson-3A R4 (Loongson-3A4000)";
+
+		decode_configs(c);
+		decode_loongson_options(c);
+		c->loongson_options |= LOONGSON_CPU_CFG;
+		c->options |= MIPS_CPU_FTLB | MIPS_CPU_TLBINV | MIPS_CPU_LDPTE;
+		c->lses |= MIPS_LSE_CPUCFG;
+		c->writecombine = _CACHE_UNCACHED_ACCELERATED;
+		if (read_cfg(LOONGSON_CPUCFG_CONFIG_FIELD2) & MIPS_LSE_LAMO) {
+			c->lses |= MIPS_HAS_LSE_LAMO;
+		}
+
 		break;
+#endif
 	}
 }
 
@@ -1987,6 +2096,7 @@ EXPORT_SYMBOL(__ua_limit);
 #endif
 
 const char *__cpu_name[NR_CPUS];
+const char *__cpu_full_name[NR_CPUS];
 const char *__elf_platform;
 
 void cpu_probe(void)
@@ -2138,8 +2248,10 @@ void cpu_probe(void)
 	if (cpu_has_loongson_ext2)
 		elf_hwcap |= HWCAP_LOONGSON_EXT2;
 
-	if (cpu_has_vz)
+	if (cpu_has_vz) {
 		cpu_probe_vz(c);
+		elf_hwcap |= HWCAP_MIPS_VZ;
+	}
 
 	cpu_probe_vmbits(c);
 
@@ -2148,6 +2260,33 @@ void cpu_probe(void)
 		__ua_limit = ~((1ull << cpu_vmbits) - 1);
 #endif
 }
+
+#define MAX_NAME_LEN 48
+static char cpu_full_name[MAX_NAME_LEN];
+
+static int __init set_cpu_fullname(char *s)
+{
+	strncpy(cpu_full_name, s, MAX_NAME_LEN-1);
+
+	return 1;
+}
+
+__setup("cpuname=", set_cpu_fullname);
+
+static int __init overwrite_cpu_fullname(void)
+{
+	int cpu;
+
+	if (cpu_full_name[0] == 0)
+		return 0;
+
+	for(cpu = 0; cpu < NR_CPUS; cpu++)
+		__cpu_full_name[cpu] = cpu_full_name;
+
+	return 0;
+}
+
+core_initcall(overwrite_cpu_fullname);
 
 void cpu_report(void)
 {

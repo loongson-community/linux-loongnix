@@ -53,6 +53,15 @@
 #include "dwmac1000.h"
 #include "dwxgmac2.h"
 #include "hwif.h"
+#if defined(CONFIG_CPU_LOONGSON3) || defined(CONFIG_CPU_LOONGSON64)
+#include <linux/i2c.h>
+#include <loongson-pch.h>
+#include <ls7a-spiflash.h>
+
+#define MAC_OFFSET  0x10
+#define MAC_LEN     0x6
+#endif
+
 
 #define	STMMAC_ALIGN(x)		ALIGN(ALIGN(x, SMP_CACHE_BYTES), 16)
 #define	TSO_MAX_BUFF_SIZE	(SZ_16K - 1)
@@ -112,6 +121,8 @@ module_param(chain_mode, int, 0444);
 MODULE_PARM_DESC(chain_mode, "To use chain instead of ring mode");
 
 static irqreturn_t stmmac_interrupt(int irq, void *dev_id);
+static irqreturn_t loongson_interrupt_mac(int irq, void *dev_id);
+static irqreturn_t loongson_interrupt_dma(int irq, void *dev_id);
 
 #ifdef CONFIG_DEBUG_FS
 static int stmmac_init_fs(struct net_device *dev);
@@ -972,7 +983,7 @@ static int stmmac_init_phy(struct net_device *dev)
 	 * Half-duplex mode not supported with multiqueue
 	 * half-duplex can only works with single queue
 	 */
-	if (tx_cnt > 1)
+	if (tx_cnt > 1 || priv->plat->disable_half_duplex)
 		phydev->supported &= ~(SUPPORTED_1000baseT_Half |
 				       SUPPORTED_100baseT_Half |
 				       SUPPORTED_10baseT_Half);
@@ -2127,6 +2138,20 @@ static int stmmac_get_hw_features(struct stmmac_priv *priv)
 	return stmmac_get_hw_feature(priv, priv->ioaddr, &priv->dma_cap) == 0;
 }
 
+#if defined(CONFIG_CPU_LOONGSON3) || defined(CONFIG_CPU_LOONGSON64)
+static int stmmac_spi_flash_get_mac_addr(struct stmmac_priv *priv, unsigned char *buf)
+{
+	struct pci_dev *pci = to_pci_dev(priv->device);
+	int devfn;
+
+	devfn = pci->devfn & 0x7;
+	ls_spiflash_read(devfn * MAC_OFFSET, buf, MAC_LEN);
+
+	return 0;
+}
+#endif
+
+
 /**
  * stmmac_check_ether_addr - check if the MAC addr is valid
  * @priv: driver private structure
@@ -2134,10 +2159,20 @@ static int stmmac_get_hw_features(struct stmmac_priv *priv)
  * it is to verify if the MAC address is valid, in case of failures it
  * generates a random MAC address
  */
+extern int __init ls_spiflash_init(void);
 static void stmmac_check_ether_addr(struct stmmac_priv *priv)
 {
 	if (!is_valid_ether_addr(priv->dev->dev_addr)) {
 		stmmac_get_umac_addr(priv, priv->hw, priv->dev->dev_addr, 0);
+#if defined(CONFIG_CPU_LOONGSON3) || defined(CONFIG_CPU_LOONGSON64)
+#if defined(__mips__)
+		if ((loongson_pch->type == LS7A) && (!is_valid_ether_addr(priv->dev->dev_addr)))
+#else
+		if (!is_valid_ether_addr(priv->dev->dev_addr) && !loongson_sysconf.is_soc_cpu)
+#endif
+			if (!ls_spiflash_init())
+				stmmac_spi_flash_get_mac_addr(priv, priv->dev->dev_addr);
+#endif
 		if (!is_valid_ether_addr(priv->dev->dev_addr))
 			eth_hw_addr_random(priv->dev);
 		netdev_info(priv->dev, "device MAC address %pM\n",
@@ -2541,7 +2576,11 @@ static int stmmac_hw_setup(struct net_device *dev, bool init_ptp)
 	priv->tx_lpi_timer = STMMAC_DEFAULT_TWT_LS;
 
 	if (priv->use_riwt) {
+#ifdef CONFIG_LOONGARCH
+		ret = stmmac_rx_watchdog(priv, priv->ioaddr, 5, rx_cnt);
+#else
 		ret = stmmac_rx_watchdog(priv, priv->ioaddr, MAX_DMA_RIWT, rx_cnt);
+#endif
 		if (!ret)
 			priv->rx_riwt = MAX_DMA_RIWT;
 	}
@@ -2571,6 +2610,80 @@ static void stmmac_hw_teardown(struct net_device *dev)
 	clk_disable_unprepare(priv->plat->clk_ptp_ref);
 }
 
+static void stmmac_loongson_release_irq(struct stmmac_priv *priv)
+{
+	int i;
+
+	for (i = 0; i < priv->plat->rx_queues_to_use; i++) {
+		if (priv->rx_irq[i])
+			free_irq(priv->rx_irq[i], priv->dev);
+	}
+
+	for (i = 0; i < priv->plat->tx_queues_to_use; i++) {
+		if (priv->tx_irq[i])
+			free_irq(priv->tx_irq[i], priv->dev);
+	}
+}
+
+static int stmmac_loongson_request_irq(struct stmmac_priv *priv)
+{
+	struct net_device *dev = priv->dev;
+	char *int_name;
+	int tx, rx;
+	int ret = 0;
+
+	ret = request_irq(dev->irq, loongson_interrupt_mac,
+						IRQF_TRIGGER_RISING, dev->name, dev);
+	if (unlikely(ret < 0)) {
+		netdev_err(priv->dev, "Alloc Mac interrupt failed!\n");
+		return -EFAULT;
+	}
+
+	for (rx = 0; rx < priv->plat->rx_queues_to_use; rx++) {
+		/* Request Rx MSI irq */
+		int_name = priv->int_name_rx_irq[rx];
+		sprintf(int_name, "%s:%s-%d", dev->name, "rx", rx);
+
+		ret = request_irq(priv->rx_irq[rx],
+				  loongson_interrupt_dma,
+				  IRQF_TRIGGER_RISING, int_name, dev);
+		if (unlikely(ret < 0)) {
+			netdev_err(priv->dev,
+				   "%s: alloc rx-%d  MSI %d (error: %d)\n",
+				   __func__, rx, priv->rx_irq[rx], ret);
+			goto err_out;
+		}
+	}
+
+	for (tx = 0; tx < priv->plat->tx_queues_to_use; tx++) {
+		/* Request Tx MSI irq */
+		int_name = priv->int_name_tx_irq[tx];
+		sprintf(int_name, "%s:%s-%d", dev->name, "tx", tx);
+		ret = request_irq(priv->tx_irq[tx],
+				  loongson_interrupt_dma,
+				  IRQF_TRIGGER_RISING, int_name, dev);
+
+		if (unlikely(ret < 0)) {
+			netdev_err(priv->dev,
+				   "%s: alloc tx-%d  MSI %d (error: %d)\n",
+				   __func__, tx, priv->tx_irq[tx], ret);
+			goto err_out;
+		}
+	}
+
+	return 0;
+
+err_out:
+	free_irq(dev->irq, dev);
+
+	for (; tx > 0; tx--)
+		free_irq(priv->tx_irq[tx], dev);
+
+	for (; rx > 0; rx--)
+		free_irq(priv->rx_irq[rx], dev);
+
+	return -EFAULT;
+}
 /**
  *  stmmac_open - open entry point of the driver
  *  @dev : pointer to the device structure.
@@ -2630,37 +2743,43 @@ static int stmmac_open(struct net_device *dev)
 	if (dev->phydev)
 		phy_start(dev->phydev);
 
-	/* Request the IRQ lines */
-	ret = request_irq(dev->irq, stmmac_interrupt,
-			  IRQF_SHARED, dev->name, dev);
-	if (unlikely(ret < 0)) {
-		netdev_err(priv->dev,
-			   "%s: ERROR: allocating the IRQ %d (error: %d)\n",
-			   __func__, dev->irq, ret);
-		goto irq_error;
-	}
-
-	/* Request the Wake IRQ in case of another line is used for WoL */
-	if (priv->wol_irq != dev->irq) {
-		ret = request_irq(priv->wol_irq, stmmac_interrupt,
+	if (priv->plat->has_lgmac && priv->msi_vecs) {
+		ret = stmmac_loongson_request_irq(priv);
+		if (ret)
+			goto irq_error;
+	} else {
+		/* Request the IRQ lines */
+		ret = request_irq(dev->irq, stmmac_interrupt,
 				  IRQF_SHARED, dev->name, dev);
 		if (unlikely(ret < 0)) {
 			netdev_err(priv->dev,
-				   "%s: ERROR: allocating the WoL IRQ %d (%d)\n",
-				   __func__, priv->wol_irq, ret);
-			goto wolirq_error;
+				   "%s: ERROR: allocating the IRQ %d (error: %d)\n",
+				   __func__, dev->irq, ret);
+			goto irq_error;
 		}
-	}
 
-	/* Request the IRQ lines */
-	if (priv->lpi_irq > 0) {
-		ret = request_irq(priv->lpi_irq, stmmac_interrupt, IRQF_SHARED,
-				  dev->name, dev);
-		if (unlikely(ret < 0)) {
-			netdev_err(priv->dev,
-				   "%s: ERROR: allocating the LPI IRQ %d (%d)\n",
-				   __func__, priv->lpi_irq, ret);
-			goto lpiirq_error;
+		/* Request the Wake IRQ in case of another line is used for WoL */
+		if (priv->wol_irq != dev->irq) {
+			ret = request_irq(priv->wol_irq, stmmac_interrupt,
+					  IRQF_SHARED, dev->name, dev);
+			if (unlikely(ret < 0)) {
+				netdev_err(priv->dev,
+					   "%s: ERROR: allocating the WoL IRQ %d (%d)\n",
+					   __func__, priv->wol_irq, ret);
+				goto wolirq_error;
+			}
+		}
+
+		/* Request the IRQ lines */
+		if (priv->lpi_irq > 0) {
+			ret = request_irq(priv->lpi_irq, stmmac_interrupt, IRQF_SHARED,
+					  dev->name, dev);
+			if (unlikely(ret < 0)) {
+				netdev_err(priv->dev,
+					   "%s: ERROR: allocating the LPI IRQ %d (%d)\n",
+					   __func__, priv->lpi_irq, ret);
+				goto lpiirq_error;
+			}
 		}
 	}
 
@@ -2715,6 +2834,10 @@ static int stmmac_release(struct net_device *dev)
 
 	/* Free the IRQ lines */
 	free_irq(dev->irq, dev);
+
+	if (priv->plat->has_lgmac && priv->msi_vecs)
+		stmmac_loongson_release_irq(priv);
+
 	if (priv->wol_irq != dev->irq)
 		free_irq(priv->wol_irq, dev);
 	if (priv->lpi_irq > 0)
@@ -3196,7 +3319,10 @@ static netdev_tx_t stmmac_xmit(struct sk_buff *skb, struct net_device *dev)
 
 	netdev_tx_sent_queue(netdev_get_tx_queue(dev, queue), skb->len);
 
-	stmmac_enable_dma_transmission(priv, priv->ioaddr);
+	if (priv->plat->tx_queues_to_use > 1 || priv->plat->rx_queues_to_use > 1)
+		stmmac_enable_dma_transmission_chan(priv, priv->ioaddr, queue);
+	else
+		stmmac_enable_dma_transmission(priv, priv->ioaddr);
 
 	tx_q->tx_tail_addr = tx_q->dma_tx_phy + (tx_q->cur_tx * sizeof(*desc));
 	stmmac_set_tx_tail_ptr(priv, priv->ioaddr, tx_q->tx_tail_addr, queue);
@@ -3745,6 +3871,86 @@ static irqreturn_t stmmac_interrupt(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+static irqreturn_t loongson_interrupt_mac(int irq, void *dev_id)
+{
+	struct net_device *dev = (struct net_device *)dev_id;
+	struct stmmac_priv *priv = netdev_priv(dev);
+
+	if (priv->irq_wake)
+		pm_wakeup_event(priv->device, 0);
+
+	/* Check if adapter is up */
+	if (test_bit(STMMAC_DOWN, &priv->state))
+		return IRQ_HANDLED;
+	/* Check if a fatal error happened */
+	if (stmmac_safety_feat_interrupt(priv))
+		return IRQ_HANDLED;
+
+	/* To handle GMAC own interrupts */
+	if (priv->plat->has_gmac) {
+		int status = stmmac_host_irq_status(priv, priv->hw, &priv->xstats);
+
+		if (unlikely(status)) {
+			/* For LPI we need to save the tx status */
+			if (status & CORE_IRQ_TX_PATH_IN_LPI_MODE)
+				priv->tx_path_in_lpi_mode = true;
+			if (status & CORE_IRQ_TX_PATH_EXIT_LPI_MODE)
+				priv->tx_path_in_lpi_mode = false;
+		}
+
+		/* PCS link status */
+		if (priv->hw->pcs) {
+			if (priv->xstats.pcs_link)
+				netif_carrier_on(dev);
+			else
+				netif_carrier_off(dev);
+		}
+	}
+
+	return IRQ_HANDLED;
+}
+
+static irqreturn_t loongson_interrupt_dma(int irq, void *dev_id)
+{
+	struct net_device *dev = (struct net_device *)dev_id;
+	struct stmmac_priv *priv = netdev_priv(dev);
+	u32 tx_channel_count = priv->plat->tx_queues_to_use;
+	u32 rx_channel_count = priv->plat->rx_queues_to_use;
+	u32 channels_to_check = tx_channel_count > rx_channel_count ?
+				tx_channel_count : rx_channel_count;
+	u32 chan, status;
+
+	for (chan = 0; chan < channels_to_check; chan++) {
+		if (priv->rx_irq[chan] == irq || priv->tx_irq[chan] == irq)
+			break;
+	}
+
+	status = stmmac_napi_check(priv, chan);
+
+	if (unlikely(status & tx_hard_error_bump_tc)) {
+		/* Try to bump up the dma threshold on this failure */
+		if (unlikely(priv->xstats.threshold != SF_DMA_MODE) &&
+				(tc <= 256)) {
+			tc += 64;
+			if (priv->plat->force_thresh_dma_mode)
+				stmmac_set_dma_operation_mode(priv,
+						tc,
+						tc,
+						chan);
+			else
+				stmmac_set_dma_operation_mode(priv,
+						tc,
+						SF_DMA_MODE,
+						chan);
+			priv->xstats.threshold = tc;
+		}
+	} else if (unlikely(status == tx_hard_error)) {
+		stmmac_tx_err(priv, chan);
+	}
+
+	return IRQ_HANDLED;
+}
+
 #ifdef CONFIG_NET_POLL_CONTROLLER
 /* Polling receive - used by NETCONSOLE and other diagnostic tools
  * to allow network I/O with interrupts disabled.
@@ -3849,7 +4055,8 @@ static u16 stmmac_select_queue(struct net_device *dev, struct sk_buff *skb,
 			       struct net_device *sb_dev,
 			       select_queue_fallback_t fallback)
 {
-	if (skb_shinfo(skb)->gso_type & (SKB_GSO_TCPV4 | SKB_GSO_TCPV6)) {
+	struct stmmac_priv *priv = netdev_priv(dev);
+	if ((skb_shinfo(skb)->gso_type & (SKB_GSO_TCPV4 | SKB_GSO_TCPV6)) || priv->plat->has_lgmac) {
 		/*
 		 * There is no way to determine the number of TSO
 		 * capable Queues. Let's use always the Queue 0
@@ -4226,6 +4433,7 @@ static int stmmac_hw_init(struct stmmac_priv *priv)
 	 * riwt_off field from the platform.
 	 */
 	if (((priv->synopsys_id >= DWMAC_CORE_3_50) ||
+	    (priv->plat->has_lgmac) ||
 	    (priv->plat->has_xgmac)) && (!priv->plat->riwt_off)) {
 		priv->use_riwt = 1;
 		dev_info(priv->device,
@@ -4275,6 +4483,18 @@ int stmmac_dvr_probe(struct device *device,
 	priv->dev->irq = res->irq;
 	priv->wol_irq = res->wol_irq;
 	priv->lpi_irq = res->lpi_irq;
+
+	if (plat_dat->has_lgmac && res->msi_vecs) {
+		int i;
+
+		priv->msi_vecs = res->msi_vecs;
+
+		for (i = 0; i < plat_dat->rx_queues_to_use; i++)
+			priv->rx_irq[i] = res->rx_irq[i];
+
+		for (i = 0; i < plat_dat->tx_queues_to_use; i++)
+			priv->tx_irq[i] = res->tx_irq[i];
+	}
 
 	if (res->mac)
 		memcpy(priv->dev->dev_addr, res->mac, ETH_ALEN);
@@ -4485,6 +4705,27 @@ int stmmac_dvr_remove(struct device *dev)
 }
 EXPORT_SYMBOL_GPL(stmmac_dvr_remove);
 
+#if defined(CONFIG_CPU_LOONGSON2K)
+
+#define MII_MV1111_PHY_EXT_CR            0x14
+#define MII_MV1111_RX_DELAY              0x80
+#define MII_MV1111_TX_DELAY              0x2
+
+void mv88e1111_config_init(struct phy_device *phydev)
+{
+	u16 data;
+
+	/*set 88e1111 clock phase delay*/
+	data = (u16)phy_read(phydev, MII_MV1111_PHY_EXT_CR);
+	data = data | MII_MV1111_RX_DELAY | MII_MV1111_TX_DELAY;
+	phy_write(phydev, MII_MV1111_PHY_EXT_CR, data);
+
+	data = (u16)phy_read(phydev, MII_BMCR);
+	data = data | BMCR_RESET;
+	phy_write(phydev, MII_BMCR, data);
+}
+#endif
+
 /**
  * stmmac_suspend - suspend callback
  * @dev: device pointer
@@ -4625,8 +4866,21 @@ int stmmac_resume(struct device *dev)
 
 	mutex_unlock(&priv->lock);
 
-	if (ndev->phydev)
+	if (ndev->phydev) {
+#if defined(CONFIG_CPU_LOONGSON2K)
+
+#define MARVELL_PHY_ID_88E1111          0x01410cc0
+#define MARVELL_PHY_ID_MASK             0xfffffff0
+
+		struct phy_device *phydev = ndev->phydev;
+		u32 phyid = phydev->phy_id;
+
+		if ((phyid & MARVELL_PHY_ID_MASK) == MARVELL_PHY_ID_88E1111) {
+			mv88e1111_config_init(phydev);
+		}
+#endif
 		phy_start(ndev->phydev);
+	}
 
 	return 0;
 }

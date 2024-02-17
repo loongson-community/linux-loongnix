@@ -47,6 +47,7 @@
 #include <linux/phy/phy.h>
 #include <linux/platform_data/s3c-hsotg.h>
 #include <linux/reset.h>
+#include <linux/sys_soc.h>
 
 #include <linux/usb/of.h>
 
@@ -208,30 +209,46 @@ int dwc2_lowlevel_hw_disable(struct dwc2_hsotg *hsotg)
 	return ret;
 }
 
+static struct soc_device_attribute soc_fixup_dwc2_hw_init[] = {
+	{ .family = "Loongson 2K1000LA", .revision = "1.3", },
+	{ },
+};
+
 static int dwc2_lowlevel_hw_init(struct dwc2_hsotg *hsotg)
 {
 	int i, ret;
 
-	hsotg->reset = devm_reset_control_get_optional(hsotg->dev, "dwc2");
-	if (IS_ERR(hsotg->reset)) {
-		ret = PTR_ERR(hsotg->reset);
-		dev_err(hsotg->dev, "error getting reset control %d\n", ret);
-		return ret;
+	if (!(IS_ENABLED(CONFIG_CPU_LOONGSON2K) ||
+			soc_device_match(soc_fixup_dwc2_hw_init))) {
+		hsotg->reset = devm_reset_control_get_optional(hsotg->dev,
+							 "dwc2");
+		if (IS_ERR(hsotg->reset)) {
+			ret = PTR_ERR(hsotg->reset);
+			dev_err(hsotg->dev,
+				"error getting reset control %d\n", ret);
+			return ret;
+		}
+
+		reset_control_deassert(hsotg->reset);
+
+		hsotg->reset_ecc = devm_reset_control_get_optional(hsotg->dev,
+							 "dwc2-ecc");
+		if (IS_ERR(hsotg->reset_ecc)) {
+			ret = PTR_ERR(hsotg->reset_ecc);
+			dev_err(hsotg->dev,
+			     "error getting reset control for ecc %d\n", ret);
+			return ret;
+		}
+
+		reset_control_deassert(hsotg->reset_ecc);
 	}
 
-	reset_control_deassert(hsotg->reset);
-
-	hsotg->reset_ecc = devm_reset_control_get_optional(hsotg->dev, "dwc2-ecc");
-	if (IS_ERR(hsotg->reset_ecc)) {
-		ret = PTR_ERR(hsotg->reset_ecc);
-		dev_err(hsotg->dev, "error getting reset control for ecc %d\n", ret);
-		return ret;
-	}
-
-	reset_control_deassert(hsotg->reset_ecc);
-
-	/* Set default UTMI width */
-	hsotg->phyif = GUSBCFG_PHYIF16;
+	if (IS_ENABLED(CONFIG_CPU_LOONGSON2K) ||
+				 soc_device_match(soc_fixup_dwc2_hw_init))
+		hsotg->phyif = GUSBCFG_PHYIF8;
+	else
+		/* Set default UTMI width */
+		hsotg->phyif = GUSBCFG_PHYIF16;
 
 	/*
 	 * Attempt to find a generic PHY, then look for an old style
@@ -518,8 +535,12 @@ static int __maybe_unused dwc2_suspend(struct device *dev)
 	struct dwc2_hsotg *dwc2 = dev_get_drvdata(dev);
 	int ret = 0;
 
-	if (dwc2_is_device_mode(dwc2))
+	if (dwc2_is_device_mode(dwc2)) {
 		dwc2_hsotg_suspend(dwc2);
+#ifdef CONFIG_CPU_LOONGSON2K
+		dwc2_enter_hibernation(dwc2, 0);
+#endif
+	}
 
 	if (dwc2->ll_hw_enabled)
 		ret = __dwc2_lowlevel_hw_disable(dwc2);
@@ -538,8 +559,18 @@ static int __maybe_unused dwc2_resume(struct device *dev)
 			return ret;
 	}
 
-	if (dwc2_is_device_mode(dwc2))
+	if (dwc2_is_device_mode(dwc2)) {
+#ifdef CONFIG_CPU_LOONGSON2K
+		dwc2_exit_hibernation(dwc2, 0, 1, 0);
+#endif
 		ret = dwc2_hsotg_resume(dwc2);
+	}
+#ifdef CONFIG_CPU_LOONGSON2K
+	else if (dwc2->op_state == OTG_STATE_B_PERIPHERAL) {
+		dwc2_exit_hibernation(dwc2, 0, 1, 0);
+		queue_work(dwc2->wq_otg, &dwc2->wf_otg);
+	}
+#endif
 
 	return ret;
 }

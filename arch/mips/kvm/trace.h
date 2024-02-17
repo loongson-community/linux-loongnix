@@ -236,6 +236,8 @@ TRACE_EVENT(kvm_hwr,
 #define KVM_TRACE_AUX_FPU		1
 #define KVM_TRACE_AUX_MSA		2
 #define KVM_TRACE_AUX_FPU_MSA		3
+#define KVM_TRACE_AUX_LASX		4
+#define KVM_TRACE_AUX_FPU_MSA_LASX	7
 
 #define kvm_trace_symbol_aux_op		\
 	{ KVM_TRACE_AUX_RESTORE, "restore" },	\
@@ -247,7 +249,9 @@ TRACE_EVENT(kvm_hwr,
 #define kvm_trace_symbol_aux_state		\
 	{ KVM_TRACE_AUX_FPU,     "FPU" },	\
 	{ KVM_TRACE_AUX_MSA,     "MSA" },	\
-	{ KVM_TRACE_AUX_FPU_MSA, "FPU & MSA" }
+	{ KVM_TRACE_AUX_LASX,    "LASX" },	\
+	{ KVM_TRACE_AUX_FPU_MSA, "FPU & MSA" }, \
+	{ KVM_TRACE_AUX_FPU_MSA_LASX, "FPU & MSA & LASX" }
 
 TRACE_EVENT(kvm_aux,
 	    TP_PROTO(struct kvm_vcpu *vcpu, unsigned int op,

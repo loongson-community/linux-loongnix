@@ -1009,6 +1009,9 @@ static void evergreen_init_golden_registers(struct radeon_device *rdev)
 						 (const u32)ARRAY_SIZE(cypress_mgcg_init));
 		break;
 	case CHIP_JUNIPER:
+		if (rdev->pdev->subsystem_vendor == PCI_VENDOR_ID_ATI)
+			break; /* Fix hibernation for Loongson */
+
 		radeon_program_register_sequence(rdev,
 						 evergreen_golden_registers,
 						 (const u32)ARRAY_SIZE(evergreen_golden_registers));
@@ -2402,6 +2405,7 @@ static int evergreen_pcie_gart_enable(struct radeon_device *rdev)
 	r = radeon_gart_table_vram_pin(rdev);
 	if (r)
 		return r;
+	radeon_gart_restore(rdev);
 	/* Setup L2 cache */
 	WREG32(VM_L2_CNTL, ENABLE_L2_CACHE | ENABLE_L2_FRAGMENT_PROCESSING |
 				ENABLE_L2_PTE_CACHE_LRU_UPDATE_BY_WRITE |
@@ -4915,6 +4919,9 @@ restart_ih:
 	if (queue_thermal && rdev->pm.dpm_enabled)
 		schedule_work(&rdev->pm.dpm.thermal.work);
 	rdev->ih.rptr = rptr;
+#if defined(CONFIG_CPU_LOONGSON3) || defined(CONFIG_CPU_LOONGSON64)
+	WREG32(IH_RB_RPTR, rptr);
+#endif
 	atomic_set(&rdev->ih.lock, 0);
 
 	/* make sure wptr hasn't changed while processing */

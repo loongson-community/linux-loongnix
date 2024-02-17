@@ -45,7 +45,10 @@ struct node_data {
 
 extern struct node_data *__node_data[];
 
+#ifdef CONFIG_NUMA
 #define NODE_DATA(n)		(&__node_data[(n)]->pglist)
+#endif
+
 #define hub_data(n)		(&__node_data[(n)]->hub)
 
 extern void setup_zero_pages(void);

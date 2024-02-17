@@ -1,0 +1,24 @@
+#
+# Loongson series SOC drivers
+#
+menu "Loongson SoC drivers"
+
+config LOONGSON_GUTS
+	tristate "LOONGSON GUTS"
+	select SOC_BUS
+	help
+	  This driver is to manage and access global utilities block.
+	  Initially only reading SVR and registering soc device are
+	  supported.
+
+	  If unsure, say N.
+
+config LOONGSON_PM_ACPI
+	bool "Loongson PM ACPI Controller Driver"
+	depends on LOONGSON64_GENERIC && OF
+	help
+	  Loongson PM ACPI Controller driver.
+
+	  If unsure, say Y.
+
+endmenu

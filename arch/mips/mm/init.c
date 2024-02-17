@@ -31,6 +31,7 @@
 #include <linux/gfp.h>
 #include <linux/kcore.h>
 #include <linux/initrd.h>
+#include <linux/mmzone.h>
 
 #include <asm/asm-offsets.h>
 #include <asm/bootinfo.h>
@@ -515,6 +516,59 @@ void __ref free_initmem(void)
 	else
 		free_initmem_default(POISON_FREE_INITMEM);
 }
+
+#ifdef CONFIG_MEMORY_HOTPLUG
+int arch_add_memory(int nid, u64 start, u64 size, struct vmem_altmap *altmap, bool want_memblock)
+{
+	unsigned long start_pfn = start >> PAGE_SHIFT;
+	unsigned long nr_pages = size >> PAGE_SHIFT;
+	int ret;
+
+	ret = __add_pages(nid, start_pfn, nr_pages, altmap, want_memblock);
+
+	if (ret)
+		printk("%s: Problem encountered in __add_pages() as ret=%d\n",
+				__func__,  ret);
+
+	return ret;
+}
+
+pg_data_t *arch_alloc_nodedata(int nid)
+{
+	return kzalloc(sizeof(pg_data_t), GFP_KERNEL);
+}
+
+void arch_free_nodedata(pg_data_t *pgdat)
+{
+	kfree(pgdat);
+}
+
+void arch_refresh_nodedata(int nid, pg_data_t *pgdat)
+{
+	// __node_data[nid]->pglist = pgdat;
+        BUG();
+}
+
+int memory_add_physaddr_to_nid(u64 start)
+{
+	int nid;
+
+	nid = pa_to_nid(start);
+	return nid;
+}
+EXPORT_SYMBOL_GPL(memory_add_physaddr_to_nid);
+
+#ifdef CONFIG_MEMORY_HOTREMOVE
+void arch_remove_memory(int nid, u64 start, u64 size,
+			struct vmem_altmap *altmap)
+{
+	unsigned long start_pfn = start >> PAGE_SHIFT;
+	unsigned long nr_pages = size >> PAGE_SHIFT;
+
+	return __remove_pages(start_pfn, nr_pages, altmap);
+}
+#endif
+#endif
 
 #ifndef CONFIG_MIPS_PGD_C0_CONTEXT
 unsigned long pgd_current[NR_CPUS];

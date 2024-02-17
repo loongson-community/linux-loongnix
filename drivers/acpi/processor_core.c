@@ -108,6 +108,22 @@ static int map_gicc_mpidr(struct acpi_subtable_header *entry,
 	return -EINVAL;
 }
 
+static int map_core_pic_id(struct acpi_subtable_header *entry,
+		 u32 acpi_id, phys_cpuid_t *apic_id)
+{
+	struct acpi_madt_core_pic *core_pic =
+		container_of(entry, struct acpi_madt_core_pic, header);
+
+	if (!(core_pic->flags & ACPI_MADT_ENABLED))
+		return -ENODEV;
+
+	if (core_pic->processor_id != acpi_id)
+		return -EINVAL;
+
+	*apic_id = core_pic->core_id;
+	return 0;
+}
+
 static phys_cpuid_t map_madt_entry(struct acpi_table_madt *madt,
 				   int type, u32 acpi_id)
 {
@@ -137,6 +153,9 @@ static phys_cpuid_t map_madt_entry(struct acpi_table_madt *madt,
 				break;
 		} else if (header->type == ACPI_MADT_TYPE_GENERIC_INTERRUPT) {
 			if (!map_gicc_mpidr(header, type, acpi_id, &phys_id))
+				break;
+		} else if (header->type == ACPI_MADT_TYPE_CORE_PIC) {
+			if (!map_core_pic_id(header, acpi_id, &phys_id))
 				break;
 		}
 		entry += header->length;

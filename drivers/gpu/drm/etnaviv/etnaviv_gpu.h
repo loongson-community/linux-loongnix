@@ -187,6 +187,14 @@ int etnaviv_gpu_pm_get_sync(struct etnaviv_gpu *gpu);
 void etnaviv_gpu_pm_put(struct etnaviv_gpu *gpu);
 int etnaviv_gpu_wait_idle(struct etnaviv_gpu *gpu, unsigned int timeout_ms);
 void etnaviv_gpu_start_fe(struct etnaviv_gpu *gpu, u32 address, u16 prefetch);
+int etnaviv_gpu_clk_enable(struct etnaviv_gpu *gpu);
+int etnaviv_gpu_hw_suspend(struct etnaviv_gpu *gpu);
+
+int etnaviv_gpu_bind(struct device *dev, struct device *master, void *data);
+void etnaviv_gpu_unbind(struct device *dev, struct device *master, void *data);
+
+int etnaviv_gpu_register_irq(struct etnaviv_gpu *gpu, int irq);
+void etnaviv_gpu_get_clock(struct etnaviv_gpu *gpu, struct device *dev);
 
 extern struct platform_driver etnaviv_gpu_driver;
 

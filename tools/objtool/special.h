@@ -19,7 +19,10 @@
 #define _SPECIAL_H
 
 #include <stdbool.h>
+#include "objtool.h"
 #include "elf.h"
+
+struct instruction;
 
 struct special_alt {
 	struct list_head list;
@@ -37,6 +40,22 @@ struct special_alt {
 	unsigned int orig_len, new_len; /* group only */
 };
 
+struct alternative {
+	struct list_head list;
+	struct instruction *insn;
+};
+
+extern const char * const arch_noreturns[];
+extern int arch_noreturns_size;
+
 int special_get_alts(struct elf *elf, struct list_head *alts);
+
+void arch_handle_alternative(unsigned short feature, struct special_alt *alt);
+
+void arch_mark_func_jump_tables(struct objtool_file *file,
+				    struct symbol *func);
+
+int arch_dynamic_add_jump_table_alts(struct list_head *p_orbit_list, struct objtool_file *file,
+			struct symbol *func, struct instruction *insn);
 
 #endif /* _SPECIAL_H */

@@ -8,6 +8,29 @@
 
 static DEFINE_PER_CPU(struct cpu, cpu_devices);
 
+#ifdef CONFIG_HOTPLUG_CPU
+int arch_register_cpu(int cpu)
+{
+	int ret;
+	struct cpu *c = &per_cpu(cpu_devices, cpu);
+	c->hotpluggable = 1;
+	ret = register_cpu(c, cpu);
+	if (ret)
+		printk(KERN_WARNING "topology_init: register_cpu %d "
+			"failed (%d)\n", cpu, ret);
+	return ret;
+}
+EXPORT_SYMBOL(arch_register_cpu);
+
+void arch_unregister_cpu(int cpu)
+{
+	struct cpu *c = &per_cpu(cpu_devices, cpu);
+	c->hotpluggable = 0;
+	unregister_cpu(c);
+}
+EXPORT_SYMBOL(arch_unregister_cpu);
+#endif
+
 static int __init topology_init(void)
 {
 	int i, ret;
@@ -19,8 +42,11 @@ static int __init topology_init(void)
 
 	for_each_present_cpu(i) {
 		struct cpu *c = &per_cpu(cpu_devices, i);
-
-		c->hotpluggable = !!i;
+		/* disable hotplug for cpu0 */
+		if (i == 0)
+			c->hotpluggable = 0;
+		else
+			c->hotpluggable = 1;
 		ret = register_cpu(c, i);
 		if (ret)
 			printk(KERN_WARNING "topology_init: register_cpu %d "

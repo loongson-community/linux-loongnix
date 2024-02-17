@@ -17,6 +17,8 @@
 #include <asm/dsp.h>
 #include <asm/cop2.h>
 #include <asm/fpu.h>
+#include <asm/vdso.h>
+#include <asm/lbt.h>
 
 struct task_struct;
 
@@ -106,6 +108,7 @@ do {									\
 do {									\
 	__mips_mt_fpaff_switch_to(prev);				\
 	lose_fpu_inatomic(1, prev);					\
+	lose_lbt_inatomic(1, prev);                 \
 	if (tsk_used_math(next))					\
 		__sanitize_fcr31(next);					\
 	if (cpu_has_dsp) {						\
@@ -130,6 +133,7 @@ do {									\
 	if (cpu_has_userlocal)						\
 		write_c0_userlocal(task_thread_info(next)->tp_value);	\
 	__restore_watch(next);						\
+	vdso_per_cpu_switch_thread(prev, next);				\
 	(last) = resume(prev, next, task_thread_info(next));		\
 } while (0)
 

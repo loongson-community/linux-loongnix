@@ -643,6 +643,30 @@ void ahci_start_engine(struct ata_port *ap)
 }
 EXPORT_SYMBOL_GPL(ahci_start_engine);
 
+/* workaround for ASMEDIA HBA */
+void ahci_start_engine_workaround(struct ata_port *ap)
+{
+	void __iomem *port_mmio = ahci_port_base(ap);
+	u32 tmp;
+
+	/* clear port IRQ */
+	tmp = readl(port_mmio + PORT_IRQ_STAT);
+	if (tmp)
+		writel(tmp, port_mmio + PORT_IRQ_STAT);
+
+	/* clear SError */
+	tmp = readl(port_mmio + PORT_SCR_ERR);
+	if (tmp)
+		writel(tmp, port_mmio + PORT_SCR_ERR);
+
+	/* start DMA */
+	tmp = readl(port_mmio + PORT_CMD);
+	tmp |= PORT_CMD_START;
+	writel(tmp, port_mmio + PORT_CMD);
+	readl(port_mmio + PORT_CMD); /* flush */
+}
+EXPORT_SYMBOL_GPL(ahci_start_engine_workaround);
+
 int ahci_stop_engine(struct ata_port *ap)
 {
 	void __iomem *port_mmio = ahci_port_base(ap);

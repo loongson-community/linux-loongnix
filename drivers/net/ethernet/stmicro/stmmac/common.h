@@ -38,11 +38,13 @@
 /* Synopsys Core versions */
 #define	DWMAC_CORE_3_40		0x34
 #define	DWMAC_CORE_3_50		0x35
+#define	DWMAC_CORE_3_70		0x37
 #define	DWMAC_CORE_4_00		0x40
 #define DWMAC_CORE_4_10		0x41
 #define DWMAC_CORE_5_00		0x50
 #define DWMAC_CORE_5_10		0x51
 #define DWXGMAC_CORE_2_10	0x21
+#define DWLGMAC_CORE_1_00	0x10
 
 #define STMMAC_CHAN0	0	/* Always supported and default for all chips */
 
@@ -256,7 +258,7 @@ struct stmmac_safety_stats {
 
 /* Max/Min RI Watchdog Timer count value */
 #define MAX_DMA_RIWT		0xff
-#define MIN_DMA_RIWT		0x20
+#define MIN_DMA_RIWT		0x1
 /* Tx coalesce parameters */
 #define STMMAC_COAL_TX_TIMER	1000
 #define STMMAC_MAX_COAL_TX_TICK	100000
@@ -444,6 +446,7 @@ int dwmac100_setup(struct stmmac_priv *priv);
 int dwmac1000_setup(struct stmmac_priv *priv);
 int dwmac4_setup(struct stmmac_priv *priv);
 int dwxgmac2_setup(struct stmmac_priv *priv);
+int dwmac_loongson_setup(struct stmmac_priv *priv);
 
 void stmmac_set_mac_addr(void __iomem *ioaddr, u8 addr[6],
 			 unsigned int high, unsigned int low);

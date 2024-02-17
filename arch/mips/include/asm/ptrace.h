@@ -35,15 +35,15 @@ struct pt_regs {
 	unsigned long regs[32];
 
 	/* Saved special registers. */
-	unsigned long cp0_status;
-	unsigned long hi;
 	unsigned long lo;
+	unsigned long hi;
+	unsigned long cp0_status;
+	unsigned long cp0_cause;
+	unsigned long cp0_badvaddr;
+	unsigned long cp0_epc;
 #ifdef CONFIG_CPU_HAS_SMARTMIPS
 	unsigned long acx;
 #endif
-	unsigned long cp0_badvaddr;
-	unsigned long cp0_cause;
-	unsigned long cp0_epc;
 #ifdef CONFIG_CPU_CAVIUM_OCTEON
 	unsigned long long mpl[6];        /* MTM{0-5} */
 	unsigned long long mtp[6];        /* MTP{0-5} */

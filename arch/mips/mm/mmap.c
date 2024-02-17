@@ -113,6 +113,16 @@ static unsigned long arch_get_unmapped_area_common(struct file *filp,
 	info.align_offset = pgoff << PAGE_SHIFT;
 
 	if (dir == DOWN) {
+		if (!TASK_IS_32BIT_ADDR) {
+			info.flags = VM_UNMAPPED_AREA_TOPDOWN;
+			info.low_limit = mm->start_code;
+			info.high_limit = (mm->start_code &
+			0xffffffff00000000UL) + 0x100000000UL - PAGE_SIZE;
+			addr = vm_unmapped_area(&info);
+			if (!(addr & ~PAGE_MASK))
+				return addr;
+		}
+
 		info.flags = VM_UNMAPPED_AREA_TOPDOWN;
 		info.low_limit = PAGE_SIZE;
 		info.high_limit = mm->mmap_base;
@@ -203,10 +213,10 @@ unsigned long arch_randomize_brk(struct mm_struct *mm)
 	unsigned long base = mm->brk;
 	unsigned long ret;
 
-	ret = PAGE_ALIGN(base + brk_rnd());
+	if (!TASK_IS_32BIT_ADDR)
+		base = (mm->start_code & 0xffffffff00000000UL) + 0x100000000UL;
 
-	if (ret < mm->brk)
-		return mm->brk;
+	ret = PAGE_ALIGN(base + brk_rnd());
 
 	return ret;
 }

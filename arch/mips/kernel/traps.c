@@ -29,6 +29,7 @@
 #include <linux/spinlock.h>
 #include <linux/kallsyms.h>
 #include <linux/bootmem.h>
+#include <linux/memblock.h>
 #include <linux/interrupt.h>
 #include <linux/ptrace.h>
 #include <linux/kgdb.h>
@@ -69,6 +70,7 @@
 #include <asm/stacktrace.h>
 #include <asm/tlbex.h>
 #include <asm/uasm.h>
+#include <asm/lbt.h>
 
 extern void check_wait(void);
 extern asmlinkage void rollback_handle_int(void);
@@ -87,7 +89,11 @@ extern asmlinkage void handle_ov(void);
 extern asmlinkage void handle_tr(void);
 extern asmlinkage void handle_msa_fpe(void);
 extern asmlinkage void handle_fpe(void);
+#ifdef CONFIG_CPU_LOONGSON3
+extern asmlinkage void handle_gsex(void);
+#else
 extern asmlinkage void handle_ftlb(void);
+#endif
 extern asmlinkage void handle_msa(void);
 extern asmlinkage void handle_mdmx(void);
 extern asmlinkage void handle_watch(void);
@@ -1225,6 +1231,7 @@ static int enable_restore_fp_context(int msa)
 		err = init_fpu();
 		if (msa && !err) {
 			enable_msa();
+			write_msa_csr(current->thread.fpu.msacsr);
 			init_msa_upper();
 			set_thread_flag(TIF_USEDMSA);
 			set_thread_flag(TIF_MSA_CTX_LIVE);
@@ -1287,33 +1294,27 @@ static int enable_restore_fp_context(int msa)
 	 * opportunity to see data left behind by another.
 	 */
 	prior_msa = test_and_set_thread_flag(TIF_MSA_CTX_LIVE);
-	if (!prior_msa && was_fpu_owner) {
-		init_msa_upper();
-
-		goto out;
-	}
 
 	if (!prior_msa) {
-		/*
-		 * Restore the least significant 64b of each vector register
-		 * from the existing scalar FP context.
-		 */
-		_restore_fp(current);
+		if (!was_fpu_owner)
+			_restore_fp(current);
 
-		/*
-		 * The task has not formerly used MSA, so clear the upper 64b
-		 * of each vector register such that it cannot see data left
-		 * behind by another task.
-		 */
+		/* initialize upper 64 bit */
 		init_msa_upper();
 	} else {
-		/* We need to restore the vector context. */
-		restore_msa(current);
-
 		/* Restore the scalar FP control & status register */
 		if (!was_fpu_owner)
 			write_32bit_cp1_register(CP1_STATUS,
-						 current->thread.fpu.fcr31);
+						current->thread.fpu.fcr31);
+		/* we need to check for LASX context further */
+		if (test_thread_flag(TIF_LASX_CTX_LIVE)) {
+#ifdef CONFIG_CPU_HAS_LASX
+			enable_lasx();
+			restore_lasx(current);
+#endif
+		} else {
+			restore_msa(current);
+		}
 	}
 
 out:
@@ -1798,6 +1799,7 @@ asmlinkage void cache_parity_error(void)
 	panic("Can't handle the cache error!");
 }
 
+#ifndef CONFIG_CPU_LOONGSON3
 asmlinkage void do_ftlb(void)
 {
 	const int field = 2 * sizeof(unsigned long);
@@ -1826,6 +1828,94 @@ asmlinkage void do_ftlb(void)
 	/* Just print the cacheerr bits for now */
 	cache_parity_error();
 }
+#else
+
+static void init_restore_lbt(void)
+{
+	if (!thread_lbt_context_live()) {
+		/* First lbt context user */
+		init_lbt();
+		set_thread_flag(TIF_LBT_CTX_LIVE);
+	} else {
+		/* Enable and restore */
+		own_lbt_inatomic(1);
+	}
+}
+
+asmlinkage void do_lbt(struct pt_regs *regs)
+{
+	if (!loongson_cpu_has_lbt) {
+		force_sig(SIGILL, current);
+		return;
+	}
+
+	preempt_disable();
+	init_restore_lbt();
+
+	/* Enable fpu too. So the instructions that operates on ftop will work
+	 * For 3A4000, MTTOP/INCTOP/DECTOP etc. will not trigger cop1 unusable
+	 * exceptions. So if LBT is enabled with FPU disabled, their result might
+	 * lose when FPU is enabled later.
+	 */
+	if (!is_fpu_owner()) {
+		own_fpu_inatomic(0);
+		write_32bit_cp1_register(CP1_STATUS,
+				current->thread.fpu.fcr31);
+		enable_msa();
+		restore_msa(current);
+	}
+	preempt_enable();
+}
+
+asmlinkage void do_gsex(struct pt_regs *regs, unsigned int gscause)
+{
+	enum ctx_state prev_state;
+	unsigned int gsexccode;
+
+	prev_state = exception_enter();
+	gsexccode = GSEX_CODE(gscause);
+
+	switch(gsexccode) {
+
+	case GSEX_LASXDIS:
+		if (!loongson_cpu_has_lasx || test_thread_flag(TIF_32BIT_FPREGS)) {
+			force_sig(SIGILL, current);
+			goto out;
+		}
+
+		die_if_kernel("lasx disable invoked from kernel context!",
+				regs);
+
+		preempt_disable();
+
+		set_thread_flag(TIF_LASX_CTX_LIVE);
+
+		if(!is_fpu_owner()) {
+			own_fpu_inatomic(0);
+			write_32bit_cp1_register(CP1_STATUS,
+				current->thread.fpu.fcr31);
+			enable_msa();
+			restore_msa(current);
+		}
+		enable_lasx();
+		init_lasx_upper();
+
+		preempt_enable();
+
+		break;
+
+	case GSEX_BTDIS:
+		do_lbt(regs);
+		break;
+
+	default:
+		pr_err("Unhandled GSEX, GSEX_CODE: %x, badinst: %x@%lx !\n",
+				gsexccode, read_c0_badinstr(), exception_epc(regs));
+	}
+out:
+	exception_exit(prev_state);
+}
+#endif
 
 /*
  * SDBBP EJTAG debug exception handler.
@@ -2089,6 +2179,9 @@ static void configure_status(void)
 #ifdef CONFIG_64BIT
 	status_set |= ST0_FR|ST0_KX|ST0_SX|ST0_UX;
 #endif
+#ifdef CONFIG_CPU_LOONGSON3
+	status_set |= ST0_MM;
+#endif
 	if (current_cpu_data.isa_level & MIPS_CPU_ISA_IV)
 		status_set |= ST0_XX;
 	if (cpu_has_dsp)
@@ -2306,6 +2399,7 @@ void __init trap_init(void)
 	if (board_ebase_setup)
 		board_ebase_setup();
 	per_cpu_trap_init(true);
+	memblock_set_bottom_up(false);
 
 	/*
 	 * Copy the generic exception handlers to their final destination.
@@ -2378,7 +2472,8 @@ void __init trap_init(void)
 	else {
 		if (cpu_has_vtag_icache)
 			set_except_vector(EXCCODE_RI, handle_ri_rdhwr_tlbp);
-		else if (current_cpu_type() == CPU_LOONGSON3)
+		else if (current_cpu_type() == CPU_LOONGSON3 ||
+				current_cpu_type() == CPU_LOONGSON3_COMP)
 			set_except_vector(EXCCODE_RI, handle_ri_rdhwr_tlbp);
 		else
 			set_except_vector(EXCCODE_RI, handle_ri_rdhwr);
@@ -2395,7 +2490,11 @@ void __init trap_init(void)
 	if (cpu_has_fpu && !cpu_has_nofpuex)
 		set_except_vector(EXCCODE_FPE, handle_fpe);
 
+#ifdef CONFIG_CPU_LOONGSON3
+	set_except_vector(LS64_EXCCODE_GSEX, handle_gsex);
+#else
 	set_except_vector(MIPS_EXCCODE_TLBPAR, handle_ftlb);
+#endif
 
 	if (cpu_has_rixiex) {
 		set_except_vector(EXCCODE_TLBRI, tlb_do_page_fault_0);

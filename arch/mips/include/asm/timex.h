@@ -71,10 +71,14 @@ static inline int can_use_mips_counter(unsigned int prid)
 
 static inline cycles_t get_cycles(void)
 {
+#if defined(CONFIG_CPU_LOONGSON3) || defined(CONFIG_CPU_LOONGSON2K)
+	return read_c0_count();
+#else
 	if (can_use_mips_counter(read_c0_prid()))
 		return read_c0_count();
 	else
 		return 0;	/* no usable counter */
+#endif
 }
 
 /*
@@ -86,6 +90,9 @@ static inline cycles_t get_cycles(void)
  */
 static inline unsigned long random_get_entropy(void)
 {
+#if defined(CONFIG_CPU_LOONGSON3) || defined(CONFIG_CPU_LOONGSON2K)
+	return read_c0_count();
+#else
 	unsigned int prid = read_c0_prid();
 	unsigned int imp = prid & PRID_IMP_MASK;
 
@@ -95,6 +102,7 @@ static inline unsigned long random_get_entropy(void)
 		return read_c0_random();
 	else
 		return 0;	/* no usable register */
+#endif
 }
 #define random_get_entropy random_get_entropy
 

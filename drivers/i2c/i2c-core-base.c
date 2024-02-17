@@ -1362,6 +1362,16 @@ int i2c_add_adapter(struct i2c_adapter *adapter)
 			adapter->nr = id;
 			return __i2c_add_numbered_adapter(adapter);
 		}
+	} else if (dev->parent->fwnode) {
+#ifdef CONFIG_ACPI
+		unsigned long long acpi_id;
+		acpi_status status;
+		status = acpi_evaluate_integer(ACPI_HANDLE(dev->parent), "_UID", NULL, &acpi_id);
+		if (ACPI_SUCCESS(status)) {
+			adapter->nr = (int)acpi_id;
+			return __i2c_add_numbered_adapter(adapter);
+		}
+#endif
 	}
 
 	mutex_lock(&core_lock);

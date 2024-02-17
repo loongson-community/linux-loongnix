@@ -456,6 +456,8 @@ static int proc_pid_stack(struct seq_file *m, struct pid_namespace *ns,
 		save_stack_trace_tsk(task, &trace);
 
 		for (i = 0; i < trace.nr_entries; i++) {
+			if (entries[i] == ULONG_MAX)
+				continue;
 			seq_printf(m, "[<0>] %pB\n", (void *)entries[i]);
 		}
 		unlock_trace(task);

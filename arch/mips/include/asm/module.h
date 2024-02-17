@@ -131,6 +131,8 @@ search_module_dbetables(unsigned long addr)
 #define MODULE_PROC_FAMILY "LOONGSON2 "
 #elif defined CONFIG_CPU_LOONGSON3
 #define MODULE_PROC_FAMILY "LOONGSON3 "
+#elif defined CONFIG_CPU_LOONGSON2K
+#define MODULE_PROC_FAMILY "LOONGSON2K "
 #elif defined CONFIG_CPU_CAVIUM_OCTEON
 #define MODULE_PROC_FAMILY "OCTEON "
 #elif defined CONFIG_CPU_XLR

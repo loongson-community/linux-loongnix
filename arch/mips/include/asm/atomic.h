@@ -50,7 +50,65 @@
  *
  * Atomically sets the value of @v to @i.
  */
+#if defined(CONFIG_CPU_LOONGSON3)
+static __inline__ void atomic_set(atomic_t * v, int i)
+{
+		__asm__ __volatile__(
+		"	.set    mips64r2	# atomic_set		\n"
+		"	.set    noreorder				\n"
+		"	sync						\n"
+		"	sw      %1, %0					\n"
+		"	sync						\n"
+		"	.set    reorder					\n"
+		"	.set    mips0					\n"
+		: "+m" (v->counter)
+		: "r" (i));
+}
+#else
 #define atomic_set(v, i)	WRITE_ONCE((v)->counter, (i))
+#endif
+
+
+#if defined(CONFIG_CPU_SUPPORTS_LAMO_INSTRUCTIONS) && defined(TOOLCHAIN_SUPPORTS_LAMO)
+#define ATOMIC_OP(op, I, asm_op)						\
+static __inline__ void atomic_##op(int i, atomic_t * v)		\
+{												\
+	__asm__ __volatile__(						\
+	"am"#asm_op"_sync.w" " $zero, %1, %0	\n"		\
+	: "+ZB" (v->counter)				   		\
+	: "r" (I)							   		\
+	: "memory");						   		\
+}
+
+#define ATOMIC_OP_RETURN(op, I, asm_op, c_op)								\
+static __inline__ int atomic_##op##_return_relaxed(int i, atomic_t * v)	\
+{												\
+	int result;									\
+												\
+	__asm__ __volatile__(						\
+	"am"#asm_op"_sync.w" " %1, %2, %0		\n"	\
+	: "+ZB" (v->counter), "=&r" (result)		\
+	: "r" (I)									\
+	: "memory");								\
+												\
+	return result c_op I;							\
+}
+
+#define ATOMIC_FETCH_OP(op, I, asm_op)								\
+static __inline__ int atomic_fetch_##op##_relaxed(int i, atomic_t * v)	\
+{												\
+	int result;									\
+												\
+	__asm__ __volatile__(						\
+	"am"#asm_op"_sync.w" " %1, %2, %0		\n"	\
+	: "+ZB" (v->counter), "=&r" (result)		\
+	: "r" (I)									\
+	: "memory");								\
+												\
+	return result;								\
+}
+
+#else
 
 #define ATOMIC_OP(op, c_op, asm_op)					      \
 static __inline__ void atomic_##op(int i, atomic_t * v)			      \
@@ -58,6 +116,7 @@ static __inline__ void atomic_##op(int i, atomic_t * v)			      \
 	if (kernel_uses_llsc) {						      \
 		int temp;						      \
 									      \
+		loongson_llsc_mb();					      \
 		__asm__ __volatile__(					      \
 		"	.set	"MIPS_ISA_LEVEL"			\n"   \
 		"1:	ll	%0, %1		# atomic_" #op "	\n"   \
@@ -84,6 +143,7 @@ static __inline__ int atomic_##op##_return_relaxed(int i, atomic_t * v)	      \
 	if (kernel_uses_llsc) {						      \
 		int temp;						      \
 									      \
+		loongson_llsc_mb();					      \
 		__asm__ __volatile__(					      \
 		"	.set	"MIPS_ISA_LEVEL"			\n"   \
 		"1:	ll	%1, %2		# atomic_" #op "_return	\n"   \
@@ -116,6 +176,7 @@ static __inline__ int atomic_fetch_##op##_relaxed(int i, atomic_t * v)	      \
 	if (kernel_uses_llsc) {						      \
 		int temp;						      \
 									      \
+		loongson_llsc_mb();					      \
 		__asm__ __volatile__(					      \
 		"	.set	"MIPS_ISA_LEVEL"			\n"   \
 		"1:	ll	%1, %2		# atomic_fetch_" #op "	\n"   \
@@ -138,7 +199,17 @@ static __inline__ int atomic_fetch_##op##_relaxed(int i, atomic_t * v)	      \
 									      \
 	return result;							      \
 }
+#endif
 
+#if defined(CONFIG_CPU_SUPPORTS_LAMO_INSTRUCTIONS) && defined(TOOLCHAIN_SUPPORTS_LAMO)
+#define ATOMIC_OPS(op, I, asm_op, c_op)					      \
+	ATOMIC_OP(op, I, asm_op)					      \
+	ATOMIC_OP_RETURN(op, I, asm_op, c_op)				      \
+	ATOMIC_FETCH_OP(op, I, asm_op)
+
+ATOMIC_OPS(add, i, add, +)
+ATOMIC_OPS(sub, -i, add, +)
+#else
 #define ATOMIC_OPS(op, c_op, asm_op)					      \
 	ATOMIC_OP(op, c_op, asm_op)					      \
 	ATOMIC_OP_RETURN(op, c_op, asm_op)				      \
@@ -146,6 +217,7 @@ static __inline__ int atomic_fetch_##op##_relaxed(int i, atomic_t * v)	      \
 
 ATOMIC_OPS(add, +=, addu)
 ATOMIC_OPS(sub, -=, subu)
+#endif
 
 #define atomic_add_return_relaxed	atomic_add_return_relaxed
 #define atomic_sub_return_relaxed	atomic_sub_return_relaxed
@@ -153,6 +225,17 @@ ATOMIC_OPS(sub, -=, subu)
 #define atomic_fetch_sub_relaxed	atomic_fetch_sub_relaxed
 
 #undef ATOMIC_OPS
+
+#if defined(CONFIG_CPU_SUPPORTS_LAMO_INSTRUCTIONS) && defined(TOOLCHAIN_SUPPORTS_LAMO)
+#define ATOMIC_OPS(op, I, asm_op)					      \
+	ATOMIC_OP(op, I, asm_op)					      \
+	ATOMIC_FETCH_OP(op, I, asm_op)
+
+ATOMIC_OPS(and, i, and)
+ATOMIC_OPS(or, i, or)
+ATOMIC_OPS(xor, i, xor)
+
+#else
 #define ATOMIC_OPS(op, c_op, asm_op)					      \
 	ATOMIC_OP(op, c_op, asm_op)					      \
 	ATOMIC_FETCH_OP(op, c_op, asm_op)
@@ -160,6 +243,7 @@ ATOMIC_OPS(sub, -=, subu)
 ATOMIC_OPS(and, &=, and)
 ATOMIC_OPS(or, |=, or)
 ATOMIC_OPS(xor, ^=, xor)
+#endif
 
 #define atomic_fetch_and_relaxed	atomic_fetch_and_relaxed
 #define atomic_fetch_or_relaxed		atomic_fetch_or_relaxed
@@ -198,6 +282,7 @@ static __inline__ int atomic_sub_if_positive(int i, atomic_t * v)
 		"	sc	%1, %2					\n"
 		"\t" __scbeqz "	%1, 1b					\n"
 		"1:							\n"
+		__WEAK_LLSC_MB
 		"	.set	mips0					\n"
 		: "=&r" (result), "=&r" (temp),
 		  "+" GCC_OFF_SMALL_ASM() (v->counter)
@@ -243,7 +328,63 @@ static __inline__ int atomic_sub_if_positive(int i, atomic_t * v)
  * @v: pointer of type atomic64_t
  * @i: required value
  */
+#if defined(CONFIG_CPU_LOONGSON3)
+static __inline__ void atomic64_set(atomic64_t * v, long i)
+{
+		__asm__ __volatile__(
+		"	.set    mips64r2	# atomic64_set		\n"
+		"	.set    noreorder			\n"
+		"	sync						\n"
+		"	sd      %1, %0				\n"
+		"	sync						\n"
+		"	.set    reorder				\n"
+		"	.set    mips0				\n"
+		: "+m" (v->counter)
+		: "r" (i));
+}
+#else
 #define atomic64_set(v, i)	WRITE_ONCE((v)->counter, (i))
+#endif
+
+#if defined(CONFIG_CPU_SUPPORTS_LAMO_INSTRUCTIONS) && defined(TOOLCHAIN_SUPPORTS_LAMO)
+#define ATOMIC64_OP(op, I, asm_op)						\
+static __inline__ void atomic64_##op(long i, atomic64_t * v)		\
+{											\
+	__asm__ __volatile__(					\
+	"am"#asm_op"_sync.d " " $zero, %1, %0	\n"	\
+	: "+ZB" (v->counter)					\
+	: "r" (I)								\
+	: "memory");							\
+}
+
+#define ATOMIC64_OP_RETURN(op, I, asm_op, c_op)								\
+static __inline__ long atomic64_##op##_return_relaxed(long i, atomic64_t * v)	\
+{												\
+	long result;									\
+	__asm__ __volatile__(						\
+	"am"#asm_op"_sync.d " " %1, %2, %0		\n"	\
+	: "+ZB" (v->counter), "=&r" (result)		\
+	: "r" (I)									\
+	: "memory");								\
+												\
+	return result c_op I;							\
+}
+
+#define ATOMIC64_FETCH_OP(op, I, asm_op)								\
+static __inline__ long atomic64_fetch_##op##_relaxed(long i, atomic64_t * v)	\
+{												\
+	long result;								\
+												\
+	__asm__ __volatile__(						\
+	"am"#asm_op"_sync.d " " %1, %2, %0		\n"	\
+	: "+ZB" (v->counter), "=&r" (result)		\
+	: "r" (I)									\
+	: "memory");								\
+												\
+	return result;								\
+}
+
+#else
 
 #define ATOMIC64_OP(op, c_op, asm_op)					      \
 static __inline__ void atomic64_##op(long i, atomic64_t * v)		      \
@@ -251,6 +392,7 @@ static __inline__ void atomic64_##op(long i, atomic64_t * v)		      \
 	if (kernel_uses_llsc) {						      \
 		long temp;						      \
 									      \
+		loongson_llsc_mb();					      \
 		__asm__ __volatile__(					      \
 		"	.set	"MIPS_ISA_LEVEL"			\n"   \
 		"1:	lld	%0, %1		# atomic64_" #op "	\n"   \
@@ -277,6 +419,7 @@ static __inline__ long atomic64_##op##_return_relaxed(long i, atomic64_t * v) \
 	if (kernel_uses_llsc) {						      \
 		long temp;						      \
 									      \
+		loongson_llsc_mb();					      \
 		__asm__ __volatile__(					      \
 		"	.set	"MIPS_ISA_LEVEL"			\n"   \
 		"1:	lld	%1, %2		# atomic64_" #op "_return\n"  \
@@ -309,6 +452,7 @@ static __inline__ long atomic64_fetch_##op##_relaxed(long i, atomic64_t * v)  \
 	if (kernel_uses_llsc) {						      \
 		long temp;						      \
 									      \
+		loongson_llsc_mb();					      \
 		__asm__ __volatile__(					      \
 		"	.set	"MIPS_ISA_LEVEL"			\n"   \
 		"1:	lld	%1, %2		# atomic64_fetch_" #op "\n"   \
@@ -331,7 +475,17 @@ static __inline__ long atomic64_fetch_##op##_relaxed(long i, atomic64_t * v)  \
 									      \
 	return result;							      \
 }
+#endif
 
+#if defined(CONFIG_CPU_SUPPORTS_LAMO_INSTRUCTIONS) && defined(TOOLCHAIN_SUPPORTS_LAMO)
+#define ATOMIC64_OPS(op, I, asm_op, c_op)					      \
+	ATOMIC64_OP(op, I, asm_op)					      \
+	ATOMIC64_OP_RETURN(op, I, asm_op, c_op)				      \
+	ATOMIC64_FETCH_OP(op, I, asm_op)
+
+ATOMIC64_OPS(add, i, add, +)
+ATOMIC64_OPS(sub, -i, add, +)
+#else
 #define ATOMIC64_OPS(op, c_op, asm_op)					      \
 	ATOMIC64_OP(op, c_op, asm_op)					      \
 	ATOMIC64_OP_RETURN(op, c_op, asm_op)				      \
@@ -339,6 +493,7 @@ static __inline__ long atomic64_fetch_##op##_relaxed(long i, atomic64_t * v)  \
 
 ATOMIC64_OPS(add, +=, daddu)
 ATOMIC64_OPS(sub, -=, dsubu)
+#endif
 
 #define atomic64_add_return_relaxed	atomic64_add_return_relaxed
 #define atomic64_sub_return_relaxed	atomic64_sub_return_relaxed
@@ -346,6 +501,16 @@ ATOMIC64_OPS(sub, -=, dsubu)
 #define atomic64_fetch_sub_relaxed	atomic64_fetch_sub_relaxed
 
 #undef ATOMIC64_OPS
+
+#if defined(CONFIG_CPU_SUPPORTS_LAMO_INSTRUCTIONS) && defined(TOOLCHAIN_SUPPORTS_LAMO)
+#define ATOMIC64_OPS(op, I, asm_op)					      \
+	ATOMIC64_OP(op, I, asm_op)					      \
+	ATOMIC64_FETCH_OP(op, I, asm_op)
+
+ATOMIC64_OPS(and, i, and)
+ATOMIC64_OPS(or, i, or)
+ATOMIC64_OPS(xor, i, xor)
+#else
 #define ATOMIC64_OPS(op, c_op, asm_op)					      \
 	ATOMIC64_OP(op, c_op, asm_op)					      \
 	ATOMIC64_FETCH_OP(op, c_op, asm_op)
@@ -353,6 +518,7 @@ ATOMIC64_OPS(sub, -=, dsubu)
 ATOMIC64_OPS(and, &=, and)
 ATOMIC64_OPS(or, |=, or)
 ATOMIC64_OPS(xor, ^=, xor)
+#endif
 
 #define atomic64_fetch_and_relaxed	atomic64_fetch_and_relaxed
 #define atomic64_fetch_or_relaxed	atomic64_fetch_or_relaxed
@@ -390,6 +556,7 @@ static __inline__ long atomic64_sub_if_positive(long i, atomic64_t * v)
 		"	scd	%1, %2					\n"
 		"\t" __scbeqz "	%1, 1b					\n"
 		"1:							\n"
+		__WEAK_LLSC_MB
 		"	.set	mips0					\n"
 		: "=&r" (result), "=&r" (temp),
 		  "+" GCC_OFF_SMALL_ASM() (v->counter)

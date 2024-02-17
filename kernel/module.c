@@ -2127,6 +2127,11 @@ static int copy_module_elf(struct module *mod, struct load_info *info)
 	mod->klp_info->sechdrs[symndx].sh_addr = \
 		(unsigned long) mod->core_kallsyms.symtab;
 
+#ifdef CONFIG_LOONGARCH
+	mod->arch.plt.shdr = mod->klp_info->sechdrs + (mod->arch.plt.shdr - info->sechdrs);
+	mod->arch.plt_idx.shdr = mod->klp_info->sechdrs + (mod->arch.plt_idx.shdr - info->sechdrs);
+#endif
+
 	return 0;
 
 free_sechdrs:
@@ -3172,7 +3177,7 @@ static int find_module_sections(struct module *mod, struct load_info *info)
 #endif
 #ifdef CONFIG_FTRACE_MCOUNT_RECORD
 	/* sechdrs[0].sh_size is always zero */
-	mod->ftrace_callsites = section_objs(info, "__mcount_loc",
+	mod->ftrace_callsites = section_objs(info, FTRACE_CALLSITE_SECTION,
 					     sizeof(*mod->ftrace_callsites),
 					     &mod->num_ftrace_callsites);
 #endif

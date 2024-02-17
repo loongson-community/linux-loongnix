@@ -1463,6 +1463,7 @@ static union ieee754sp fpemu_sp_rsqrt(union ieee754sp s)
 	return ieee754sp_div(ieee754sp_one(0), ieee754sp_sqrt(s));
 }
 
+#if !defined(CONFIG_CPU_LOONGSON3) && !defined(CONFIG_CPU_LOONGSON2K)
 DEF3OP(madd, sp, ieee754sp_mul, ieee754sp_add, );
 DEF3OP(msub, sp, ieee754sp_mul, ieee754sp_sub, );
 DEF3OP(nmadd, sp, ieee754sp_mul, ieee754sp_add, ieee754sp_neg);
@@ -1471,6 +1472,7 @@ DEF3OP(madd, dp, ieee754dp_mul, ieee754dp_add, );
 DEF3OP(msub, dp, ieee754dp_mul, ieee754dp_sub, );
 DEF3OP(nmadd, dp, ieee754dp_mul, ieee754dp_add, ieee754dp_neg);
 DEF3OP(nmsub, dp, ieee754dp_mul, ieee754dp_sub, ieee754dp_neg);
+#endif
 
 static int fpux_emu(struct pt_regs *xcp, struct mips_fpu_struct *ctx,
 	mips_instruction ir, void __user **fault_addr)
@@ -1525,6 +1527,20 @@ static int fpux_emu(struct pt_regs *xcp, struct mips_fpu_struct *ctx,
 			}
 			break;
 
+#if defined(CONFIG_CPU_LOONGSON3) || defined(CONFIG_CPU_LOONGSON2K)
+		case madd_s_op:
+			handler = ieee754sp_madd;
+			goto scoptop;
+		case msub_s_op:
+			handler = ieee754sp_msub;
+			goto scoptop;
+		case nmadd_s_op:
+			handler = ieee754sp_nmadd;
+			goto scoptop;
+		case nmsub_s_op:
+			handler = ieee754sp_nmsub;
+			goto scoptop;
+#else
 		case madd_s_op:
 			handler = fpemu_sp_madd;
 			goto scoptop;
@@ -1537,6 +1553,7 @@ static int fpux_emu(struct pt_regs *xcp, struct mips_fpu_struct *ctx,
 		case nmsub_s_op:
 			handler = fpemu_sp_nmsub;
 			goto scoptop;
+#endif
 
 		      scoptop:
 			SPFROMREG(fr, MIPSInst_FR(ir));
@@ -1621,6 +1638,20 @@ static int fpux_emu(struct pt_regs *xcp, struct mips_fpu_struct *ctx,
 			}
 			break;
 
+#if defined(CONFIG_CPU_LOONGSON3) || defined(CONFIG_CPU_LOONGSON2K)
+		case madd_d_op:
+			handler = ieee754dp_madd;
+			goto dcoptop;
+		case msub_d_op:
+			handler = ieee754dp_msub;
+			goto dcoptop;
+		case nmadd_d_op:
+			handler = ieee754dp_nmadd;
+			goto dcoptop;
+		case nmsub_d_op:
+			handler = ieee754dp_nmsub;
+			goto dcoptop;
+#else
 		case madd_d_op:
 			handler = fpemu_dp_madd;
 			goto dcoptop;
@@ -1633,6 +1664,7 @@ static int fpux_emu(struct pt_regs *xcp, struct mips_fpu_struct *ctx,
 		case nmsub_d_op:
 			handler = fpemu_dp_nmsub;
 			goto dcoptop;
+#endif
 
 		      dcoptop:
 			DPFROMREG(fr, MIPSInst_FR(ir));
@@ -1647,6 +1679,41 @@ static int fpux_emu(struct pt_regs *xcp, struct mips_fpu_struct *ctx,
 		}
 		break;
 	}
+
+#if defined(CONFIG_CPU_LOONGSON3) || defined(CONFIG_CPU_LOONGSON2K)
+	case ps_fmt:{	/* 6 */
+		union ieee754sp(*handler) (union ieee754sp, union ieee754sp, union ieee754sp);
+		union ieee754sp upper_fd, upper_fr, upper_fs, upper_ft;
+		union ieee754sp lower_fd, lower_fr, lower_fs, lower_ft;
+		union ieee754dp ps_fd, ps_fr, ps_fs, ps_ft;
+
+		DPFROMREG(ps_fr, MIPSInst_FR(ir));
+		DPFROMREG(ps_fs, MIPSInst_FS(ir));
+		DPFROMREG(ps_ft, MIPSInst_FT(ir));
+
+		upper_fr.bits = upper_32_bits(ps_fr.bits);
+		upper_fs.bits = upper_32_bits(ps_fs.bits);
+		upper_ft.bits = upper_32_bits(ps_ft.bits);
+
+		lower_fr.bits = lower_32_bits(ps_fr.bits);
+		lower_fs.bits = lower_32_bits(ps_fs.bits);
+		lower_ft.bits = lower_32_bits(ps_ft.bits);
+
+		switch (MIPSInst_FUNC(ir)) {
+		case madd_ps_op:
+			handler = ieee754sp_madd;
+			upper_fd = (*handler) (upper_fr, upper_fs, upper_ft);
+			lower_fd = (*handler) (lower_fr, lower_fs, lower_ft);
+			ps_fd.bits = upper_fd.bits;
+			ps_fd.bits = (ps_fd.bits << 32 | lower_fd.bits);
+			DPTOREG(ps_fd, MIPSInst_FD(ir));
+			goto copcsr;
+		default:
+			return SIGILL;
+		}
+		break;
+	}
+#endif
 
 	case 0x3:
 		if (MIPSInst_FUNC(ir) != pfetch_op)

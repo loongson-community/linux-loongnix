@@ -32,6 +32,8 @@
 
 #include <ioremap.h>
 #include <mangle-port.h>
+#include <asm/early_ioremap.h>
+extern unsigned long _page_cachable_default;
 
 /*
  * Slowdown I/O port space accesses for antique hardware.
@@ -51,8 +53,11 @@
 # define ____raw_ioswabq(a, x)	(x)
 
 /* ioswab[bwlq], __mem_ioswab[bwlq] are defined in mangle-port.h */
-
+#ifdef CONFIG_CPU_LOONGSON2K
+#define IO_SPACE_LIMIT 0x1ffffff /* 32MB PCI IO space */
+#else
 #define IO_SPACE_LIMIT 0xffff
+#endif
 
 /*
  * On MIPS I/O ports are memory mapped, so we access them using normal
@@ -186,6 +191,7 @@ static inline void __iomem * __ioremap_mode(phys_addr_t offset, unsigned long si
 		 */
 		if (flags == _CACHE_UNCACHED)
 			base = (u64) IO_BASE;
+
 		return (void __iomem *) (unsigned long) (base + offset);
 	} else if (__builtin_constant_p(offset) &&
 		   __builtin_constant_p(size) && __builtin_constant_p(flags)) {
@@ -267,8 +273,8 @@ static inline void __iomem * __ioremap_mode(phys_addr_t offset, unsigned long si
  */
 #define ioremap_cachable(offset, size)					\
 	__ioremap_mode((offset), (size), _page_cachable_default)
-#define ioremap_cache ioremap_cachable
 
+#define ioremap_cache(offset, size)	ioremap_cachable((offset), (size))
 /*
  * ioremap_wc     -   map bus memory into CPU space
  * @offset:    bus address of the memory
@@ -306,7 +312,7 @@ static inline void iounmap(const volatile void __iomem *addr)
 #undef __IS_KSEG1
 }
 
-#if defined(CONFIG_CPU_CAVIUM_OCTEON) || defined(CONFIG_LOONGSON3_ENHANCEMENT)
+#if defined(CONFIG_CPU_CAVIUM_OCTEON) || defined(CONFIG_CPU_LOONGSON3)
 #define war_io_reorder_wmb()		wmb()
 #else
 #define war_io_reorder_wmb()		barrier()
@@ -561,15 +567,91 @@ BUILDSTRING(q, u64)
 
 static inline void memset_io(volatile void __iomem *addr, unsigned char val, int count)
 {
+#ifdef CONFIG_64BIT
+	u64 qc = val;
+
+	qc |= qc << 8;
+	qc |= qc << 16;
+	qc |= qc << 32;
+
+	while (count && !IS_ALIGNED((u64)addr, 8)) {
+		__raw_writeb(val, addr);
+		addr++;
+		count--;
+	}
+
+	while (count >= 8) {
+		__raw_writeq(qc, addr);
+		addr += 8;
+		count -= 8;
+	}
+
+	while (count) {
+		__raw_writeb(val, addr);
+		addr++;
+		count--;
+	}
+#else
 	memset((void __force *) addr, val, count);
+#endif
 }
 static inline void memcpy_fromio(void *dst, const volatile void __iomem *src, int count)
 {
+#ifdef CONFIG_64BIT
+	if (IS_ALIGNED(((u64)src ^ (u64)dst), 8)) {
+		while (count && !IS_ALIGNED((u64)src, 8)) {
+			*(u8 *)dst = __raw_readb(src);
+			src++;
+			dst++;
+			count--;
+		}
+
+		while (count >= 8) {
+			*(u64 *)dst = __raw_readq(src);
+			src += 8;
+			dst += 8;
+			count -= 8;
+		}
+	}
+
+	while (count) {
+		*(unsigned char *)dst = __raw_readb(src);
+		src++;
+		dst++;
+		count--;
+	}
+#else
 	memcpy(dst, (void __force *) src, count);
+#endif
 }
 static inline void memcpy_toio(volatile void __iomem *dst, const void *src, int count)
 {
+#ifdef CONFIG_64BIT
+	if (IS_ALIGNED(((u64)src ^ (u64)dst), 8)) {
+		while (count && !IS_ALIGNED((u64)dst, 8)) {
+			__raw_writeb(*(u8 *)src, dst);
+			src++;
+			dst++;
+			count--;
+		}
+
+		while (count >= 8) {
+			__raw_writeq(*(u64 *)src, dst);
+			src += 8;
+			dst += 8;
+			count -= 8;
+		}
+	}
+
+	while (count) {
+		__raw_writeb(*(u8 *)src, dst);
+		src++;
+		dst++;
+		count--;
+	}
+#else
 	memcpy((void __force *) dst, src, count);
+#endif
 }
 
 /*

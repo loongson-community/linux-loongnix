@@ -7,6 +7,7 @@ obj-$(CONFIG_CRYPTO_DEV_CAVIUM_ZIP) += cavium/
 obj-$(CONFIG_CRYPTO_DEV_CCP) += ccp/
 obj-$(CONFIG_CRYPTO_DEV_CCREE) += ccree/
 obj-$(CONFIG_CRYPTO_DEV_CHELSIO) += chelsio/
+obj-$(CONFIG_SW_SE_CHIP) += sedriver/
 obj-$(CONFIG_CRYPTO_DEV_CPT) += cavium/cpt/
 obj-$(CONFIG_CRYPTO_DEV_NITROX) += cavium/nitrox/
 obj-$(CONFIG_CRYPTO_DEV_EXYNOS_RNG) += exynos-rng.o

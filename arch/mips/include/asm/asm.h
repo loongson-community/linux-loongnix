@@ -318,7 +318,9 @@ symbol		=	value
 #define LONG_SRA	sra
 #define LONG_SRAV	srav
 
+#ifdef __ASSEMBLY__
 #define LONG		.word
+#endif
 #define LONGSIZE	4
 #define LONGMASK	3
 #define LONGLOG		2
@@ -341,7 +343,9 @@ symbol		=	value
 #define LONG_SRA	dsra
 #define LONG_SRAV	dsrav
 
+#ifdef __ASSEMBLY__
 #define LONG		.dword
+#endif
 #define LONGSIZE	8
 #define LONGMASK	7
 #define LONGLOG		3

@@ -736,9 +736,13 @@ __SYSCALL(__NR_statx,     sys_statx)
 __SC_COMP(__NR_io_pgetevents, sys_io_pgetevents, compat_sys_io_pgetevents)
 #define __NR_rseq 293
 __SYSCALL(__NR_rseq, sys_rseq)
+#ifdef __ARCH_WANT_SYS_CLONE3
+#define __NR_clone3 435
+__SYSCALL(__NR_clone3, sys_clone3)
+#endif
 
 #undef __NR_syscalls
-#define __NR_syscalls 294
+#define __NR_syscalls 436
 
 /*
  * 32 bit systems traditionally used different

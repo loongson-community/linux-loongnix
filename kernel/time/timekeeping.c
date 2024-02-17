@@ -2398,3 +2398,8 @@ void xtime_update(unsigned long ticks)
 	write_sequnlock(&jiffies_lock);
 	update_wall_time();
 }
+
+void update_clocksource_for_loongson(struct clocksource *cs)
+{
+	change_clocksource(cs);
+}

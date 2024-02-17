@@ -53,6 +53,7 @@ hostprogs-y += xdpsock
 hostprogs-y += xdp_fwd
 hostprogs-y += task_fd_query
 hostprogs-y += xdp_sample_pkts
+hostprogs-y += hello
 
 # Libbpf dependencies
 LIBBPF = $(TOOLS_PATH)/lib/bpf/libbpf.a
@@ -109,6 +110,7 @@ xdpsock-objs := xdpsock_user.o
 xdp_fwd-objs := xdp_fwd_user.o
 task_fd_query-objs := bpf_load.o task_fd_query_user.o $(TRACE_HELPERS)
 xdp_sample_pkts-objs := xdp_sample_pkts_user.o $(TRACE_HELPERS)
+hello-objs := bpf_load.o hello_user.o
 
 # Tell kbuild to always build the programs
 always := $(hostprogs-y)
@@ -125,7 +127,7 @@ always += tracex7_kern.o
 always += sock_flags_kern.o
 always += test_probe_write_user_kern.o
 always += trace_output_kern.o
-always += tcbpf1_kern.o
+#always += tcbpf1_kern.o
 always += tc_l2_redirect_kern.o
 always += lathist_kern.o
 always += offwaketime_kern.o
@@ -143,7 +145,7 @@ always += test_current_task_under_cgroup_kern.o
 always += trace_event_kern.o
 always += sampleip_kern.o
 always += lwt_len_hist_kern.o
-always += xdp_tx_iptunnel_kern.o
+#always += xdp_tx_iptunnel_kern.o
 always += test_map_in_map_kern.o
 always += cookie_uid_helper_example.o
 always += tcp_synrto_kern.o
@@ -155,17 +157,26 @@ always += tcp_clamp_kern.o
 always += tcp_basertt_kern.o
 always += xdp_redirect_kern.o
 always += xdp_redirect_map_kern.o
-always += xdp_redirect_cpu_kern.o
+#always += xdp_redirect_cpu_kern.o
 always += xdp_monitor_kern.o
-always += xdp_rxq_info_kern.o
+#always += xdp_rxq_info_kern.o
 always += xdp2skb_meta_kern.o
 always += syscall_tp_kern.o
 always += cpustat_kern.o
 always += xdp_adjust_tail_kern.o
 always += xdpsock_kern.o
-always += xdp_fwd_kern.o
+#always += xdp_fwd_kern.o
 always += task_fd_query_kern.o
 always += xdp_sample_pkts_kern.o
+always += hello_kern.o
+
+ifeq ($(ARCH), mips)
+KBUILD_HOSTCFLAGS += -D__SANE_USERSPACE_TYPES__
+ifdef CONFIG_MACH_LOONGSON64
+EXTRA_CFLAGS += -I$(srctree)/arch/mips/include/asm/mach-loongson64
+EXTRA_CFLAGS += -I$(srctree)/arch/mips/include/asm/mach-generic
+endif
+endif
 
 KBUILD_HOSTCFLAGS += -I$(objtree)/usr/include
 KBUILD_HOSTCFLAGS += -I$(srctree)/tools/lib/

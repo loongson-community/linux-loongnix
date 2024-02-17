@@ -16,60 +16,10 @@
  */
 
 #include <unistd.h>
-#include "orc.h"
+#include <asm/orc_types.h>
+#include "objtool.h"
 #include "warn.h"
-
-static const char *reg_name(unsigned int reg)
-{
-	switch (reg) {
-	case ORC_REG_PREV_SP:
-		return "prevsp";
-	case ORC_REG_DX:
-		return "dx";
-	case ORC_REG_DI:
-		return "di";
-	case ORC_REG_BP:
-		return "bp";
-	case ORC_REG_SP:
-		return "sp";
-	case ORC_REG_R10:
-		return "r10";
-	case ORC_REG_R13:
-		return "r13";
-	case ORC_REG_BP_INDIRECT:
-		return "bp(ind)";
-	case ORC_REG_SP_INDIRECT:
-		return "sp(ind)";
-	default:
-		return "?";
-	}
-}
-
-static const char *orc_type_name(unsigned int type)
-{
-	switch (type) {
-	case ORC_TYPE_CALL:
-		return "call";
-	case ORC_TYPE_REGS:
-		return "regs";
-	case ORC_TYPE_REGS_IRET:
-		return "iret";
-	default:
-		return "?";
-	}
-}
-
-static void print_reg(unsigned int reg, int offset)
-{
-	if (reg == ORC_REG_BP_INDIRECT)
-		printf("(bp%+d)", offset);
-	else if (reg == ORC_REG_SP_INDIRECT)
-		printf("(sp%+d)", offset);
-	else if (reg == ORC_REG_UNDEFINED)
-		printf("(und)");
-	else
-		printf("%s%+d", reg_name(reg), offset);
-}
+#include "orc.h"
 
 int orc_dump(const char *_objname)
 {
@@ -161,9 +111,15 @@ int orc_dump(const char *_objname)
 	}
 
 	nr_entries = orc_size / sizeof(*orc);
+
 	for (i = 0; i < nr_entries; i++) {
 		if (rela_orc_ip) {
+#ifdef __loongarch__
+#define COUNT_ORC_PER_IP	2
+			if (!gelf_getrela(rela_orc_ip, i * COUNT_ORC_PER_IP, &rela)) {
+#else
 			if (!gelf_getrela(rela_orc_ip, i, &rela)) {
+#endif
 				WARN_ELF("gelf_getrela");
 				return -1;
 			}
@@ -204,17 +160,7 @@ int orc_dump(const char *_objname)
 			printf("%llx:", (unsigned long long)(orc_ip_addr + (i * sizeof(int)) + orc_ip[i]));
 		}
 
-
-		printf(" sp:");
-
-		print_reg(orc[i].sp_reg, orc[i].sp_offset);
-
-		printf(" bp:");
-
-		print_reg(orc[i].bp_reg, orc[i].bp_offset);
-
-		printf(" type:%s end:%d\n",
-		       orc_type_name(orc[i].type), orc[i].end);
+		arch_print_reg(orc[i]);
 	}
 
 	elf_end(elf);

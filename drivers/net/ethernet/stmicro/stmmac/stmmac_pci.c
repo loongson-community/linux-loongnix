@@ -224,6 +224,130 @@ static const struct stmmac_pci_info quark_pci_info = {
 	.setup = quark_default_data,
 };
 
+static void loongson_alloc_msi_irq(struct pci_dev *pdev,
+			struct plat_stmmacenet_data *plat, struct stmmac_resources *res)
+{
+	u32 version;
+	int ch_cnt, vecs, i;
+
+	version = readl(res->addr + GMAC_VERSION) & 0xff;
+
+	switch (version) {
+	case DWLGMAC_CORE_1_00:
+		ch_cnt = 8;
+		break;
+
+	case DWMAC_CORE_3_50:
+	case DWMAC_CORE_3_70:
+	default:
+		res->msi_vecs = 0;
+		return;
+	}
+
+	plat->rx_queues_to_use = ch_cnt;
+	plat->tx_queues_to_use = ch_cnt;
+
+	pci_disable_msi(pdev);
+
+	vecs = ch_cnt * 2 + 1;
+	if (pci_alloc_irq_vectors(pdev, vecs, vecs, PCI_IRQ_MSI) < 0) {
+		dev_info(&pdev->dev,
+			"MSI enable failed, Fallback to line interrupt\n");
+		res->msi_vecs = 0;
+		return;
+	}
+
+	res->msi_vecs = vecs;
+	res->irq = pci_irq_vector(pdev, 0);
+	res->wol_irq = res->irq;
+
+	/*
+	 * INT NAME | MAC | CH7 rx | CH7 tx | ... | CH0 rx | CH0 tx |
+	 * --------- ----- -------- --------  ...  -------- --------
+	 * IRQ NUM  |  0  |   1    |   2    | ... |   15   |   16   |
+	 */
+	for (i = 0; i < ch_cnt; i++) {
+		res->rx_irq[ch_cnt - 1 - i] = pci_irq_vector(pdev, 1 + i * 2);
+		res->tx_irq[ch_cnt - 1 - i] = pci_irq_vector(pdev, 2 + i * 2);
+	}
+}
+
+static int loongson_default_data(struct pci_dev *pdev,
+				struct plat_stmmacenet_data *plat)
+{
+	/* Set common default data first */
+	common_default_data(plat);
+
+	plat->bus_id = (pci_domain_nr(pdev->bus) << 16) | PCI_DEVID(pdev->bus->number, pdev->devfn);
+	plat->phy_addr = -1;
+	plat->interface = PHY_INTERFACE_MODE_RGMII_ID;
+
+	plat->dma_cfg->pbl = 32;
+	plat->dma_cfg->pblx8 = true;
+	/*ls2h,ls2k,ls7a mcast filter register is 256bit.*/
+	plat->multicast_filter_bins = 256;
+	/* AXI (TODO) */
+	plat->clk_ref_rate = 125000000;
+	plat->clk_ptp_rate = 125000000;
+	plat->has_lgmac = 1;
+
+	return 0;
+}
+
+static struct stmmac_pci_info loongson_pci_info = {
+	.setup = loongson_default_data,
+};
+
+static void ls_gnet_fix_speed(void *priv, unsigned int speed)
+{
+	struct net_device *ndev = (struct net_device *)(*(unsigned long *)priv);
+	struct stmmac_priv *ptr = netdev_priv(ndev);
+
+	if (speed == SPEED_1000) {
+		if (readl(ptr->ioaddr + MAC_CTRL_REG) & (1 << 15) /* PS */) {
+			/* reset phy */
+			phy_set_bits(ndev->phydev, 0 /*MII_BMCR*/, 0x200 /*BMCR_ANRESTART*/);
+		}
+	}
+}
+
+static int loongson_gnet_data(struct pci_dev *pdev,
+				struct plat_stmmacenet_data *plat)
+{
+	/* Set common default data first */
+	common_default_data(plat);
+
+	plat->bus_id = (pci_domain_nr(pdev->bus) << 16) | PCI_DEVID(pdev->bus->number, pdev->devfn);
+
+	/* 7A2000 GNET internal PHY address is fixed */
+	plat->mdio_bus_data->phy_mask = 0xfffffffb;
+	plat->phy_addr = 2;
+
+	/* 7A2000 new gmac should change PHY_INTERFACE_MODE_GMII */
+	plat->interface = PHY_INTERFACE_MODE_GMII;
+
+	plat->dma_cfg->pbl = 32;
+	plat->dma_cfg->pblx8 = true;
+	/* 7A2000 mcast filter register is 256bit. */
+	plat->multicast_filter_bins = 256;
+
+	/* gnet 1000M speed need workaround */
+	plat->fix_mac_speed = ls_gnet_fix_speed;
+	/* used to get netdev pointer address */
+	plat->bsp_priv = &(pdev->dev.driver_data);
+	plat->clk_ref_rate = 125000000;
+	plat->clk_ptp_rate = 125000000;
+
+	plat->disable_half_duplex = true;
+	plat->has_lgmac = 1;
+
+	return 0;
+}
+
+static struct stmmac_pci_info loongson_gnet_pci_info = {
+	.setup = loongson_gnet_data,
+};
+
 /**
  * stmmac_pci_probe
  *
@@ -241,7 +365,7 @@ static int stmmac_pci_probe(struct pci_dev *pdev,
 {
 	struct stmmac_pci_info *info = (struct stmmac_pci_info *)id->driver_data;
 	struct plat_stmmacenet_data *plat;
-	struct stmmac_resources res;
+	struct stmmac_resources res = {0};
 	int i;
 	int ret;
 
@@ -291,6 +415,9 @@ static int stmmac_pci_probe(struct pci_dev *pdev,
 	res.wol_irq = pdev->irq;
 	res.irq = pdev->irq;
 
+	if (plat->has_lgmac)
+		loongson_alloc_msi_irq(pdev, plat, &res);
+
 	return stmmac_dvr_probe(&pdev->dev, plat, &res);
 }
 
@@ -314,6 +441,7 @@ static void stmmac_pci_remove(struct pci_dev *pdev)
 		break;
 	}
 
+	pci_free_irq_vectors(pdev);
 	pci_disable_device(pdev);
 }
 
@@ -369,6 +497,8 @@ static const struct pci_device_id stmmac_id_table[] = {
 	STMMAC_DEVICE(STMMAC, STMMAC_DEVICE_ID, stmmac_pci_info),
 	STMMAC_DEVICE(STMICRO, PCI_DEVICE_ID_STMICRO_MAC, stmmac_pci_info),
 	STMMAC_DEVICE(INTEL, STMMAC_QUARK_ID, quark_pci_info),
+	STMMAC_DEVICE(LOONGSON, PCI_DEVICE_ID_LOONGSON_GMAC, loongson_pci_info),
+	STMMAC_DEVICE(LOONGSON, PCI_DEVICE_ID_LOONGSON_GNET, loongson_gnet_pci_info),
 	{}
 };
 

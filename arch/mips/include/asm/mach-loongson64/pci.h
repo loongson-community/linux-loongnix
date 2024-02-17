@@ -27,7 +27,7 @@ extern struct pci_ops loongson_pci_ops;
  * window1: cpu [256M, 512M] -> pci [256M, 512M]
  */
 
-/* the smallest LOONGSON_CPU_MEM_SRC can be 512M */
+/* The smallest LOONGSON_CPU_MEM_SRC can be 512M */
 #define LOONGSON_CPU_MEM_SRC	0x40000000ul		/* 1G */
 #define LOONGSON_PCI_MEM_DST	LOONGSON_CPU_MEM_SRC
 
@@ -37,9 +37,9 @@ extern struct pci_ops loongson_pci_ops;
 #define MMAP_CPUTOPCI_SIZE	(LOONGSON_PCI_MEM_END - \
 					LOONGSON_PCI_MEM_START + 1)
 
-#else	/* loongson2f/32bit & loongson2e */
+#else /* loongson2f/32bit & loongson2e */
 
-/* this pci memory space is mapped by pcimap in pci.c */
+/* This pci memory space is mapped by pcimap in pci.c */
 #ifdef CONFIG_CPU_LOONGSON3
 #define LOONGSON_PCI_MEM_START	0x40000000UL
 #define LOONGSON_PCI_MEM_END	0x7effffffUL
@@ -47,9 +47,7 @@ extern struct pci_ops loongson_pci_ops;
 #define LOONGSON_PCI_MEM_START	LOONGSON_PCILO1_BASE
 #define LOONGSON_PCI_MEM_END	(LOONGSON_PCILO1_BASE + 0x04000000 * 2)
 #endif
-/* this is an offset from mips_io_port_base */
-#define LOONGSON_PCI_IO_START	0x00004000UL
 
-#endif	/* !CONFIG_CPU_SUPPORTS_ADDRWINCFG */
+#endif /* !CONFIG_CPU_SUPPORTS_ADDRWINCFG */
 
 #endif /* !__ASM_MACH_LOONGSON64_PCI_H_ */

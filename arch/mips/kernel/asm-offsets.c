@@ -123,6 +123,8 @@ void output_thread_defines(void)
 	OFFSET(THREAD_REG31, task_struct, thread.reg31);
 	OFFSET(THREAD_STATUS, task_struct,
 	       thread.cp0_status);
+	OFFSET(THREAD_EFLAGS, task_struct,
+	       thread.eflags);
 	OFFSET(THREAD_FPU, task_struct, thread.fpu);
 
 	OFFSET(THREAD_BVADDR, task_struct, \
@@ -172,6 +174,7 @@ void output_thread_fpu_defines(void)
 
 	OFFSET(THREAD_FCR31, task_struct, thread.fpu.fcr31);
 	OFFSET(THREAD_MSA_CSR, task_struct, thread.fpu.msacsr);
+	OFFSET(THREAD_FTOP, task_struct, thread.fpu.ftop);
 	BLANK();
 }
 
@@ -380,6 +383,7 @@ void output_kvm_defines(void)
 
 	OFFSET(VCPU_FCR31, kvm_vcpu_arch, fpu.fcr31);
 	OFFSET(VCPU_MSA_CSR, kvm_vcpu_arch, fpu.msacsr);
+	OFFSET(VCPU_FTOP, kvm_vcpu_arch, fpu.ftop);
 	BLANK();
 }
 

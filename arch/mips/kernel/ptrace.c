@@ -810,7 +810,144 @@ enum mips_regset {
 	REGSET_FPR,
 	REGSET_DSP,
 	REGSET_FP_MODE,
+#ifdef CONFIG_CPU_HAS_MSA
+	REGSET_MSA,
+#endif
+#ifdef CONFIG_CPU_HAS_LASX
+	REGSET_LASX,
+#endif
 };
+
+#ifdef CONFIG_CPU_HAS_MSA
+
+struct msa_control_regs {
+	unsigned int fir;
+	unsigned int fcsr;
+	unsigned int msair;
+	unsigned int msacsr;
+};
+
+static int copy_pad_fprs(struct task_struct *target,
+			 const struct user_regset *regset,
+			 unsigned int *ppos, unsigned int *pcount,
+			 void **pkbuf, void __user **pubuf,
+			 unsigned int live_sz)
+{
+	int i, j, start, start_pad, err;
+	unsigned long long fill = ~0ull;
+	unsigned int cp_sz, pad_sz;
+
+	cp_sz = min(regset->size, live_sz);
+	pad_sz = regset->size - cp_sz;
+	WARN_ON(pad_sz % sizeof(fill));
+
+	i = start = err = 0;
+	for (; i < NUM_FPU_REGS; i++, start += regset->size) {
+		err |= user_regset_copyout(ppos, pcount, pkbuf, pubuf,
+					   &target->thread.fpu.fpr[i],
+					   start, start + cp_sz);
+
+		start_pad = start + cp_sz;
+		for (j = 0; j < (pad_sz / sizeof(fill)); j++) {
+			err |= user_regset_copyout(ppos, pcount, pkbuf, pubuf,
+						   &fill, start_pad,
+						   start_pad + sizeof(fill));
+			start_pad += sizeof(fill);
+		}
+	}
+
+	return err;
+}
+
+static int msa_get(struct task_struct *target,
+		   const struct user_regset *regset,
+		   unsigned int pos, unsigned int count,
+		   void *kbuf, void __user *ubuf)
+{
+	const unsigned int wr_size = NUM_FPU_REGS * regset->size;
+	const struct msa_control_regs ctrl_regs = {
+		.fir = boot_cpu_data.fpu_id,
+		.fcsr = target->thread.fpu.fcr31,
+		.msair = boot_cpu_data.msa_id,
+		.msacsr = target->thread.fpu.msacsr,
+	};
+	int err;
+
+	if (!tsk_used_math(target)) {
+		/* The task hasn't used FP or MSA, fill with 0xff */
+		err = copy_pad_fprs(target, regset, &pos, &count,
+				    &kbuf, &ubuf, 0);
+	} else if (!test_tsk_thread_flag(target, TIF_MSA_CTX_LIVE)) {
+		/* Copy scalar FP context, fill the rest with 0xff */
+		err = copy_pad_fprs(target, regset, &pos, &count,
+				    &kbuf, &ubuf, 8);
+#ifdef CONFIG_CPU_HAS_LASX
+	} else if (!test_tsk_thread_flag(target, TIF_LASX_CTX_LIVE)) {
+		/* Copy MSA 128 Bit context, fill the rest with 0xff */
+		err = copy_pad_fprs(target, regset, &pos, &count,
+				    &kbuf, &ubuf, 16);
+#endif
+
+	} else if (sizeof(target->thread.fpu.fpr[0]) == regset->size) {
+		/* Trivially copy the vector registers */
+		err = user_regset_copyout(&pos, &count, &kbuf, &ubuf,
+					  &target->thread.fpu.fpr,
+					  0, wr_size);
+	} else {
+		/* Copy as much context as possible, fill the rest with 0xff */
+		err = copy_pad_fprs(target, regset, &pos, &count,
+				    &kbuf, &ubuf,
+				    sizeof(target->thread.fpu.fpr[0]));
+	}
+
+	err |= user_regset_copyout(&pos, &count, &kbuf, &ubuf,
+				   &ctrl_regs, wr_size,
+				   wr_size + sizeof(ctrl_regs));
+	return err;
+}
+
+static int msa_set(struct task_struct *target,
+		   const struct user_regset *regset,
+		   unsigned int pos, unsigned int count,
+		   const void *kbuf, const void __user *ubuf)
+{
+	const unsigned int wr_size = NUM_FPU_REGS * regset->size;
+	struct msa_control_regs ctrl_regs;
+	unsigned int cp_sz;
+	int i, err, start;
+
+	init_fp_ctx(target);
+
+	if (sizeof(target->thread.fpu.fpr[0]) == regset->size) {
+		/* Trivially copy the vector registers */
+		err = user_regset_copyin(&pos, &count, &kbuf, &ubuf,
+					 &target->thread.fpu.fpr,
+					 0, wr_size);
+	} else {
+		/* Copy as much context as possible */
+		cp_sz = min_t(unsigned int, regset->size,
+			      sizeof(target->thread.fpu.fpr[0]));
+
+		i = start = err = 0;
+		for (; i < NUM_FPU_REGS; i++, start += regset->size) {
+			err |= user_regset_copyin(&pos, &count, &kbuf, &ubuf,
+						  &target->thread.fpu.fpr[i],
+						  start, start + cp_sz);
+		}
+	}
+
+	if (!err)
+		err = user_regset_copyin(&pos, &count, &kbuf, &ubuf, &ctrl_regs,
+					 wr_size, wr_size + sizeof(ctrl_regs));
+	if (!err) {
+		target->thread.fpu.fcr31 = ctrl_regs.fcsr & ~FPU_CSR_ALL_X;
+		target->thread.fpu.msacsr = ctrl_regs.msacsr & ~MSA_CSR_CAUSEF;
+	}
+
+	return err;
+}
+
+#endif /* CONFIG_CPU_HAS_MSA */
 
 struct pt_regs_offset {
 	const char *name;
@@ -932,6 +1069,16 @@ static const struct user_regset mips_regsets[] = {
 		.get		= fp_mode_get,
 		.set		= fp_mode_set,
 	},
+#ifdef CONFIG_CPU_HAS_MSA
+	[REGSET_MSA] = {
+		.core_note_type	= NT_MIPS_MSA,
+		.n		= NUM_FPU_REGS + 1,
+		.size		= 16,
+		.align		= 16,
+		.get		= msa_get,
+		.set		= msa_set,
+	},
+#endif
 };
 
 static const struct user_regset_view user_mips_view = {
@@ -980,6 +1127,26 @@ static const struct user_regset mips64_regsets[] = {
 		.get		= fp_mode_get,
 		.set		= fp_mode_set,
 	},
+#ifdef CONFIG_CPU_HAS_MSA
+	[REGSET_MSA] = {
+		.core_note_type	= NT_MIPS_MSA,
+		.n		= NUM_FPU_REGS + 1,
+		.size		= 16,
+		.align		= 16,
+		.get		= msa_get,
+		.set		= msa_set,
+	},
+#endif
+#ifdef CONFIG_CPU_HAS_LASX
+	[REGSET_LASX] = {
+		.core_note_type	= NT_MIPS_LASX,
+		.n		= NUM_FPU_REGS + 1,
+		.size		= 32,
+		.align		= 32,
+		.get		= msa_get,
+		.set		= msa_set,
+	},
+#endif
 };
 
 static const struct user_regset_view user_mips64_view = {

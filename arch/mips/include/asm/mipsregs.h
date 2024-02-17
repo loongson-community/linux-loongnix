@@ -96,6 +96,9 @@
 #define CP0_ERROREPC $30
 #define CP0_DESAVE $31
 
+/* Implementation specific CP0 registers by Loongson-64 */
+#define CP0_GSCAUSE $22, 1
+
 /*
  * R4640/R4650 cp0 register names.  These registers are listed
  * here only for completeness; without MMU these CPUs are not useable
@@ -386,6 +389,7 @@
 #define ST0_CU1			0x20000000
 #define ST0_CU2			0x40000000
 #define ST0_CU3			0x80000000
+#define ST0_MM			0x40000000	/* Loongson-3 naming */
 #define ST0_XX			0x80000000	/* MIPS IV naming */
 
 /*
@@ -471,6 +475,9 @@
 
 /* Implementation specific trap codes used by MIPS cores */
 #define MIPS_EXCCODE_TLBPAR	16	/* TLB parity error exception */
+
+/* Implementation specific trap codes used by Loongson-64 cores */
+#define LS64_EXCCODE_GSEX	16	/* LS64 secondary exception identified by GSCause */
 
 /*
  * Bits in the coprocessor 0 config register.
@@ -563,7 +570,14 @@
 #define MIPS_CONF_MT_FTLB	(_ULCAST_(4) <<  7)
 #define MIPS_CONF_AR		(_ULCAST_(7) << 10)
 #define MIPS_CONF_AT		(_ULCAST_(3) << 13)
+#define MIPS_CONF_LASXEN	(_ULCAST_(1) << 19)
 #define MIPS_CONF_M		(_ULCAST_(1) << 31)
+
+/* Bits specific to the Loongson-64.  */
+#define LS64_CONF_CAMEN		(_ULCAST_(1) << 16)
+#define LS64_CONF_QMEMP		(_ULCAST_(1) << 17)
+#define LS64_CONF_LASXEN	(_ULCAST_(1) << 19)
+#define LS64_CONF_LBTEN		(_ULCAST_(1) << 20)
 
 /*
  * Bits in the MIPS32/64 PRA coprocessor 0 config registers 1 and above.
@@ -673,23 +687,45 @@
 #define MIPS_CONF5_CV		(_ULCAST_(1) << 29)
 #define MIPS_CONF5_K		(_ULCAST_(1) << 30)
 
+#define MIPS_CONF6_DATAPREF	(_ULCAST_(1) << 0)
+#define MIPS_CONF6_INSTPREF	(_ULCAST_(1) << 1)
+#define MIPS_CONF6_STPREFCTL	(_ULCAST_(3) << 2)
+#define MIPS_CONF6_DISBTB	(_ULCAST_(1) << 5)
+#define MIPS_CONF6_INNTIMER	(_ULCAST_(1) << 6)
+#define MIPS_CONF6_EXTIMER	(_ULCAST_(1) << 7)
+#define MIPS_CONF6_SFBEN	(_ULCAST_(1) << 8)
+#define MIPS_CONF6_UMEMUALEN	(_ULCAST_(1) << 10)
+#define MIPS_CONF6_DISBLKLYEN	(_ULCAST_(1) << 11)
+#define MIPS_CONF6_PIXUEN	(_ULCAST_(1) << 12)
 #define MIPS_CONF6_SYND		(_ULCAST_(1) << 13)
+#define MIPS_CONF6_VCLRU	(_ULCAST_(1) << 14)
+#define MIPS_CONF6_LLEXCEN	(_ULCAST_(1) << 16)
+#define MIPS_CONF6_SCRAND	(_ULCAST_(1) << 17)
+#define MIPS_CONF6_PIXNUEN	(_ULCAST_(1) << 18)
+#define MIPS_CONF6_DISRDTIME	(_ULCAST_(1) << 19)
+#define MIPS_CONF6_SSEN		(_ULCAST_(1) << 20)
+#define MIPS_CONF6_KE		(_ULCAST_(1) << 23)
+#define MIPS_CONF6_KPOS		(_ULCAST_(0x3f) << 24)
+#define MIPS_CONF6_BPPASS	(_ULCAST_(1) << 31)
 /* proAptiv FTLB on/off bit */
 #define MIPS_CONF6_FTLBEN	(_ULCAST_(1) << 15)
 /* Loongson-3 FTLB on/off bit */
 #define MIPS_CONF6_FTLBDIS	(_ULCAST_(1) << 22)
+#define MIPS_CONF6_LASXMODE	(_ULCAST_(1) << 21)
 /* FTLB probability bits */
 #define MIPS_CONF6_FTLBP_SHIFT	(16)
 
 #define MIPS_CONF7_WII		(_ULCAST_(1) << 31)
 
+#define MIPS_CONF7_VFPUCGEN	(_ULCAST_(1) << 0)
+#define MIPS_CONF7_UNIMUEN	(_ULCAST_(1) << 1)
 #define MIPS_CONF7_RPS		(_ULCAST_(1) << 2)
 
 #define MIPS_CONF7_IAR		(_ULCAST_(1) << 10)
 #define MIPS_CONF7_AR		(_ULCAST_(1) << 16)
 
 /* Ingenic Config7 bits */
-#define MIPS_CONF7_BTB_LOOP_EN	(_ULCAST_(1) << 4)
+#define MIPS_CONF7_BTB_LOOP_EN (_ULCAST_(1) << 4)
 
 /* Config7 Bits specific to MIPS Technologies. */
 
@@ -1229,12 +1265,44 @@ __asm__(".macro	parse_r var r\n\t"
 	_IFC_REG(20) _IFC_REG(21) _IFC_REG(22) _IFC_REG(23)
 	_IFC_REG(24) _IFC_REG(25) _IFC_REG(26) _IFC_REG(27)
 	_IFC_REG(28) _IFC_REG(29) _IFC_REG(30) _IFC_REG(31)
+	".ifc	\\r, $gp \n\t"
+	"\\var	= 28 \n\t"
+	".endif \n\t"
+	".ifc	\\r, $sp \n\t"
+	"\\var	= 29 \n\t"
+	".endif \n\t"
+	".ifc	\\r, $fp \n\t"
+	"\\var	= 30 \n\t"
+	".endif \n\t"
 	".iflt	\\var\n\t"
 	".error	\"Unable to parse register name \\r\"\n\t"
 	".endif\n\t"
 	".endm");
 
 #undef _IFC_REG
+
+/*
+ *read/write csr register
+ *
+ */
+#ifdef CONFIG_CPU_LOONGSON3
+static inline unsigned int read_cfg(int reg)
+{
+	unsigned int __res;
+
+	__asm__ __volatile__(
+		"parse_r __res,%0\n\t"
+		"parse_r reg,%1\n\t"
+		".insn \n\t"
+		".word (0xc8080118 | (reg << 21) | (__res << 11))\n\t"
+		: "=r"(__res)
+		: "r"(reg)
+		:
+		);
+	return __res;
+}
+#endif
+
 
 /*
  * C macros for generating assembler macros for common instruction formats.
@@ -1275,6 +1343,12 @@ __asm__(".macro	parse_r var r\n\t"
 		ENC							\
 		".endm")
 
+#ifdef CONFIG_CPU_LOONGSON3
+#define GSEX_LASXDIS	0x7
+#define GSEX_BTDIS		0x8
+#define GSEX_CODE(x)  ((x & 0x7c) >> 2)
+#endif
+
 /*
  * TLB Invalidate Flush
  */
@@ -1289,7 +1363,15 @@ static inline void tlbinvf(void)
 		".set pop");
 }
 
-
+static inline void tlbinv(void)
+{
+	__asm__ __volatile__(
+		".set push\n\t"
+		".set noreorder\n\t"
+		"# tlbinv\n\t"
+		_ASM_INSN_IF_MIPS(0x42000003)
+		".set pop");
+}
 /*
  * Functions to access the R10000 performance counters.	 These are basically
  * mfc0 and mtc0 instructions from and to coprocessor register with a 5-bit
@@ -2125,8 +2207,14 @@ do {									\
 #define read_gc0_cause()		__read_32bit_gc0_register($13, 0)
 #define write_gc0_cause(val)		__write_32bit_gc0_register($13, 0, val)
 
+#define read_gc0_nestexc()		__read_32bit_gc0_register($13, 5)
+#define write_gc0_nestexc(val)		__write_32bit_gc0_register($13, 5, val)
+
 #define read_gc0_epc()			__read_ulong_gc0_register($14, 0)
 #define write_gc0_epc(val)		__write_ulong_gc0_register($14, 0, val)
+
+#define read_gc0_nestepc()		__read_ulong_gc0_register($14, 2)
+#define write_gc0_nestepc(val)		__write_ulong_gc0_register($14, 2, val)
 
 #define read_gc0_prid()			__read_32bit_gc0_register($15, 0)
 
@@ -2192,6 +2280,11 @@ do {									\
 
 #define read_gc0_xcontext()		__read_ulong_gc0_register($20, 0)
 #define write_gc0_xcontext(val)		__write_ulong_gc0_register($20, 0, val)
+
+#ifdef CONFIG_CPU_LOONGSON3
+#define read_gc0_gscause()		__read_32bit_gc0_register($22, 1)
+#define write_gc0_gscause(val)		__write_32bit_gc0_register($22, 1, val)
+#endif
 
 #define read_gc0_perfctrl0()		__read_32bit_gc0_register($25, 0)
 #define write_gc0_perfctrl0(val)	__write_32bit_gc0_register($25, 0, val)
@@ -2777,10 +2870,12 @@ __BUILD_SET_C0(status)
 __BUILD_SET_C0(cause)
 __BUILD_SET_C0(config)
 __BUILD_SET_C0(config5)
+__BUILD_SET_C0(config6)
 __BUILD_SET_C0(config7)
 __BUILD_SET_C0(intcontrol)
 __BUILD_SET_C0(intctl)
 __BUILD_SET_C0(srsmap)
+__BUILD_SET_C0(diag)
 __BUILD_SET_C0(pagegrain)
 __BUILD_SET_C0(guestctl0)
 __BUILD_SET_C0(guestctl0ext)

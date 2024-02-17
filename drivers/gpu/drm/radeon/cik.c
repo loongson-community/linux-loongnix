@@ -5437,6 +5437,7 @@ static int cik_pcie_gart_enable(struct radeon_device *rdev)
 	r = radeon_gart_table_vram_pin(rdev);
 	if (r)
 		return r;
+	radeon_gart_restore(rdev);
 	/* Setup TLB control */
 	WREG32(MC_VM_MX_L1_TLB_CNTL,
 	       (0xA << 7) |
@@ -8108,6 +8109,9 @@ restart_ih:
 	if (queue_thermal)
 		schedule_work(&rdev->pm.dpm.thermal.work);
 	rdev->ih.rptr = rptr;
+#if defined(CONFIG_CPU_LOONGSON3) || defined(CONFIG_CPU_LOONGSON64)
+	WREG32(IH_RB_RPTR, rptr);
+#endif
 	atomic_set(&rdev->ih.lock, 0);
 
 	/* make sure wptr hasn't changed while processing */

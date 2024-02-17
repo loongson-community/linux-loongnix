@@ -39,9 +39,23 @@ extern unsigned long __cmpxchg_called_with_bad_pointer(void)
 extern unsigned long __xchg_called_with_bad_pointer(void)
 	__compiletime_error("Bad argument size for xchg");
 
+#if defined(CONFIG_CPU_SUPPORTS_LAMO_INSTRUCTIONS) && defined(TOOLCHAIN_SUPPORTS_LAMO)
+#define __xchg_asm(amswap_sync, m, val)					\
+({									\
+		__typeof(val) __ret;					\
+									\
+		__asm__ __volatile__ (					\
+		" "amswap_sync" %1, %z2, %0 \n"				\
+		: "+ZB" (*m), "=&r" (__ret)				\
+		: "Jr" (val)						\
+		: "memory");						\
+									\
+		__ret;							\
+})
+#else
 #define __xchg_asm(ld, st, m, val)					\
 ({									\
-	__typeof(*(m)) __ret;						\
+	__typeof(val) __ret;						\
 									\
 	if (kernel_uses_llsc) {						\
 		__asm__ __volatile__(					\
@@ -69,6 +83,7 @@ extern unsigned long __xchg_called_with_bad_pointer(void)
 									\
 	__ret;								\
 })
+#endif
 
 extern unsigned long __xchg_small(volatile void *ptr, unsigned long val,
 				  unsigned int size);
@@ -82,13 +97,21 @@ unsigned long __xchg(volatile void *ptr, unsigned long x, int size)
 		return __xchg_small(ptr, x, size);
 
 	case 4:
-		return __xchg_asm("ll", "sc", (volatile u32 *)ptr, x);
+#if defined(CONFIG_CPU_SUPPORTS_LAMO_INSTRUCTIONS) && defined(TOOLCHAIN_SUPPORTS_LAMO)
+		return __xchg_asm("amswap_sync.w", (volatile u32 *)ptr, (u32)x);
+#else
+		return __xchg_asm("ll", "sc", (volatile u32 *)ptr, (u32)x);
+#endif
 
 	case 8:
 		if (!IS_ENABLED(CONFIG_64BIT))
 			return __xchg_called_with_bad_pointer();
 
+#if defined(CONFIG_CPU_SUPPORTS_LAMO_INSTRUCTIONS) && defined(TOOLCHAIN_SUPPORTS_LAMO)
+		return __xchg_asm("amswap_sync.d", (volatile u64 *)ptr, x);
+#else
 		return __xchg_asm("lld", "scd", (volatile u64 *)ptr, x);
+#endif
 
 	default:
 		return __xchg_called_with_bad_pointer();
@@ -111,7 +134,7 @@ unsigned long __xchg(volatile void *ptr, unsigned long x, int size)
 
 #define __cmpxchg_asm(ld, st, m, old, new)				\
 ({									\
-	__typeof(*(m)) __ret;						\
+	__typeof(old) __ret;						\
 									\
 	if (kernel_uses_llsc) {						\
 		__asm__ __volatile__(					\
@@ -127,8 +150,9 @@ unsigned long __xchg(volatile void *ptr, unsigned long x, int size)
 		"\t" __scbeqz "	$1, 1b				\n"	\
 		"	.set	pop				\n"	\
 		"2:						\n"	\
+		__WEAK_LLSC_MB						\
 		: "=&r" (__ret), "=" GCC_OFF_SMALL_ASM() (*m)		\
-		: GCC_OFF_SMALL_ASM() (*m), "Jr" (old), "Jr" (new)		\
+		: GCC_OFF_SMALL_ASM() (*m), "Jr" (old), "Jr" (new)	\
 		: "memory");						\
 	} else {							\
 		unsigned long __flags;					\

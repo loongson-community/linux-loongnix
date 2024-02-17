@@ -53,6 +53,7 @@
 #include <asm/inst.h>
 #include <asm/stacktrace.h>
 #include <asm/irq_regs.h>
+#include <asm/lbt.h>
 
 #ifdef CONFIG_HOTPLUG_CPU
 void arch_cpu_idle_dead(void)
@@ -73,7 +74,10 @@ void start_thread(struct pt_regs * regs, unsigned long pc, unsigned long sp)
 	status |= KU_USER;
 	regs->cp0_status = status;
 	lose_fpu(0);
+	lose_lbt(0);
 	clear_thread_flag(TIF_MSA_CTX_LIVE);
+	clear_thread_flag(TIF_LASX_CTX_LIVE);
+	clear_thread_flag(TIF_LBT_CTX_LIVE);
 	clear_used_math();
 	atomic_set(&current->thread.bd_emu_frame, BD_EMUFRAME_NONE);
 	init_dsp();
@@ -81,6 +85,12 @@ void start_thread(struct pt_regs * regs, unsigned long pc, unsigned long sp)
 	regs->regs[29] = sp;
 }
 
+/*
+ * Idle related variables and functions
+ */
+
+unsigned long boot_option_idle_override = IDLE_NO_OVERRIDE;
+EXPORT_SYMBOL(boot_option_idle_override);
 void exit_thread(struct task_struct *tsk)
 {
 	/*
@@ -132,6 +142,7 @@ int copy_thread_tls(unsigned long clone_flags, unsigned long usp,
 	/*  Put the stack after the struct pt_regs.  */
 	childksp = (unsigned long) childregs;
 	p->thread.cp0_status = read_c0_status() & ~(ST0_CU2|ST0_CU1);
+	p->thread.cp0_config = read_c0_config() & ~(LS64_CONF_LBTEN);
 	if (unlikely(p->flags & PF_KTHREAD)) {
 		/* kernel thread */
 		unsigned long status = p->thread.cp0_status;
@@ -171,6 +182,8 @@ int copy_thread_tls(unsigned long clone_flags, unsigned long usp,
 	clear_tsk_thread_flag(p, TIF_USEDFPU);
 	clear_tsk_thread_flag(p, TIF_USEDMSA);
 	clear_tsk_thread_flag(p, TIF_MSA_CTX_LIVE);
+	clear_tsk_thread_flag(p, TIF_USEDLBT);
+	clear_tsk_thread_flag(p, TIF_LBT_CTX_LIVE);
 
 #ifdef CONFIG_MIPS_MT_FPAFF
 	clear_tsk_thread_flag(p, TIF_FPUBOUND);
@@ -275,7 +288,21 @@ static inline int is_ra_save_ins(union mips_instruction *ip, int *poff)
 		*poff = ip->i_format.simmediate / sizeof(ulong);
 		return 1;
 	}
-
+#if defined(CONFIG_CPU_LOONGSON3) || defined(CONFIG_CPU_LOONGSON2K)
+	if ((ip->loongson3_lswc2_format.opcode == swc2_op) &&
+		      (ip->loongson3_lswc2_format.ls == 1) &&
+		      (ip->loongson3_lswc2_format.fr == 0) &&
+		      (ip->loongson3_lswc2_format.base == 29)) {
+		if (ip->loongson3_lswc2_format.rt == 31) {
+			*poff = ip->loongson3_lswc2_format.offset << 1;
+			return 1;
+		}
+		if (ip->loongson3_lswc2_format.rq == 31) {
+			*poff = (ip->loongson3_lswc2_format.offset << 1) + 1;
+			return 1;
+		}
+	}
+#endif
 	return 0;
 #endif
 }

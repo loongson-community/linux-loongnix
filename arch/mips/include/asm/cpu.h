@@ -86,10 +86,11 @@
 #define PRID_IMP_RM7000		0x2700
 #define PRID_IMP_NEVADA		0x2800		/* RM5260 ??? */
 #define PRID_IMP_RM9000		0x3400
-#define PRID_IMP_LOONGSON_32	0x4200  /* Loongson-1 */
+#define PRID_IMP_LOONGSON_32	0x4200	/* Loongson-1 */
 #define PRID_IMP_R5432		0x5400
 #define PRID_IMP_R5500		0x5500
-#define PRID_IMP_LOONGSON_64	0x6300  /* Loongson-2/3 */
+#define PRID_IMP_LOONGSON_64	0x6300	/* Loongson-2/3 */
+#define PRID_IMP_LOONGSON2K	0x6100		/* Loongson-2k */
 
 #define PRID_IMP_UNKNOWN	0xff00
 
@@ -248,9 +249,13 @@
 #define PRID_REV_LOONGSON3A_R1		0x0005
 #define PRID_REV_LOONGSON3B_R1		0x0006
 #define PRID_REV_LOONGSON3B_R2		0x0007
-#define PRID_REV_LOONGSON3A_R2		0x0008
+#define PRID_REV_LOONGSON3A_R2_0	0x0008
 #define PRID_REV_LOONGSON3A_R3_0	0x0009
+#define PRID_REV_LOONGSON3A_R2_1	0x000c
 #define PRID_REV_LOONGSON3A_R3_1	0x000d
+#define PRID_REV_LOONGSON3A_R4_0	0xc000
+#define PRID_REV_LOONGSON2K_R1  0x0001
+#define PRID_REV_LOONGSON2K_R2  0x0003
 
 /*
  * Older processors used to encode processor version and revision in two
@@ -320,8 +325,9 @@ enum cpu_type_enum {
 	 * MIPS64 class processors
 	 */
 	CPU_5KC, CPU_5KE, CPU_20KC, CPU_25KF, CPU_SB1, CPU_SB1A, CPU_LOONGSON2,
-	CPU_LOONGSON3, CPU_CAVIUM_OCTEON, CPU_CAVIUM_OCTEON_PLUS,
-	CPU_CAVIUM_OCTEON2, CPU_CAVIUM_OCTEON3, CPU_XLR, CPU_XLP, CPU_I6500,
+	CPU_LOONGSON3, CPU_LOONGSON2K, CPU_LOONGSON3_COMP, CPU_CAVIUM_OCTEON,
+	CPU_CAVIUM_OCTEON_PLUS, CPU_CAVIUM_OCTEON2, CPU_CAVIUM_OCTEON3, CPU_XLR,
+	CPU_XLP, CPU_I6500,
 
 	CPU_QEMU_GENERIC,
 
@@ -421,6 +427,7 @@ enum cpu_type_enum {
 				MBIT_ULL(55)	/* CPU shares FTLB entries with another */
 #define MIPS_CPU_MT_PER_TC_PERF_COUNTERS \
 				MBIT_ULL(56)	/* CPU has perf counters implemented per TC (MIPSMT ASE) */
+#define MIPS_CPU_NF		MBIT_ULL(63)	/* CPU supports Nested Fault registers */
 
 /*
  * CPU ASE encodings
@@ -436,9 +443,14 @@ enum cpu_type_enum {
 #define MIPS_ASE_MSA		0x00000100 /* MIPS SIMD Architecture */
 #define MIPS_ASE_DSP3		0x00000200 /* Signal Processing ASE Rev 3*/
 #define MIPS_ASE_MIPS16E2	0x00000400 /* MIPS16e2 */
-#define MIPS_ASE_LOONGSON_MMI	0x00000800 /* Loongson MultiMedia extensions Instructions */
-#define MIPS_ASE_LOONGSON_CAM	0x00001000 /* Loongson CAM */
-#define MIPS_ASE_LOONGSON_EXT	0x00002000 /* Loongson EXTensions */
-#define MIPS_ASE_LOONGSON_EXT2	0x00004000 /* Loongson EXTensions R2 */
+#define MIPS_ASE_LOONGSON_MMI  	0x00000800 /* Loongson MultiMedia extensions Instructions */
+#define MIPS_ASE_LOONGSON_CAM  	0x00001000 /* Loongson CAM */
+#define MIPS_ASE_LOONGSON_EXT  	0x00002000 /* Loongson EXTensions */
+#define MIPS_ASE_LOONGSON_EXT2 	0x00004000 /* Loongson EXTensions R2 */
+
+#if defined(CONFIG_CPU_LOONGSON3)
+#define MIPS_LSE_CPUCFG		MBIT_ULL(0) /* CPU supports cpucfg */
+#define MIPS_HAS_LSE_LAMO	MBIT_ULL(1) /* CPU supports lamo instructions */
+#endif
 
 #endif /* _ASM_CPU_H */

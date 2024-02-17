@@ -411,4 +411,5 @@ do {						\
 	*(_fsgid) = __cred->fsgid;		\
 } while(0)
 
+void update_vsyscall_cred(struct cred *cred);
 #endif /* _LINUX_CRED_H */

@@ -231,6 +231,22 @@ config RWSEM_SPIN_ON_OWNER
        def_bool y
        depends on SMP && RWSEM_XCHGADD_ALGORITHM && ARCH_SUPPORTS_ATOMIC_RMW
 
+config NODE_CACHE_THRASH_OPTIMIZATION
+	   def_bool y
+	   depends on SMP && LOONGARCH && NUMA_BALANCING
+	   help
+	     When there are multiple processes coompeting for the same lock
+	     the performance will become poor. This config will automatically
+	     detect such a situation and migrate these processes to the same
+	     node.
+
+config DEBUG_AVOID_NODE_THRASH
+	   def_bool n
+	   depends on NODE_CACHE_THRASH_OPTIMIZATION
+	   help
+	     When a process is affinity to a node, print the reason and
+	     process information.
+
 config LOCK_SPIN_ON_OWNER
        def_bool y
        depends on MUTEX_SPIN_ON_OWNER || RWSEM_SPIN_ON_OWNER

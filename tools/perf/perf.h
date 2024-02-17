@@ -8,13 +8,6 @@
 #include <linux/stddef.h>
 #include <linux/perf_event.h>
 
-extern bool test_attr__enabled;
-void test_attr__ready(void);
-void test_attr__init(void);
-void test_attr__open(struct perf_event_attr *attr, pid_t pid, int cpu,
-		     int fd, int group_fd, unsigned long flags);
-
-#define HAVE_ATTR_TEST
 #include "perf-sys.h"
 
 static inline unsigned long long rdclock(void)

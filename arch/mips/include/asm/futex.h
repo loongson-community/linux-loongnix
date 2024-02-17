@@ -18,6 +18,26 @@
 #include <asm/errno.h>
 #include <asm/war.h>
 
+#if defined(CONFIG_CPU_SUPPORTS_LAMO_INSTRUCTIONS) && defined(TOOLCHAIN_SUPPORTS_LAMO)
+#define __futex_atomic_op(insn, ret, oldval, uaddr, oparg)		\
+{									\
+        __asm__ __volatile__(					\
+		"	.set	noat			\n"			\
+		"1:	" insn  "				\n"			\
+		"2:							\n"			\
+		"	.set	mips0			\n"			\
+		"	.section .fixup,\"ax\"	\n"			\
+		"3:	li	%0, %4				\n"			\
+		"	j	2b					\n"			\
+		"	.previous				\n"			\
+		"	.section __ex_table,\"a\"	\n"		\
+		"	"__UA_ADDR "\t1b, 3b	\n"			\
+		"	.previous				\n"			\
+		: "+r" (ret), "=&r" (oldval), "+m" (*uaddr)	\
+		: "Jr" (oparg), "i" (-EFAULT)			\
+		: "memory");							\
+}
+#else
 #define __futex_atomic_op(insn, ret, oldval, uaddr, oparg)		\
 {									\
 	if (cpu_has_llsc && R10000_LLSC_WAR) {				\
@@ -50,6 +70,7 @@
 		  "i" (-EFAULT)						\
 		: "memory");						\
 	} else if (cpu_has_llsc) {					\
+		loongson_llsc_mb();					\
 		__asm__ __volatile__(					\
 		"	.set	push				\n"	\
 		"	.set	noat				\n"	\
@@ -81,34 +102,55 @@
 	} else								\
 		ret = -ENOSYS;						\
 }
+#endif
 
 static inline int
 arch_futex_atomic_op_inuser(int op, int oparg, int *oval, u32 __user *uaddr)
 {
-	int oldval = 0, ret;
+	int oldval = 0, ret = 0;
 
 	pagefault_disable();
 
 	switch (op) {
 	case FUTEX_OP_SET:
+#if defined(CONFIG_CPU_SUPPORTS_LAMO_INSTRUCTIONS) && defined(TOOLCHAIN_SUPPORTS_LAMO)
+		__futex_atomic_op("amswap_sync.w %1, %z3, %2", ret, oldval, uaddr, oparg);
+#else
 		__futex_atomic_op("move $1, %z5", ret, oldval, uaddr, oparg);
+#endif
 		break;
 
 	case FUTEX_OP_ADD:
+#if defined(CONFIG_CPU_SUPPORTS_LAMO_INSTRUCTIONS) && defined(TOOLCHAIN_SUPPORTS_LAMO)
+		__futex_atomic_op("amadd_sync.w %1, %z3, %2", ret, oldval, uaddr, oparg);
+#else
 		__futex_atomic_op("addu $1, %1, %z5",
 				  ret, oldval, uaddr, oparg);
+#endif
 		break;
 	case FUTEX_OP_OR:
+#if defined(CONFIG_CPU_SUPPORTS_LAMO_INSTRUCTIONS) && defined(TOOLCHAIN_SUPPORTS_LAMO)
+		__futex_atomic_op("amor_sync.w  %1, %z3, %2", ret, oldval, uaddr, oparg);
+#else
 		__futex_atomic_op("or	$1, %1, %z5",
 				  ret, oldval, uaddr, oparg);
+#endif
 		break;
 	case FUTEX_OP_ANDN:
+#if defined(CONFIG_CPU_SUPPORTS_LAMO_INSTRUCTIONS) && defined(TOOLCHAIN_SUPPORTS_LAMO)
+		__futex_atomic_op("amand_sync.w %1, %z3, %2", ret, oldval, uaddr, ~oparg);
+#else
 		__futex_atomic_op("and	$1, %1, %z5",
 				  ret, oldval, uaddr, ~oparg);
+#endif
 		break;
 	case FUTEX_OP_XOR:
+#if defined(CONFIG_CPU_SUPPORTS_LAMO_INSTRUCTIONS) && defined(TOOLCHAIN_SUPPORTS_LAMO)
+		__futex_atomic_op("amxor_sync.w %1, %z3, %2", ret, oldval, uaddr, oparg);
+#else
 		__futex_atomic_op("xor	$1, %1, %z5",
 				  ret, oldval, uaddr, oparg);
+#endif
 		break;
 	default:
 		ret = -ENOSYS;
@@ -127,7 +169,7 @@ futex_atomic_cmpxchg_inatomic(u32 *uval, u32 __user *uaddr,
 			      u32 oldval, u32 newval)
 {
 	int ret = 0;
-	u32 val;
+	u32 val = 0;
 
 	if (!access_ok(VERIFY_WRITE, uaddr, sizeof(u32)))
 		return -EFAULT;
@@ -162,6 +204,7 @@ futex_atomic_cmpxchg_inatomic(u32 *uval, u32 __user *uaddr,
 		  "i" (-EFAULT)
 		: "memory");
 	} else if (cpu_has_llsc) {
+		loongson_llsc_mb();
 		__asm__ __volatile__(
 		"# futex_atomic_cmpxchg_inatomic			\n"
 		"	.set	push					\n"
@@ -174,8 +217,8 @@ futex_atomic_cmpxchg_inatomic(u32 *uval, u32 __user *uaddr,
 		"	.set	"MIPS_ISA_ARCH_LEVEL"			\n"
 		"2:	"user_sc("$1", "%2")"				\n"
 		"	beqz	$1, 1b					\n"
-		__WEAK_LLSC_MB
 		"3:							\n"
+		__WEAK_LLSC_MB
 		"	.insn						\n"
 		"	.set	pop					\n"
 		"	.section .fixup,\"ax\"				\n"
@@ -190,6 +233,7 @@ futex_atomic_cmpxchg_inatomic(u32 *uval, u32 __user *uaddr,
 		: GCC_OFF_SMALL_ASM() (*uaddr), "Jr" (oldval), "Jr" (newval),
 		  "i" (-EFAULT)
 		: "memory");
+		loongson_llsc_mb();
 	} else
 		return -ENOSYS;
 

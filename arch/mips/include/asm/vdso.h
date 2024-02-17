@@ -12,8 +12,13 @@
 #define __ASM_VDSO_H
 
 #include <linux/mm_types.h>
+#include <linux/types.h>
+#include <linux/uidgid.h>
 
 #include <asm/barrier.h>
+
+#define VDSO_INVALID_PID               ((pid_t)-1)
+#define VDSO_INVALID_UID               ((uid_t)-1)
 
 /**
  * struct mips_vdso_image - Details of a VDSO image.
@@ -44,6 +49,13 @@ struct mips_vdso_image {
  */
 
 extern struct mips_vdso_image vdso_image;
+
+typedef struct vdso_pcpu_data {
+	u32 seq_count;
+	s32 pid;
+	u32 uid;
+	u32 __pad;
+} vdso_pcpu_data;
 
 #ifdef CONFIG_MIPS32_O32
 extern struct mips_vdso_image vdso_image_o32;
@@ -89,10 +101,14 @@ union mips_vdso_data {
 		u64 cs_mask;
 		s32 tz_minuteswest;
 		s32 tz_dsttime;
+		vdso_pcpu_data pcpu_data[NR_CPUS];
 	};
 
 	u8 page[PAGE_SIZE];
 };
+
+void vdso_per_cpu_switch_thread(struct task_struct *prev,
+	struct task_struct *next);
 
 static inline u32 vdso_data_read_begin(const union mips_vdso_data *data)
 {
@@ -130,6 +146,22 @@ static inline void vdso_data_write_end(union mips_vdso_data *data)
 {
 	/* Ensure data values are written before updating sequence again. */
 	smp_wmb();
+	++data->seq_count;
+}
+
+static inline u32 vdso_pcpu_data_read_begin(const vdso_pcpu_data *data)
+{
+	return data->seq_count;
+}
+
+static inline bool vdso_pcpu_data_read_retry(const vdso_pcpu_data *data,
+					u32 start_seq)
+{
+	return unlikely(data->seq_count != start_seq);
+}
+
+static inline void vdso_pcpu_data_update_seq(vdso_pcpu_data *data)
+{
 	++data->seq_count;
 }
 

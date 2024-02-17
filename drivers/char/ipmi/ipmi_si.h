@@ -36,9 +36,11 @@ extern struct platform_driver ipmi_platform_driver;
 #ifdef CONFIG_PCI
 void ipmi_si_pci_init(void);
 void ipmi_si_pci_shutdown(void);
+void ipmi_si_ls2k500_init(void);
 #else
 static inline void ipmi_si_pci_init(void) { }
 static inline void ipmi_si_pci_shutdown(void) { }
+static inline void ipmi_si_ls2k500_init(void) { }
 #endif
 #ifdef CONFIG_PARISC
 void ipmi_si_parisc_init(void);

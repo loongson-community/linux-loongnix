@@ -1,30 +1,14 @@
-/*
- * Copyright (C) 2017 Josh Poimboeuf <jpoimboe@redhat.com>
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, see <http://www.gnu.org/licenses/>.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
 
-#ifndef _ORC_H
-#define _ORC_H
+#include "elf.h"
+#include "check.h"
 
-#include <asm/orc_types.h>
+int arch_create_orc_entry(struct section *u_sec, struct section *ip_relasec,
+				unsigned int idx, struct section *insn_sec,
+				unsigned long insn_off, struct orc_entry *o);
 
-struct objtool_file;
+int arch_create_orc_entry_empty(struct section *u_sec, struct section *ip_relasec,
+				unsigned int idx, struct section *insn_sec,
+				unsigned long insn_off);
 
-int create_orc(struct objtool_file *file);
-int create_orc_sections(struct objtool_file *file);
-
-int orc_dump(const char *objname);
-
-#endif /* _ORC_H */
+void arch_print_reg(struct orc_entry orc);

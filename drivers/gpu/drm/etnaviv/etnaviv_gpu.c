@@ -436,13 +436,17 @@ static void etnaviv_gpu_load_clock(struct etnaviv_gpu *gpu, u32 clock)
 static void etnaviv_gpu_update_clock(struct etnaviv_gpu *gpu)
 {
 	if (gpu->identity.minor_features2 &
-	    chipMinorFeatures2_DYNAMIC_FREQUENCY_SCALING) {
-		clk_set_rate(gpu->clk_core,
-			     gpu->base_rate_core >> gpu->freq_scale);
-		clk_set_rate(gpu->clk_shader,
-			     gpu->base_rate_shader >> gpu->freq_scale);
+	     chipMinorFeatures2_DYNAMIC_FREQUENCY_SCALING) {
+		if (gpu->clk_core)
+			clk_set_rate(gpu->clk_core,
+				     gpu->base_rate_core >> gpu->freq_scale);
+
+		if (gpu->clk_shader)
+			clk_set_rate(gpu->clk_shader,
+				     gpu->base_rate_shader >> gpu->freq_scale);
 	} else {
 		unsigned int fscale = 1 << (6 - gpu->freq_scale);
+
 		u32 clock = gpu_read(gpu, VIVS_HI_CLOCK_CONTROL);
 
 		clock &= ~VIVS_HI_CLOCK_CONTROL_FSCALE_VAL__MASK;
@@ -713,6 +717,20 @@ int etnaviv_gpu_init(struct etnaviv_gpu *gpu)
 		goto fail;
 	}
 
+
+	if (gpu->identity.minor_features0 & chipMinorFeatures0_MC20)
+		dev_info(gpu->dev, "with MC2.0\n");
+
+	if (gpu->identity.features & chipFeatures_PIPE_3D)
+		dev_info(gpu->dev, "with PIPE 3D\n");
+
+	if (gpu->identity.features & chipFeatures_PIPE_2D)
+		dev_info(gpu->dev, "with PIPE 2D\n");
+
+	if (gpu->identity.features & chipFeatures_DC)
+		dev_info(gpu->dev, "with DC\n");
+
+
 	/*
 	 * Set the GPU linear window to be at the end of the DMA window, where
 	 * the CMA area is likely to reside. This ensures that we are able to
@@ -725,10 +743,13 @@ int etnaviv_gpu_init(struct etnaviv_gpu *gpu)
 	if (!(gpu->identity.features & chipFeatures_PIPE_3D) ||
 	    (gpu->identity.minor_features0 & chipMinorFeatures0_MC20)) {
 		u32 dma_mask = (u32)dma_get_required_mask(gpu->dev);
+		dev_info(gpu->dev, "dma mask: 0x%x\n", dma_mask);
+		dev_info(gpu->dev, "PHYS_OFFSET: 0x%lx\n", PHYS_OFFSET);
 		if (dma_mask < PHYS_OFFSET + SZ_2G)
 			gpu->memory_base = PHYS_OFFSET;
 		else
 			gpu->memory_base = dma_mask - SZ_2G + 1;
+		dev_info(gpu->dev, "gpu memory base: 0x%x\n", gpu->memory_base);
 	} else if (PHYS_OFFSET >= SZ_2G) {
 		dev_info(gpu->dev, "Need to move linear window on MC1.0, disabling TS\n");
 		gpu->memory_base = PHYS_OFFSET;
@@ -1342,7 +1363,7 @@ out_unlock:
 	return gpu_fence;
 }
 
-static void sync_point_worker(struct work_struct *work)
+void sync_point_worker(struct work_struct *work)
 {
 	struct etnaviv_gpu *gpu = container_of(work, struct etnaviv_gpu,
 					       sync_point_work);
@@ -1386,7 +1407,7 @@ static void dump_mmu_fault(struct etnaviv_gpu *gpu)
 	}
 }
 
-static irqreturn_t irq_handler(int irq, void *data)
+irqreturn_t irq_handler(int irq, void *data)
 {
 	struct etnaviv_gpu *gpu = data;
 	irqreturn_t ret = IRQ_NONE;
@@ -1452,7 +1473,7 @@ static irqreturn_t irq_handler(int irq, void *data)
 	return ret;
 }
 
-static int etnaviv_gpu_clk_enable(struct etnaviv_gpu *gpu)
+int etnaviv_gpu_clk_enable(struct etnaviv_gpu *gpu)
 {
 	int ret;
 
@@ -1530,7 +1551,7 @@ int etnaviv_gpu_wait_idle(struct etnaviv_gpu *gpu, unsigned int timeout_ms)
 	} while (1);
 }
 
-static int etnaviv_gpu_hw_suspend(struct etnaviv_gpu *gpu)
+int etnaviv_gpu_hw_suspend(struct etnaviv_gpu *gpu)
 {
 	if (gpu->buffer.suballoc) {
 		/* Replace the last WAIT with END */
@@ -1605,14 +1626,13 @@ etnaviv_gpu_cooling_set_cur_state(struct thermal_cooling_device *cdev,
 	return 0;
 }
 
-static struct thermal_cooling_device_ops cooling_ops = {
+struct thermal_cooling_device_ops cooling_ops = {
 	.get_max_state = etnaviv_gpu_cooling_get_max_state,
 	.get_cur_state = etnaviv_gpu_cooling_get_cur_state,
 	.set_cur_state = etnaviv_gpu_cooling_set_cur_state,
 };
 
-static int etnaviv_gpu_bind(struct device *dev, struct device *master,
-	void *data)
+int etnaviv_gpu_bind(struct device *dev, struct device *master, void *data)
 {
 	struct drm_device *drm = data;
 	struct etnaviv_drm_private *priv = drm->dev_private;
@@ -1673,8 +1693,7 @@ out_thermal:
 	return ret;
 }
 
-static void etnaviv_gpu_unbind(struct device *dev, struct device *master,
-	void *data)
+void etnaviv_gpu_unbind(struct device *dev, struct device *master, void *data)
 {
 	struct etnaviv_gpu *gpu = dev_get_drvdata(dev);
 
@@ -1718,6 +1737,7 @@ static const struct component_ops gpu_ops = {
 	.unbind = etnaviv_gpu_unbind,
 };
 
+
 static const struct of_device_id etnaviv_gpu_match[] = {
 	{
 		.compatible = "vivante,gc"
@@ -1725,6 +1745,56 @@ static const struct of_device_id etnaviv_gpu_match[] = {
 	{ /* sentinel */ }
 };
 MODULE_DEVICE_TABLE(of, etnaviv_gpu_match);
+
+
+int etnaviv_gpu_register_irq(struct etnaviv_gpu *gpu, int irq)
+{
+	struct device *dev = gpu->dev;
+	int err;
+
+	if (irq < 0) {
+		dev_err(dev, "failed to get irq: %d\n", irq);
+		return irq;
+	}
+
+	err = devm_request_irq(dev, irq, irq_handler, 0, dev_name(dev), gpu);
+	if (err) {
+		dev_err(dev, "failed to request IRQ %u: %d\n", irq, err);
+		return err;
+	}
+
+	gpu->irq = irq;
+
+	dev_info(dev, "IRQ registered, irq=%d\n", irq);
+
+	return 0;
+}
+
+void etnaviv_gpu_get_clock(struct etnaviv_gpu *gpu, struct device *dev)
+{
+	/* Get Clocks: */
+	gpu->clk_reg = devm_clk_get(dev, "reg");
+	DBG("clk_reg: %p", gpu->clk_reg);
+	if (IS_ERR(gpu->clk_reg))
+		gpu->clk_reg = NULL;
+
+	gpu->clk_bus = devm_clk_get(dev, "bus");
+	DBG("clk_bus: %p", gpu->clk_bus);
+	if (IS_ERR(gpu->clk_bus))
+		gpu->clk_bus = NULL;
+
+	gpu->clk_core = devm_clk_get(dev, "core");
+	DBG("clk_core: %p", gpu->clk_core);
+	if (IS_ERR(gpu->clk_core))
+		gpu->clk_core = NULL;
+	gpu->base_rate_core = clk_get_rate(gpu->clk_core);
+
+	gpu->clk_shader = devm_clk_get(dev, "shader");
+	DBG("clk_shader: %p", gpu->clk_shader);
+	if (IS_ERR(gpu->clk_shader))
+		gpu->clk_shader = NULL;
+	gpu->base_rate_shader = clk_get_rate(gpu->clk_shader);
+}
 
 static int etnaviv_gpu_platform_probe(struct platform_device *pdev)
 {
@@ -1747,42 +1817,16 @@ static int etnaviv_gpu_platform_probe(struct platform_device *pdev)
 	if (IS_ERR(gpu->mmio))
 		return PTR_ERR(gpu->mmio);
 
+	if (IS_ENABLED(CONFIG_CPU_LOONGSON2K) ||
+	    IS_ENABLED(CONFIG_CPU_LOONGSON64))
+		dma_set_mask_and_coherent(dev, DMA_BIT_MASK(32));
+
 	/* Get Interrupt: */
-	gpu->irq = platform_get_irq(pdev, 0);
-	if (gpu->irq < 0) {
-		dev_err(dev, "failed to get irq: %d\n", gpu->irq);
-		return gpu->irq;
-	}
-
-	err = devm_request_irq(&pdev->dev, gpu->irq, irq_handler, 0,
-			       dev_name(gpu->dev), gpu);
-	if (err) {
-		dev_err(dev, "failed to request IRQ%u: %d\n", gpu->irq, err);
+	err = etnaviv_gpu_register_irq(gpu, platform_get_irq(pdev, 0));
+	if (err)
 		return err;
-	}
 
-	/* Get Clocks: */
-	gpu->clk_reg = devm_clk_get(&pdev->dev, "reg");
-	DBG("clk_reg: %p", gpu->clk_reg);
-	if (IS_ERR(gpu->clk_reg))
-		gpu->clk_reg = NULL;
-
-	gpu->clk_bus = devm_clk_get(&pdev->dev, "bus");
-	DBG("clk_bus: %p", gpu->clk_bus);
-	if (IS_ERR(gpu->clk_bus))
-		gpu->clk_bus = NULL;
-
-	gpu->clk_core = devm_clk_get(&pdev->dev, "core");
-	DBG("clk_core: %p", gpu->clk_core);
-	if (IS_ERR(gpu->clk_core))
-		gpu->clk_core = NULL;
-	gpu->base_rate_core = clk_get_rate(gpu->clk_core);
-
-	gpu->clk_shader = devm_clk_get(&pdev->dev, "shader");
-	DBG("clk_shader: %p", gpu->clk_shader);
-	if (IS_ERR(gpu->clk_shader))
-		gpu->clk_shader = NULL;
-	gpu->base_rate_shader = clk_get_rate(gpu->clk_shader);
+	etnaviv_gpu_get_clock(gpu, dev);
 
 	/* TODO: figure out max mapped size */
 	dev_set_drvdata(dev, gpu);

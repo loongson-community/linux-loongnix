@@ -1,4 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0
+CFLAGS_drm_ioc32.o += -O
+CFLAGS_drm_bufs.o += -O
 
 # Makefile for the drm device driver.  This driver provides support for the
 # Direct Rendering Infrastructure (DRI) in XFree86 4.1.0 and higher.
@@ -77,6 +79,10 @@ obj-$(CONFIG_DRM_ROCKCHIP) +=rockchip/
 obj-$(CONFIG_DRM_GMA500) += gma500/
 obj-$(CONFIG_DRM_UDL) += udl/
 obj-$(CONFIG_DRM_AST) += ast/
+obj-$(CONFIG_DRM_LOONGSON_VGA) +=loongson/
+obj-$(CONFIG_DRM_MWV206) +=mwv206/
+obj-$(CONFIG_DRM_LSDC) += lsdc/
+obj-$(CONFIG_DRM_SMI) += smi/
 obj-$(CONFIG_DRM_ARMADA) += armada/
 obj-$(CONFIG_DRM_ATMEL_HLCDC)	+= atmel-hlcdc/
 obj-$(CONFIG_DRM_RCAR_DU) += rcar-du/
@@ -107,3 +113,4 @@ obj-$(CONFIG_DRM_TINYDRM) += tinydrm/
 obj-$(CONFIG_DRM_PL111) += pl111/
 obj-$(CONFIG_DRM_TVE200) += tve200/
 obj-$(CONFIG_DRM_XEN) += xen/
+obj-$(CONFIG_DRM_GSGPU) += gsgpu/gpu/

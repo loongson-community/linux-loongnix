@@ -9,6 +9,7 @@
  */
 
 #include <linux/binfmts.h>
+#include <linux/cred.h>
 #include <linux/elf.h>
 #include <linux/err.h>
 #include <linux/init.h>
@@ -24,6 +25,20 @@
 #include <asm/mips-cps.h>
 #include <asm/page.h>
 #include <asm/vdso.h>
+
+extern struct user_namespace init_user_ns;
+extern struct pid_namespace init_pid_ns;
+
+#ifdef CONFIG_LOONGSON_HPET
+extern void __iomem *hpet_mmio_base;
+extern bool loongson_hpet_present(void);
+#else
+void __iomem *hpet_mmio_base;
+bool loongson_hpet_present(void)
+{
+	return false;
+}
+#endif
 
 /* Kernel-provided data used by the VDSO. */
 static union mips_vdso_data vdso_data __page_aligned_data;
@@ -69,6 +84,48 @@ static int __init init_vdso(void)
 	return 0;
 }
 subsys_initcall(init_vdso);
+
+void update_vsyscall_cred(struct cred *cred)
+{
+	unsigned long flags;
+	unsigned int cpu_id;
+
+	local_irq_save(flags);
+	cpu_id = cpu_logical_map((current_thread_info())->cpu);
+
+	if (cred->user_ns != &init_user_ns) {
+		vdso_data.pcpu_data[cpu_id].uid = VDSO_INVALID_UID;
+	} else {
+		vdso_data.pcpu_data[cpu_id].uid = cred->uid.val;
+	}
+
+	vdso_pcpu_data_update_seq(&vdso_data.pcpu_data[cpu_id]);
+	local_irq_restore(flags);
+}
+
+void vdso_per_cpu_switch_thread(struct task_struct *prev,
+	struct task_struct *next)
+{
+	unsigned int cpu_id;
+
+	cpu_id = cpu_logical_map((current_thread_info())->cpu);
+
+	if (next->cred->user_ns != &init_user_ns) {
+		vdso_data.pcpu_data[cpu_id].uid = VDSO_INVALID_UID;
+	} else {
+		vdso_data.pcpu_data[cpu_id].uid = task_uid(next).val;
+	}
+
+	if (!pid_alive(next) ||
+		next->thread_pid->numbers[next->thread_pid->level].ns !=
+			&init_pid_ns) {
+		vdso_data.pcpu_data[cpu_id].pid = VDSO_INVALID_PID;
+	} else {
+		vdso_data.pcpu_data[cpu_id].pid = next->tgid;
+	}
+
+	vdso_pcpu_data_update_seq(&vdso_data.pcpu_data[cpu_id]);
+}
 
 void update_vsyscall(struct timekeeper *tk)
 {
@@ -117,7 +174,7 @@ int arch_setup_additional_pages(struct linux_binprm *bprm, int uses_interp)
 {
 	struct mips_vdso_image *image = current->thread.abi->vdso;
 	struct mm_struct *mm = current->mm;
-	unsigned long gic_size, vvar_size, size, base, data_addr, vdso_addr, gic_pfn;
+	unsigned long exttimer_size, vvar_size, size, base, data_addr, vdso_addr, exttimer_pfn;
 	struct vm_area_struct *vma;
 	int ret;
 
@@ -142,8 +199,8 @@ int arch_setup_additional_pages(struct linux_binprm *bprm, int uses_interp)
 	 * only map a page even though the total area is 64K, as we only need
 	 * the counter registers at the start.
 	 */
-	gic_size = mips_gic_present() ? PAGE_SIZE : 0;
-	vvar_size = gic_size + PAGE_SIZE;
+	exttimer_size = (mips_gic_present() || loongson_hpet_present()) ? PAGE_SIZE : 0;
+	vvar_size = exttimer_size + PAGE_SIZE;
 	size = vvar_size + image->size;
 
 	/*
@@ -167,10 +224,10 @@ int arch_setup_additional_pages(struct linux_binprm *bprm, int uses_interp)
 	 */
 	if (cpu_has_dc_aliases) {
 		base = __ALIGN_MASK(base, shm_align_mask);
-		base += ((unsigned long)&vdso_data - gic_size) & shm_align_mask;
+		base += ((unsigned long)&vdso_data - exttimer_size) & shm_align_mask;
 	}
 
-	data_addr = base + gic_size;
+	data_addr = base + exttimer_size;
 	vdso_addr = data_addr + PAGE_SIZE;
 
 	vma = _install_special_mapping(mm, base, vvar_size,
@@ -182,10 +239,13 @@ int arch_setup_additional_pages(struct linux_binprm *bprm, int uses_interp)
 	}
 
 	/* Map GIC user page. */
-	if (gic_size) {
-		gic_pfn = virt_to_phys(mips_gic_base + MIPS_GIC_USER_OFS) >> PAGE_SHIFT;
+	if (exttimer_size) {
+		if(mips_gic_present())
+			exttimer_pfn = virt_to_phys(mips_gic_base + MIPS_GIC_USER_OFS) >> PAGE_SHIFT;
+		else
+			exttimer_pfn = virt_to_phys(hpet_mmio_base) >> PAGE_SHIFT;
 
-		ret = io_remap_pfn_range(vma, base, gic_pfn, gic_size,
+		ret = io_remap_pfn_range(vma, base, exttimer_pfn, exttimer_size,
 					 pgprot_noncached(PAGE_READONLY));
 		if (ret)
 			goto out;

@@ -8,6 +8,7 @@
 
 #include <asm/asm.h>
 #include <asm/asmmacro.h>
+#include <asm/cpu.h>
 #include <asm/regdef.h>
 #include <asm/mipsregs.h>
 #include <asm/stackframe.h>
@@ -135,6 +136,32 @@ LEAF(kexec_smp_wait)
 #else
 	sync
 #endif
+
+#ifdef CONFIG_CPU_LOONGSON3
+	/* s0:prid s1:initfn */
+	/* a0:base t1:cpuid t2:node t3:core t9:count */
+	mfc0  	t1, CP0_EBASE
+	andi  	t1, MIPS_EBASE_CPUNUM
+	dins	a0, t1, 8, 2       /* insert core id*/
+	dext	t2, t1, 2, 2
+	dins	a0, t2, 44, 2      /* insert node id */
+	mfc0	s0, CP0_PRID
+	andi	s0, s0, (PRID_IMP_MASK | PRID_REV_MASK)
+	beq		s0, (PRID_IMP_LOONGSON_64 | PRID_REV_LOONGSON3B_R1), 1f
+	beq		s0, (PRID_IMP_LOONGSON_64 | PRID_REV_LOONGSON3B_R2), 1f
+	b		2f                 /* Loongson-3A1000/3A2000/3A3000/3A4000 */
+1:	dins	a0, t2, 14, 2      /* Loongson-3B1000/3B1500 need bit 15~14 */
+2:	li		t9, 0x100          /* wait for init loop */
+3:	addiu	t9, -1             /* limit mailbox access */
+	bnez	t9, 3b
+	lw		s1, 0x20(a0)       /* check lower 32-bit as jump indicator */
+	beqz	s1, 2b
+	ld		s1, 0x20(a0)       /* get PC (whole 64-bit) via mailbox */
+	ld		sp, 0x28(a0)       /* get SP via mailbox reg1 */
+	ld		gp, 0x30(a0)       /* get GP via mailbox reg2 */
+	ld		a1, 0x38(a0)
+#endif
+
 	j		s1
 	END(kexec_smp_wait)
 #endif

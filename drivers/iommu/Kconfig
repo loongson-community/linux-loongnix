@@ -125,6 +125,36 @@ config IOMMU_PGTABLES_L2
 	def_bool y
 	depends on MSM_IOMMU && MMU && SMP && CPU_DCACHE_DISABLE=n
 
+# LOONGSON IOMMU support
+config LOONGSON_IOMMU
+	bool "LOONGSON IOMMU support"
+	select IOMMU_API
+	select IOMMU_DEFAULT_PASSTHROUGH
+	depends on MIPS
+	help
+	  With this option you can enable support for LOONGSON IOMMU hardware in
+	  your system. An IOMMU is a hardware component which provides
+	  remapping of DMA memory accesses from devices. With an LOONGSON IOMMU you
+	  can isolate the DMA memory of different devices and protect the
+	  system from misbehaving device drivers or hardware.
+
+	  You can find out if your system has an LOONGSON IOMMU if you look into
+	  your BIOS for an option to enable it or if you have an IVRS ACPI
+	  table.
+
+# LOONGARCH IOMMU support
+config LOONGARCH_IOMMU
+	bool "LOONGARCH IOMMU support"
+	select IOMMU_API
+	select IOMMU_DEFAULT_PASSTHROUGH
+	depends on LOONGARCH
+	help
+	  With this option you can enable support for LOONGARCH IOMMU hardware in
+	  your system. An IOMMU is a hardware component which provides
+	  remapping of DMA memory accesses from devices. With an LOONGARCH IOMMU you
+	  can isolate the DMA memory of different devices and protect the
+	  system from misbehaving device drivers or hardware.
+
 # AMD IOMMU support
 config AMD_IOMMU
 	bool "AMD IOMMU support"

@@ -4,6 +4,7 @@
 
 #include <asm/cpu-features.h>
 #include <asm/mipsregs.h>
+#include <linux/mm_types.h>
 
 /*
  * MIPS doesn't need any special per-pte or per-vma handling, except
@@ -20,13 +21,12 @@
 /*
  * .. because we flush the whole mm when it fills up.
  */
-#define tlb_flush(tlb) flush_tlb_mm((tlb)->mm)
-
-#define _UNIQUE_ENTRYHI(base, idx)					\
+#define _UNIQUE_ENTRYHI(base, idx, asid)				\
 		(((base) + ((idx) << (PAGE_SHIFT + 1))) |		\
-		 (cpu_has_tlbinv ? MIPS_ENTRYHI_EHINV : 0))
-#define UNIQUE_ENTRYHI(idx)		_UNIQUE_ENTRYHI(CKSEG0, idx)
-#define UNIQUE_GUEST_ENTRYHI(idx)	_UNIQUE_ENTRYHI(CKSEG1, idx)
+		 (cpu_has_tlbinv ? MIPS_ENTRYHI_EHINV : 0) | asid)
+#define UNIQUE_ENTRYHI(idx)		_UNIQUE_ENTRYHI(CKSEG0, idx, 0)
+#define UNIQUE_GUEST_ENTRYHI(idx)	_UNIQUE_ENTRYHI(CKSEG1, idx, 0)
+#define UNIQUE_ENTRYHI_ASID(idx, asid)	_UNIQUE_ENTRYHI(CKSEG0, idx, asid)
 
 static inline unsigned int num_wired_entries(void)
 {
@@ -38,6 +38,22 @@ static inline unsigned int num_wired_entries(void)
 	return wired;
 }
 
+static void tlb_flush(struct mmu_gather *tlb);
+
 #include <asm-generic/tlb.h>
+
+static inline void tlb_flush(struct mmu_gather *tlb)
+{
+	struct vm_area_struct vma;
+
+	vma.vm_mm = tlb->mm;
+	vma.vm_flags = 0;
+	if (tlb->fullmm) {
+		flush_tlb_mm(tlb->mm);
+		return;
+	}
+
+	flush_tlb_range(&vma, tlb->start, tlb->end);
+}
 
 #endif /* __ASM_TLB_H */

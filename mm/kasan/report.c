@@ -53,8 +53,12 @@ static const void *find_first_bad_addr(const void *addr, size_t size)
 
 static bool addr_has_shadow(struct kasan_access_info *info)
 {
+#ifndef __HAVE_ARCH_SHADOW_MAP
 	return (info->access_addr >=
 		kasan_shadow_to_mem((void *)KASAN_SHADOW_START));
+#else
+	return (kasan_mem_to_shadow((void *)info->access_addr) != NULL);
+#endif
 }
 
 static const char *get_shadow_bug_type(struct kasan_access_info *info)

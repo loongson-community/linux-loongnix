@@ -1529,6 +1529,18 @@ config SERIAL_OWL_CONSOLE
 	  Say 'Y' here if you wish to use Actions Semiconductor S500/S900 UART
 	  as the system console.
 
+config SERIAL_WCH
+	tristate "Winchiphead PCI/PCIE to uart chips support"
+	depends on PCI
+	select SERIAL_CORE
+	help
+	  This driver supports the Winchiphead pci to uart chips:
+	  ch351/ch352/ch353/ch355/ch356/ch357/ch358/ch359
+	  and pcie to uart chips:
+	  ch382/ch384.
+
+	  Say Y or M here if you wish to use these serial ports.
+
 endmenu
 
 config SERIAL_MCTRL_GPIO

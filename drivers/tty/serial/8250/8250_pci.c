@@ -77,6 +77,12 @@ setup_port(struct serial_private *priv, struct uart_8250_port *port,
 	if (bar >= PCI_NUM_BAR_RESOURCES)
 		return -EINVAL;
 
+	if ((dev->vendor == PCI_VENDOR_ID_PLX) &&
+	    (dev->device == PCI_DEVICE_ID_PLX_9050) &&
+	    (dev->subsystem_vendor == PCI_VENDOR_ID_PLX) &&
+	    (dev->subsystem_device == PCI_DEVICE_ID_PLX_9050))
+		offset += 0x80;
+
 	if (pci_resource_flags(dev, bar) & IORESOURCE_MEM) {
 		if (!pcim_iomap(dev, bar, 0) && !pcim_iomap_table(dev))
 			return -ENOMEM;
@@ -259,6 +265,12 @@ static int pci_plx9050_init(struct pci_dev *dev)
 		 * deep FIFOs
 		 */
 		irq_config = 0x5b;
+
+	if ((dev->vendor == PCI_VENDOR_ID_PLX) &&
+	    (dev->device == PCI_DEVICE_ID_PLX_9050) &&
+	    (dev->subsystem_vendor == PCI_VENDOR_ID_PLX) &&
+	    (dev->subsystem_device == PCI_DEVICE_ID_PLX_9050))
+		irq_config = 0x53;
 	/*
 	 * enable/disable interrupts
 	 */
@@ -1687,8 +1699,10 @@ pci_wch_ch38x_setup(struct serial_private *priv,
 
 #define PCIE_VENDOR_ID_WCH		0x1c00
 #define PCIE_DEVICE_ID_WCH_CH382_2S1P	0x3250
-#define PCIE_DEVICE_ID_WCH_CH384_4S	0x3470
 #define PCIE_DEVICE_ID_WCH_CH382_2S	0x3253
+#define PCIE_DEVICE_ID_WCH_CH384_4S1P	0x3450
+#define PCIE_DEVICE_ID_WCH_CH384_4S	0x3470
+#define PCIE_DEVICE_ID_WCH_CH384_8S	0x3853
 
 #define PCI_VENDOR_ID_ACCESIO			0x494f
 #define PCI_DEVICE_ID_ACCESIO_PCIE_COM_2SDB	0x1051
@@ -1999,6 +2013,15 @@ static struct pci_serial_quirk pci_serial_quirks[] __refdata = {
 		.device		= PCI_DEVICE_ID_PLX_9050,
 		.subvendor	= PCI_SUBVENDOR_ID_EXSYS,
 		.subdevice	= PCI_SUBDEVICE_ID_EXSYS_4055,
+		.init		= pci_plx9050_init,
+		.setup		= pci_default_setup,
+		.exit		= pci_plx9050_exit,
+	},
+	{
+		.vendor		= PCI_VENDOR_ID_PLX,
+		.device		= PCI_DEVICE_ID_PLX_9050,
+		.subvendor	= PCI_VENDOR_ID_PLX,
+		.subdevice	= PCI_DEVICE_ID_PLX_9050,
 		.init		= pci_plx9050_init,
 		.setup		= pci_default_setup,
 		.exit		= pci_plx9050_exit,
@@ -2452,6 +2475,22 @@ static struct pci_serial_quirk pci_serial_quirks[] __refdata = {
 		.subdevice      = PCI_ANY_ID,
 		.setup          = pci_wch_ch38x_setup,
 	},
+	/* WCH CH384 4S1P card (16850 clone) */
+	{
+		.vendor         = PCIE_VENDOR_ID_WCH,
+		.device         = PCIE_DEVICE_ID_WCH_CH384_4S1P,
+		.subvendor      = PCI_ANY_ID,
+		.subdevice      = PCI_ANY_ID,
+		.setup          = pci_wch_ch38x_setup,
+	},
+	/* WCH CH384 8S card (16850 clone) */
+	{
+		.vendor         = PCIE_VENDOR_ID_WCH,
+		.device         = PCIE_DEVICE_ID_WCH_CH384_8S,
+		.subvendor      = PCI_ANY_ID,
+		.subdevice      = PCI_ANY_ID,
+		.setup          = pci_wch_ch38x_setup,
+	},
 	/*
 	 * ASIX devices with FIFO bug
 	 */
@@ -2686,6 +2725,7 @@ enum pci_board_num_t {
 	pbn_fintek_12,
 	pbn_wch382_2,
 	pbn_wch384_4,
+	pbn_wch384_8,
 	pbn_pericom_PI7C9X7951,
 	pbn_pericom_PI7C9X7952,
 	pbn_pericom_PI7C9X7954,
@@ -3400,6 +3440,13 @@ static struct pciserial_board pci_boards[] = {
 		.uart_offset    = 8,
 		.first_offset   = 0xC0,
 	},
+	[pbn_wch384_8] = {
+		.flags		= FL_BASE0,
+		.num_ports	= 8,
+		.base_baud      = 115200,
+		.uart_offset    = 8,
+		.first_offset   = 0xC0,
+	},
 	/*
 	 * Pericom PI7C9X795[1248] Uno/Dual/Quad/Octal UART
 	 */
@@ -3439,6 +3486,7 @@ static const struct pci_device_id blacklist[] = {
 	{ PCI_DEVICE(0x4348, 0x7053), }, /* WCH CH353 2S1P */
 	{ PCI_DEVICE(0x4348, 0x5053), }, /* WCH CH353 1S1P */
 	{ PCI_DEVICE(0x1c00, 0x3250), }, /* WCH CH382 2S1P */
+	{ PCI_DEVICE(0x1c00, 0x3450), }, /* WCH CH384 4S1P */
 
 	/* Moxa Smartio MUE boards handled by 8250_moxa */
 	{ PCI_VDEVICE(MOXA, 0x1024), },
@@ -3969,6 +4017,10 @@ static const struct pci_device_id serial_pci_tbl[] = {
 		PCI_SUBDEVICE_ID_UNKNOWN_0x1584, 0, 0,
 		pbn_b2_4_115200 },
 	/* Unknown card - subdevice 0x1588 */
+	{	PCI_VENDOR_ID_PLX, PCI_DEVICE_ID_PLX_9050,
+		PCI_VENDOR_ID_PLX,
+		PCI_DEVICE_ID_PLX_9050, 0, 0,
+		pbn_b2_8_921600 },
 	{	PCI_VENDOR_ID_PLX, PCI_DEVICE_ID_PLX_9050,
 		PCI_VENDOR_ID_PLX,
 		PCI_SUBDEVICE_ID_UNKNOWN_0x1588, 0, 0,
@@ -5236,14 +5288,18 @@ static const struct pci_device_id serial_pci_tbl[] = {
 		PCI_ANY_ID, PCI_ANY_ID,
 		0, 0, pbn_wch384_4 },
 
+	{	PCIE_VENDOR_ID_WCH, PCIE_DEVICE_ID_WCH_CH384_8S,
+		PCI_ANY_ID, PCI_ANY_ID,
+		0, 0, pbn_wch384_8 },
+
 	/*
 	 * Realtek RealManage
 	 */
-	{	PCI_VENDOR_ID_REALTEK, 0x816a,
+	{       PCI_VENDOR_ID_REALTEK, 0x816a,
 		PCI_ANY_ID, PCI_ANY_ID,
 		0, 0, pbn_b0_1_115200 },
 
-	{	PCI_VENDOR_ID_REALTEK, 0x816b,
+	{       PCI_VENDOR_ID_REALTEK, 0x816b,
 		PCI_ANY_ID, PCI_ANY_ID,
 		0, 0, pbn_b0_1_115200 },
 

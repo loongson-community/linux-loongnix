@@ -8,6 +8,7 @@
  * Copyright (C) 1999, 2000 Silicon Graphics, Inc.
  * Copyright (C) 2014, Imagination Technologies Ltd.
  */
+#include <linux/audit.h>
 #include <linux/cache.h>
 #include <linux/context_tracking.h>
 #include <linux/irqflags.h>
@@ -39,6 +40,7 @@
 #include <asm/dsp.h>
 #include <asm/inst.h>
 #include <asm/msa.h>
+#include <asm/lbt.h>
 
 #include "signal-common.h"
 
@@ -293,6 +295,109 @@ static int restore_extcontext(void __user *buf)
 /*
  * Helper routines
  */
+#if defined(CONFIG_CPU_HAS_LBT)
+static int copy_lbt_to_sigcontext(struct sigcontext __user *sc)
+{
+	/* reuse sc_reserved */
+	uint32_t __user *eflags = (uint32_t *)&sc->sc_reserved;
+	int err;
+
+	err = __put_user(current->thread.eflags, eflags);
+
+	return err;
+}
+
+static int copy_lbt_from_sigcontext(struct sigcontext __user *sc)
+{
+	int err = 0;
+	uint32_t __user *eflags = (uint32_t *)&sc->sc_reserved;
+
+	err |= __get_user(current->thread.eflags, eflags);
+
+	return err;
+}
+
+static int save_lbt_context(struct sigcontext __user *sc)
+{
+	int err = 0;
+	uint32_t __user *eflags = (uint32_t *)&sc->sc_reserved;
+
+	/* save hw register into current->thread.eflags */
+	save_lbt_registers(current);
+
+	err = __put_user(current->thread.eflags, eflags);
+	return err;
+}
+
+static int restore_lbt_context(struct sigcontext __user *sc)
+{
+	int err = 0;
+	uint32_t __user *eflags = (uint32_t *)&sc->sc_reserved;
+
+	err |= __get_user(current->thread.eflags, eflags);
+
+	/* load current->thread.eflags */
+	restore_lbt_registers(current);
+
+	return  err;
+}
+
+static int protected_save_lbt_context(struct sigcontext __user *sc)
+{
+	int err = 0;
+	uint32_t __user *eflags = (uint32_t *)&sc->sc_reserved;
+
+	while (1) {
+		lock_fpu_owner();
+		if (thread_lbt_context_live()) {
+			if (is_lbt_owner()) {
+				save_lbt_context(sc);
+			} else {
+				err |= copy_lbt_to_sigcontext(sc);
+			}
+		}
+
+		unlock_fpu_owner();
+		if (likely(!err))
+			break;
+		err = __put_user(0, eflags);
+
+		if (err)
+			return err;
+	}
+
+	return err;
+}
+
+static int protected_restore_lbt_context(struct sigcontext __user *sc)
+{
+	int err = 0, tmp;
+	uint32_t __user *eflags = (uint32_t *)&sc->sc_reserved;
+
+	while (1) {
+		lock_fpu_owner();
+		if (thread_lbt_context_live()) {
+			if (is_lbt_owner()) {
+				restore_lbt_context(sc);
+			} else {
+				err |= copy_lbt_from_sigcontext(sc);
+			}
+		}
+
+		unlock_fpu_owner();
+		if (likely(!err))
+			break;
+		/* touch the sigcontext and try again */
+		err = __get_user(tmp, eflags);
+
+		if (err)
+			return err;
+	}
+
+	return err;
+}
+#endif
+
 int protected_save_fp_context(void __user *sc)
 {
 	struct mips_abi *abi = current->thread.abi;
@@ -440,6 +545,10 @@ int setup_sigcontext(struct pt_regs *regs, struct sigcontext __user *sc)
 	 */
 	err |= protected_save_fp_context(sc);
 
+#if defined(CONFIG_CPU_HAS_LBT)
+	err |= protected_save_lbt_context(sc);
+#endif
+
 	return err;
 }
 
@@ -512,6 +621,10 @@ int restore_sigcontext(struct pt_regs *regs, struct sigcontext __user *sc)
 
 	for (i = 1; i < 32; i++)
 		err |= __get_user(regs->regs[i], &sc->sc_regs[i]);
+
+#if defined(CONFIG_CPU_HAS_LBT)
+	err |= protected_restore_lbt_context(sc);
+#endif
 
 	return err ?: protected_restore_fp_context(sc);
 }
@@ -761,6 +874,23 @@ struct mips_abi mips_abi = {
 #endif
 	.setup_rt_frame = setup_rt_frame,
 	.restart	= __NR_restart_syscall,
+#ifdef CONFIG_64BIT
+# ifdef __BIG_ENDIAN
+	.audit_arch	= AUDIT_ARCH_MIPS64,
+# elif defined(__LITTLE_ENDIAN)
+	.audit_arch	= AUDIT_ARCH_MIPSEL64,
+# else
+#  error "Neither big nor little endian ???"
+# endif
+#else
+# ifdef __BIG_ENDIAN
+	.audit_arch	= AUDIT_ARCH_MIPS,
+# elif defined(__LITTLE_ENDIAN)
+	.audit_arch	= AUDIT_ARCH_MIPSEL,
+# else
+#  error "Neither big nor little endian ???"
+# endif
+#endif
 
 	.off_sc_fpregs = offsetof(struct sigcontext, sc_fpregs),
 	.off_sc_fpc_csr = offsetof(struct sigcontext, sc_fpc_csr),

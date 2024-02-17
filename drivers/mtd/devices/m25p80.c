@@ -27,10 +27,12 @@
 #include <linux/spi/spi-mem.h>
 #include <linux/spi/flash.h>
 #include <linux/mtd/spi-nor.h>
+#include <linux/reboot.h>
 
 struct m25p {
 	struct spi_mem		*spimem;
 	struct spi_nor		spi_nor;
+	struct notifier_block restart_handler;
 };
 
 static int m25p80_read_reg(struct spi_nor *nor, u8 code, u8 *val, int len)
@@ -155,6 +157,18 @@ static ssize_t m25p80_read(struct spi_nor *nor, loff_t from, size_t len,
 	return len;
 }
 
+static int syscon_restart_handle(struct notifier_block *this,
+					unsigned long mode, void *cmd)
+{
+
+	struct m25p *flash =
+			container_of(this, struct m25p,
+					restart_handler);
+	flash->spi_nor.flags |= SNOR_F_BROKEN_RESET;
+	spi_nor_restore(&flash->spi_nor);
+	return NOTIFY_DONE;
+}
+
 /*
  * board specific setup should have ensured the SPI clock used here
  * matches what the READ command supports, at least until this driver
@@ -231,8 +245,14 @@ static int m25p_probe(struct spi_mem *spimem)
 	if (ret)
 		return ret;
 
-	return mtd_device_register(&nor->mtd, data ? data->parts : NULL,
+	ret = mtd_device_register(&nor->mtd, data ? data->parts : NULL,
 				   data ? data->nr_parts : 0);
+	if (!ret) {
+		flash->restart_handler.notifier_call = syscon_restart_handle;
+		flash->restart_handler.priority = 255;
+		register_restart_handler(&flash->restart_handler);
+	}
+	return ret;
 }
 
 

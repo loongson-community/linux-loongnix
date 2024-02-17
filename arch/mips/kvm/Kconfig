@@ -25,14 +25,20 @@ config KVM
 	select HAVE_KVM_VCPU_ASYNC_IOCTL
 	select KVM_MMIO
 	select MMU_NOTIFIER
+	select HAVE_KVM_IRQCHIP
+	select HAVE_KVM_IRQFD
+	select HAVE_KVM_IRQ_ROUTING
+	select HAVE_KVM_EVENTFD
+	select HAVE_KVM_MSI
 	select SRCU
+	select KVM_VFIO
 	---help---
 	  Support for hosting Guest kernels.
 
 choice
 	prompt "Virtualization mode"
 	depends on KVM
-	default KVM_MIPS_TE
+	default KVM_MIPS_VZ
 
 config KVM_MIPS_TE
 	bool "Trap & Emulate"

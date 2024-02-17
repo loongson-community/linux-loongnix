@@ -499,6 +499,9 @@ int commit_creds(struct cred *new)
 	/* release the old obj and subj refs both */
 	put_cred(old);
 	put_cred(old);
+#if defined(CONFIG_LOONGARCH) || defined(CONFIG_LOONGSON_MACH3X) || defined(CONFIG_LOONGSON_MACH2K)
+	update_vsyscall_cred(new);
+#endif
 	return 0;
 }
 EXPORT_SYMBOL(commit_creds);

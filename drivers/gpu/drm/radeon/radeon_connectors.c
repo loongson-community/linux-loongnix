@@ -1252,7 +1252,7 @@ radeon_dvi_detect(struct drm_connector *connector, bool force)
 	const struct drm_encoder_helper_funcs *encoder_funcs;
 	int r;
 	enum drm_connector_status ret = connector_status_disconnected;
-	bool dret = false, broken_edid = false;
+	bool dret = false, broken_edid = false, connected_hpd = true;
 
 	if (!drm_kms_helper_is_poll_worker()) {
 		r = pm_runtime_get_sync(connector->dev->dev);
@@ -1287,8 +1287,16 @@ radeon_dvi_detect(struct drm_connector *connector, bool force)
 					      msecs_to_jiffies(1000));
 			goto exit;
 		}
+
+		/*for some oland cards, check the hdmi hpd pin status.*/
+		if (dret)
+			connected_hpd =
+				radeon_hpd_sense(rdev,
+					radeon_connector->hpd.hpd);
+
 	}
-	if (dret) {
+
+	if (dret && connected_hpd) {
 		radeon_connector->detected_by_load = false;
 		radeon_connector_free_edid(connector);
 		radeon_connector_get_edid(connector);

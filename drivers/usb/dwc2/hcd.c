@@ -4557,8 +4557,15 @@ static int _dwc2_hcd_resume(struct usb_hcd *hcd)
 
 	spin_lock_irqsave(&hsotg->lock, flags);
 
-	if (dwc2_is_device_mode(hsotg))
+	if (dwc2_is_device_mode(hsotg)) {
+#ifdef CONFIG_CPU_LOONGSON2K
+		if (hsotg->op_state == OTG_STATE_A_HOST) {
+			dwc2_exit_hibernation(hsotg, 0, 1, 1);
+			queue_work(hsotg->wq_otg, &hsotg->wf_otg);
+		}
+#endif
 		goto unlock;
+	}
 
 	if (hsotg->lx_state != DWC2_L2)
 		goto unlock;
@@ -5394,6 +5401,9 @@ int dwc2_hcd_init(struct dwc2_hsotg *hsotg)
 	if (retval < 0)
 		goto error4;
 
+#ifdef CONFIG_CPU_LOONGSON2K
+	pm_suspend_ignore_children(&hcd->self.root_hub->dev, true);
+#endif
 	device_wakeup_enable(hcd->self.controller);
 
 	dwc2_hcd_dump_state(hsotg);

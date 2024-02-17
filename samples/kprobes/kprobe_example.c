@@ -47,6 +47,10 @@ static int handler_pre(struct kprobe *p, struct pt_regs *regs)
 	pr_info("<%s> pre_handler: p->addr, 0x%p, ip = 0x%lx, flags = 0x%lx\n",
 		p->symbol_name, p->addr, regs->psw.addr, regs->flags);
 #endif
+#ifdef CONFIG_LOONGARCH
+	pr_info("<%s> pre_handler: p->addr = 0x%p, era = 0x%lx, status = 0x%lx\n",
+		p->symbol_name, p->addr, regs->csr_era, regs->csr_estat);
+#endif
 
 	/* A dump_stack() here will give a stack backtrace */
 	return 0;
@@ -75,6 +79,10 @@ static void handler_post(struct kprobe *p, struct pt_regs *regs,
 #ifdef CONFIG_S390
 	pr_info("<%s> pre_handler: p->addr, 0x%p, flags = 0x%lx\n",
 		p->symbol_name, p->addr, regs->flags);
+#endif
+#ifdef CONFIG_LOONGARCH
+	pr_info("<%s> post_handler: p->addr = 0x%p, status = 0x%lx\n",
+		p->symbol_name, p->addr, regs->csr_estat);
 #endif
 }
 

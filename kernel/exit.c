@@ -1045,6 +1045,9 @@ static int wait_task_zombie(struct wait_opts *wo, struct task_struct *p)
 	pid_t pid = task_pid_vnr(p);
 	uid_t uid = from_kuid_munged(current_user_ns(), task_uid(p));
 	struct waitid_info *infop;
+#ifdef __loongarch__
+	struct thread_info *thread;
+#endif
 
 	if (!likely(wo->wo_flags & WEXITED))
 		return 0;
@@ -1148,8 +1151,23 @@ static int wait_task_zombie(struct wait_opts *wo, struct task_struct *p)
 		p->exit_state = state;
 		write_unlock_irq(&tasklist_lock);
 	}
-	if (state == EXIT_DEAD)
+	if (state == EXIT_DEAD) {
+#ifdef __loongarch__
+		thread = current_thread_info();
+		/* forked thread execute less than 2 jiffies */
+		thread->will_wait = 0;
+		if (!task_thread_info(p)->is_exec && (p->se.sum_exec_runtime < TICK_NSEC)) {
+			thread->wait_num++;
+			if (thread->wait_num > 20)
+				thread->will_wait = 1;
+			if (time_after_eq(jiffies, thread->last_waittime + 2)) {
+				thread->last_waittime = jiffies;
+				thread->wait_num = 0;
+			}
+		}
+#endif
 		release_task(p);
+	}
 
 out_info:
 	infop = wo->wo_info;

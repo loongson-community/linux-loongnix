@@ -23,7 +23,7 @@
 struct mm_struct;
 struct vm_area_struct;
 
-#define PAGE_NONE	__pgprot(_PAGE_PRESENT | _PAGE_NO_READ | \
+#define PAGE_NONE	__pgprot(_PAGE_PROTNONE | _PAGE_NO_READ | \
 				 _page_cachable_default)
 #define PAGE_SHARED	__pgprot(_PAGE_PRESENT | _PAGE_WRITE | \
 				 _page_cachable_default)
@@ -186,7 +186,7 @@ static inline void pte_clear(struct mm_struct *mm, unsigned long addr, pte_t *pt
 #else
 
 #define pte_none(pte)		(!(pte_val(pte) & ~_PAGE_GLOBAL))
-#define pte_present(pte)	(pte_val(pte) & _PAGE_PRESENT)
+#define pte_present(pte)	(pte_val(pte) & (_PAGE_PRESENT | _PAGE_PROTNONE))
 #define pte_no_exec(pte)	(pte_val(pte) & _PAGE_NO_EXEC)
 
 /*
@@ -229,6 +229,7 @@ static inline void set_pte(pte_t *ptep, pte_t pteval)
 			: [buddy] "+m" (buddy->pte), [tmp] "=&r" (tmp)
 			: [global] "r" (page_global));
 		} else if (kernel_uses_llsc) {
+			loongson_llsc_mb();
 			__asm__ __volatile__ (
 			"	.set	"MIPS_ISA_ARCH_LEVEL"		\n"
 			"	.set	push				\n"
@@ -240,10 +241,12 @@ static inline void set_pte(pte_t *ptep, pte_t pteval)
 			"	beqz	%[tmp], 1b			\n"
 			"	nop					\n"
 			"2:						\n"
+			__WEAK_LLSC_MB
 			"	.set	pop				\n"
 			"	.set	mips0				\n"
 			: [buddy] "+m" (buddy->pte), [tmp] "=&r" (tmp)
 			: [global] "r" (page_global));
+			loongson_llsc_mb();
 		}
 #else /* !CONFIG_SMP */
 		if (pte_none(*buddy))
@@ -257,8 +260,12 @@ static inline void pte_clear(struct mm_struct *mm, unsigned long addr, pte_t *pt
 {
 	htw_stop();
 #if !defined(CONFIG_CPU_R3000) && !defined(CONFIG_CPU_TX39XX)
+	if (pte_val(*ptep_buddy(ptep)) == _PAGE_GLOBAL) {
+		set_pte_at(mm, addr, ptep, __pte(0));
+		set_pte_at(mm, addr, ptep_buddy(ptep), __pte(0));
+	}
 	/* Preserve global status for the pair */
-	if (pte_val(*ptep_buddy(ptep)) & _PAGE_GLOBAL)
+	else if (pte_val(*ptep_buddy(ptep)) & _PAGE_GLOBAL)
 		set_pte_at(mm, addr, ptep, __pte(_PAGE_GLOBAL));
 	else
 #endif
@@ -432,8 +439,21 @@ static inline pte_t pte_mkhuge(pte_t pte)
 }
 #endif /* CONFIG_MIPS_HUGE_TLB_SUPPORT */
 #endif
-static inline int pte_special(pte_t pte)	{ return 0; }
-static inline pte_t pte_mkspecial(pte_t pte)	{ return pte; }
+static inline int pte_special(pte_t pte)	{ return pte_val(pte) & _PAGE_SPECIAL; }
+static inline pte_t pte_mkspecial(pte_t pte)	{ pte_val(pte) |= _PAGE_SPECIAL; return pte; }
+
+#define pte_accessible pte_accessible
+static inline unsigned long pte_accessible(struct mm_struct *mm, pte_t a)
+{
+	if (pte_val(a) & _PAGE_PRESENT)
+		return true;
+
+	if ((pte_val(a) & _PAGE_PROTNONE) &&
+			mm_tlb_flush_pending(mm))
+		return true;
+
+	return false;
+}
 
 /*
  * Macro to make mark a page protection value as "uncacheable".	 Note
@@ -498,21 +518,18 @@ static inline pte_t pte_modify(pte_t pte, pgprot_t newprot)
 
 
 extern void __update_tlb(struct vm_area_struct *vma, unsigned long address,
-	pte_t pte);
+	pte_t *ptep);
 
 static inline void update_mmu_cache(struct vm_area_struct *vma,
 	unsigned long address, pte_t *ptep)
 {
-	pte_t pte = *ptep;
-	__update_tlb(vma, address, pte);
+	__update_tlb(vma, address, ptep);
 }
 
 static inline void update_mmu_cache_pmd(struct vm_area_struct *vma,
 	unsigned long address, pmd_t *pmdp)
 {
-	pte_t pte = *(pte_t *)pmdp;
-
-	__update_tlb(vma, address, pte);
+	__update_tlb(vma, address, (pte_t *) pmdp);
 }
 
 #define kern_addr_valid(addr)	(1)
@@ -542,7 +559,7 @@ extern int has_transparent_hugepage(void);
 
 static inline int pmd_trans_huge(pmd_t pmd)
 {
-	return !!(pmd_val(pmd) & _PAGE_HUGE);
+	return !!(pmd_val(pmd) & _PAGE_HUGE) && pmd_present(pmd);
 }
 
 static inline pmd_t pmd_mkhuge(pmd_t pmd)
@@ -643,7 +660,7 @@ static inline pmd_t pmd_modify(pmd_t pmd, pgprot_t newprot)
 
 static inline pmd_t pmd_mknotpresent(pmd_t pmd)
 {
-	pmd_val(pmd) &= ~(_PAGE_PRESENT | _PAGE_VALID | _PAGE_DIRTY);
+	pmd_val(pmd) &= ~(_PAGE_PRESENT | _PAGE_VALID | _PAGE_DIRTY | _PAGE_PROTNONE);
 
 	return pmd;
 }
@@ -664,6 +681,18 @@ static inline pmd_t pmdp_huge_get_and_clear(struct mm_struct *mm,
 }
 
 #endif /* CONFIG_TRANSPARENT_HUGEPAGE */
+
+#ifdef CONFIG_NUMA_BALANCING
+static inline long pte_protnone(pte_t pte)
+{
+	return (pte_val(pte) & _PAGE_PROTNONE);
+}
+
+static inline long pmd_protnone(pmd_t pmd)
+{
+	return (pmd_val(pmd) & _PAGE_PROTNONE);
+}
+#endif /* CONFIG_NUMA_BALANCING */
 
 #include <asm-generic/pgtable.h>
 
