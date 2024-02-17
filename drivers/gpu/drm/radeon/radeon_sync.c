@@ -162,7 +162,11 @@ int radeon_sync_rings(struct radeon_device *rdev,
 				return r;
 			continue;
 		}
+#if defined(CONFIG_CPU_LOONGSON3) || defined(CONFIG_CPU_LOONGSON64)
+		r = radeon_semaphore_create(rdev, &semaphore, i);
+#else
 		r = radeon_semaphore_create(rdev, &semaphore);
+#endif
 		if (r)
 			return r;
 

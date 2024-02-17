@@ -1551,6 +1551,11 @@ static int amdgpu_device_ip_early_init(struct amdgpu_device *adev)
 	}
 
 	adev->powerplay.pp_feature = amdgpu_pp_feature_mask;
+	if (adev->pdev &&
+		adev->pdev->dev_flags & PCI_DEV_FLAGS_NO_LINK_SPEED_CHANGE) {
+		adev->powerplay.pp_feature &= ~PP_PCIE_DPM_MASK;
+		DRM_INFO("PCIe link speed change disabled!\n");
+	}
 
 	for (i = 0; i < adev->num_ip_blocks; i++) {
 		if ((amdgpu_ip_block_mask & (1 << i)) == 0) {

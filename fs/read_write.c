@@ -1560,9 +1560,17 @@ ssize_t vfs_copy_file_range(struct file *file_in, loff_t pos_in,
 	struct inode *inode_in = file_inode(file_in);
 	struct inode *inode_out = file_inode(file_out);
 	ssize_t ret;
+	loff_t size_in;
 
 	if (flags != 0)
 		return -EINVAL;
+
+	/* Shorten the copy to EOF */
+	size_in = i_size_read(inode_in);
+	if (pos_in >= size_in)
+		len = 0;
+	else
+		len = min(len, size_in - (uint64_t)pos_in);
 
 	if (S_ISDIR(inode_in->i_mode) || S_ISDIR(inode_out->i_mode))
 		return -EISDIR;

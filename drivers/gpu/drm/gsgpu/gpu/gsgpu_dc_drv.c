@@ -322,37 +322,17 @@ static void gsgpu_dc_meta_free(struct gsgpu_device *adev)
 	DRM_INFO("Free crtc number:%d meta addr\n", i);
 }
 
-int gsgpu_dc_atomic_commit(struct drm_device *dev,
-			   struct drm_atomic_state *state,
-			   bool nonblock)
+static int gsgpu_dc_atomic_commit(struct drm_device *dev,
+				  struct drm_atomic_state *state,
+				  bool nonblock)
 {
-	struct drm_crtc *crtc;
-	struct drm_crtc_state *old_crtc_state, *new_crtc_state;
-	struct gsgpu_device *adev = dev->dev_private;
-	int i;
-
-	/*
-	 * We evade vblanks and pflips on crtc that
-	 * should be changed. We do it here to flush & disable
-	 * interrupts before drm_swap_state is called in drm_atomic_helper_commit
-	 * it will update crtc->dm_crtc_state->stream pointer which is used in
-	 * the ISRs.
-	 */
-	for_each_oldnew_crtc_in_state(state, crtc, old_crtc_state, new_crtc_state, i) {
-		struct gsgpu_crtc *acrtc = to_gsgpu_crtc(crtc);
-
-		if (drm_atomic_crtc_needs_modeset(new_crtc_state)) {
-			manage_dc_interrupts(adev, acrtc, false);
-		}
-	}
-
 	return drm_atomic_helper_commit(dev, state, nonblock);
 }
 
 static const struct drm_mode_config_funcs gsgpu_dc_mode_funcs = {
 	.fb_create = gsgpu_display_user_framebuffer_create,
 	.output_poll_changed = drm_fb_helper_output_poll_changed,
-    .atomic_check = drm_atomic_helper_check,
+	.atomic_check = drm_atomic_helper_check,
 	.atomic_commit = gsgpu_dc_atomic_commit,
 };
 
@@ -627,6 +607,21 @@ void gsgpu_dc_atomic_commit_tail(struct drm_atomic_state *state)
 	unsigned long flags;
 	bool wait_for_vblank = true;
 	int crtc_disable_count = 0;
+
+	/*
+	 * We evade vblanks and pflips on crtc that
+	 * should be changed. We do it here to flush & disable
+	 * interrupts before drm_swap_state is called in drm_atomic_helper_commit
+	 * it will update crtc->dm_crtc_state->stream pointer which is used in
+	 * the ISRs.
+	 */
+	for_each_oldnew_crtc_in_state(state, crtc, old_crtc_state, new_crtc_state, i) {
+		struct gsgpu_crtc *acrtc = to_gsgpu_crtc(crtc);
+
+		if (drm_atomic_crtc_needs_modeset(new_crtc_state)) {
+			manage_dc_interrupts(adev, acrtc, false);
+		}
+	}
 
 	drm_atomic_helper_update_legacy_modeset_state(dev, state);
 
@@ -966,11 +961,11 @@ static int dc_suspend(void *handle)
 
 	WARN_ON(adev->dc->cached_state);
 
+	adev->dc->cached_state = drm_atomic_helper_suspend(adev->ddev);
+
 	gsgpu_hdmi_suspend(adev);
 	gsgpu_dc_meta_disable(adev);
 	gsgpu_dc_hpd_disable(adev);
-
-	adev->dc->cached_state = drm_atomic_helper_suspend(adev->ddev);
 
 	return 0;
 }

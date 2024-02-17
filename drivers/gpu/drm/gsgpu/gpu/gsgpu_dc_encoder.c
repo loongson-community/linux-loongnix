@@ -3,6 +3,7 @@
 #include "gsgpu.h"
 #include "gsgpu_dc.h"
 #include "gsgpu_dc_encoder.h"
+#include "bridge_phy.h"
 
 static void dc_encoder_destroy(struct drm_encoder *encoder)
 {
@@ -24,6 +25,10 @@ static int dc_encoder_helper_atomic_check(struct drm_encoder *encoder,
 					  struct drm_crtc_state *crtc_state,
 					  struct drm_connector_state *conn_state)
 {
+	struct gsgpu_encoder *lencoder = to_gsgpu_encoder(encoder);
+
+	bridge_phy_mode_set(lencoder->bridge, &crtc_state->mode, NULL);
+
 	return 0;
 }
 

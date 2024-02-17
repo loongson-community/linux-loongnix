@@ -207,6 +207,8 @@ enum pci_dev_flags {
 	PCI_DEV_FLAGS_NO_RELAXED_ORDERING = (__force pci_dev_flags_t) (1 << 11),
 	/* Don't increase BIOS's MRRS configuration */
 	PCI_DEV_FLAGS_NO_INCREASE_MRRS = (__force pci_dev_flags_t) (1 << 12),
+	/* Don't change the PCIe link speed */
+	PCI_DEV_FLAGS_NO_LINK_SPEED_CHANGE = (__force pci_dev_flags_t) (1 << 15),
 };
 
 enum pci_irq_reroute_variant {

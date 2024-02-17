@@ -1071,7 +1071,7 @@ static void xdma_emit_fill_buffer(struct gsgpu_ib *ib,
 	ib->ptr[ib->length_dw++] = lower_32_bits(dst_offset);
 	ib->ptr[ib->length_dw++] = upper_32_bits(dst_offset) | dst_umap;
 	ib->ptr[ib->length_dw++] = 0;
-	ib->ptr[ib->length_dw++] = (width ? width : 1) * GSGPU_VM_PDE_PTE_BYTES;
+	ib->ptr[ib->length_dw++] = (width ? width : 1) * 4;
 	ib->ptr[ib->length_dw++] = 0;
 }
 

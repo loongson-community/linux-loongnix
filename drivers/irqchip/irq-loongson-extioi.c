@@ -254,7 +254,7 @@ static int extioi_domain_alloc(struct irq_domain *domain, unsigned int virq,
 
 	extioi_domain_translate(domain, arg, &hwirq, &type);
 
-	if (hwirq >= CSR_EXTIOI_VECTOR_NUM)
+	if (hwirq >= priv->vec_count)
 		return -EINVAL;
 
 	for (i = 0; i < nr_irqs; i++) {

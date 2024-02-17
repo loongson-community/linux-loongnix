@@ -318,7 +318,11 @@ void radeon_test_ring_sync(struct radeon_device *rdev,
 	struct radeon_semaphore *semaphore = NULL;
 	int r;
 
+#if defined(CONFIG_CPU_LOONGSON3) || defined(CONFIG_CPU_LOONGSON64)
+	r = radeon_semaphore_create(rdev, &semaphore, -1);
+#else
 	r = radeon_semaphore_create(rdev, &semaphore);
+#endif
 	if (r) {
 		DRM_ERROR("Failed to create semaphore\n");
 		goto out_cleanup;
@@ -413,7 +417,11 @@ static void radeon_test_ring_sync2(struct radeon_device *rdev,
 	bool sigA, sigB;
 	int i, r;
 
+#if defined(CONFIG_CPU_LOONGSON3) || defined(CONFIG_CPU_LOONGSON64)
+	r = radeon_semaphore_create(rdev, &semaphore, -1);
+#else
 	r = radeon_semaphore_create(rdev, &semaphore);
+#endif
 	if (r) {
 		DRM_ERROR("Failed to create semaphore\n");
 		goto out_cleanup;

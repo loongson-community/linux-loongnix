@@ -11,6 +11,7 @@
 #include <drm/drm_bridge.h>
 #include <drm/drm_connector.h>
 #include <video/videomode.h>
+#include "gsgpu.h"
 
 /* MISC: 0x00~-0x0f */
 #define ENCODER_OBJECT_ID_NONE 0x00
@@ -187,7 +188,7 @@ struct bridge_phy_cfg_funcs {
 	int (*mode_set_pre)(struct drm_bridge *bridge,
 			    const struct drm_display_mode *mode,
 			    const struct drm_display_mode *adj_mode);
-	int (*mode_set)(struct drm_bridge *bridge,
+	int (*mode_set)(struct gsgpu_bridge_phy *phy,
 			const struct drm_display_mode *mode,
 			const struct drm_display_mode *adj_mode);
 	int (*mode_set_post)(struct drm_bridge *bridge,
@@ -284,5 +285,8 @@ int bridge_phy_register(struct gsgpu_bridge_phy *phy,
 int bridge_phy_lt6711_init(struct gsgpu_dc_bridge *dc_bridge);
 int bridge_phy_lt9721_init(struct gsgpu_dc_bridge *res);
 int bridge_phy_lt8619_init(struct gsgpu_dc_bridge *dc_bridge);
-
+int bridge_phy_ncs8805_init(struct gsgpu_dc_bridge *dc_bridge);
+void bridge_phy_mode_set(struct gsgpu_bridge_phy *phy,
+				struct drm_display_mode *mode,
+				struct drm_display_mode *adj_mode);
 #endif /* __BRIDGE_PHY_H__ */

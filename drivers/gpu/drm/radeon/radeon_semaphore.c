@@ -31,16 +31,28 @@
 #include "radeon.h"
 #include "radeon_trace.h"
 
+#if defined(CONFIG_CPU_LOONGSON3) || defined(CONFIG_CPU_LOONGSON64)
 int radeon_semaphore_create(struct radeon_device *rdev,
-			    struct radeon_semaphore **semaphore)
+			    struct radeon_semaphore **semaphore,
+			    int idx
+#else
+			    struct radeon_semaphore **semaphore
+#endif
+)
 {
 	int r;
+	struct radeon_sa_manager *sa_manager;
+
+	if (idx != -1 && rdev->ring[idx].pool_ready)
+		sa_manager = &rdev->ring[idx].sa_manager;
+	else
+		sa_manager = &rdev->ring_tmp_bo;
 
 	*semaphore = kmalloc(sizeof(struct radeon_semaphore), GFP_KERNEL);
 	if (*semaphore == NULL) {
 		return -ENOMEM;
 	}
-	r = radeon_sa_bo_new(rdev, &rdev->ring_tmp_bo,
+	r = radeon_sa_bo_new(rdev, sa_manager,
 			     &(*semaphore)->sa_bo, 8, 8);
 	if (r) {
 		kfree(*semaphore);

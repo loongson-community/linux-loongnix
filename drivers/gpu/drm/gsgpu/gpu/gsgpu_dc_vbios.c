@@ -230,6 +230,21 @@ static bool parse_vbios_gpu(struct vbios_desc *vb_desc, struct gsgpu_vbios *vbio
 	return ret;
 }
 
+static bool parse_vbios_ext_encoder(struct vbios_desc *vb_desc, struct gsgpu_vbios *vbios)
+{
+	bool ret = false;
+	u8 *data;
+
+	if (IS_ERR_OR_NULL(vb_desc) || IS_ERR_OR_NULL(vbios))
+		return ret;
+
+	data = (u8 *)vbios->vbios_ptr + vb_desc->offset;
+	if (vbios->funcs && vbios->funcs->create_ext_encoder_resource)
+		ret = vbios->funcs->create_ext_encoder_resource(vbios, data, vb_desc->link, vb_desc->size);
+
+	return ret;
+}
+
 static bool parse_vbios_default(struct vbios_desc *vb_desc, struct gsgpu_vbios *vbios)
 {
 	DRM_ERROR("Current descriptor[T-%d][V-%d] cannot be interprete.\n",
@@ -250,6 +265,7 @@ static struct desc_func tables[] = {
 	FUNC(desc_i2c, ver_v1, parse_vbios_i2c),
 	FUNC(desc_pwm, ver_v1, parse_vbios_pwm),
 	FUNC(desc_gpu, ver_v1, parse_vbios_gpu),
+	FUNC(desc_res_encoder, ver_v1, parse_vbios_ext_encoder),
 };
 
 static inline parse_func *get_parse_func(struct vbios_desc *desc)
@@ -604,6 +620,34 @@ static bool vbios_create_gpu_resource(struct gsgpu_vbios *vbios, void *data, u32
 	return true;
 }
 
+static bool vbios_create_ext_encoder_resource(struct gsgpu_vbios *vbios, void *data, u32 link, u32 size)
+{
+	struct ext_encoder_resources *ext_encoder_resource;
+	struct vbios_ext_encoder vb_ext_encoder;
+	u32 ext_encoder_size;
+
+	if (IS_ERR_OR_NULL(vbios) || IS_ERR_OR_NULL(data))
+		return false;
+
+	ext_encoder_resource = kvmalloc(sizeof(*ext_encoder_resource), GFP_KERNEL);
+	if (IS_ERR_OR_NULL(ext_encoder_resource))
+		return false;
+
+	ext_encoder_size = sizeof(struct vbios_ext_encoder);
+	memset(&vb_ext_encoder, VBIOS_DATA_INVAL, ext_encoder_size);
+	memcpy(&vb_ext_encoder, data, min(size, ext_encoder_size));
+
+	ext_encoder_resource->base.link = link;
+	ext_encoder_resource->base.type = GSGPU_RESOURCE_EXT_ENCODER;
+
+	ext_encoder_resource->data_checksum = vb_ext_encoder.data_checksum;
+	ext_encoder_resource->data_size = vb_ext_encoder.data_size;
+	memcpy(ext_encoder_resource->data, vb_ext_encoder.data, vb_ext_encoder.data_size);
+
+	list_add_tail(&ext_encoder_resource->base.node, &vbios->resource_list);
+	return true;
+}
+
 static struct header_resource *vbios_get_header_resource(struct gsgpu_vbios *vbios)
 {
 	struct resource_object *entry;
@@ -757,6 +801,27 @@ static struct gpu_resource *vbios_get_gpu_resource(struct gsgpu_vbios *vbios, u3
 	return NULL;
 }
 
+static struct ext_encoder_resources *vbios_get_ext_encoder_resource(struct gsgpu_vbios *vbios, u32 link)
+{
+	struct resource_object *entry;
+	struct ext_encoder_resources *ext_encoder_resources;
+
+	if (IS_ERR_OR_NULL(vbios))
+		return NULL;
+
+	if (list_empty(&vbios->resource_list))
+		return NULL;
+
+	list_for_each_entry (entry, &vbios->resource_list, node) {
+		if ((entry->link == link) && (entry->type == GSGPU_RESOURCE_EXT_ENCODER)) {
+			ext_encoder_resources = container_of(entry, struct ext_encoder_resources, base);
+			return ext_encoder_resources;
+		}
+	}
+
+	return NULL;
+}
+
 static struct vbios_funcs vbios_funcs = {
 	.resource_pool_create = vbios_resource_pool_create,
 	.resource_pool_destory = vbios_resource_pool_destory,
@@ -769,6 +834,7 @@ static struct vbios_funcs vbios_funcs = {
 	.create_gpio_resource = vbios_create_gpio_resource,
 	.create_pwm_resource = vbios_create_pwm_resource,
 	.create_gpu_resource = vbios_create_gpu_resource,
+	.create_ext_encoder_resource = vbios_create_ext_encoder_resource,
 
 	.get_header_resource = vbios_get_header_resource,
 	.get_crtc_resource = vbios_get_crtc_resource,
@@ -778,6 +844,7 @@ static struct vbios_funcs vbios_funcs = {
 	.get_gpio_resource = vbios_get_gpio_resource,
 	.get_pwm_resource = vbios_get_pwm_resource,
 	.get_gpu_resource = vbios_get_gpu_resource,
+	.get_ext_encoder_resource = vbios_get_ext_encoder_resource,
 };
 
 u8 gsgpu_vbios_checksum(const u8 *data, int size)
@@ -853,6 +920,10 @@ void *dc_get_vbios_resource(struct gsgpu_vbios *vbios, u32 link,
 		if (vbios->funcs->get_gpu_resource)
 			return (void *)vbios->funcs->get_gpu_resource(vbios, 0);
 		break;
+	case GSGPU_RESOURCE_EXT_ENCODER:
+		if (vbios->funcs->get_ext_encoder_resource)
+			return (void *)vbios->funcs->get_ext_encoder_resource(vbios, link);
+		break;
 	default:
 		return NULL;
 		break;
@@ -891,13 +962,10 @@ void dc_vbios_show(struct gsgpu_vbios *vbios)
 	if (!gpu_res)
 		DRM_WARN("The video memory and gpu information is not obtained from the vbios! \n");
 	else {
-		DRM_INFO("GSGPU vram type:%s, bit width:%d#bit",
-			vram_type[gpu_res->vram_type], gpu_res->bit_width);
-		DRM_INFO("capacity:%d#MB, vram freq:%dMHZ\n",
-			gpu_res->cap, gpu_res->freq);
-		DRM_INFO("gpu shaders num:%d, shader freq:%d#MHZ, freq count:%d",
-			gpu_res->shaders_num, gpu_res->shaders_freq,
-			gpu_res->count_freq);
+		dev_info(vbios->dc->adev->dev, "VRAM: %dM %s %dbit %dMhz.\n",
+			gpu_res->cap, vram_type[gpu_res->vram_type], gpu_res->bit_width, gpu_res->freq);
+		dev_info(vbios->dc->adev->dev, "GSGPU: shaders_num: %d, shaders_freq: %d, freq_count: %d.\n",
+			gpu_res->shaders_num, gpu_res->shaders_freq, gpu_res->count_freq);
 	}
 }
 
@@ -915,6 +983,7 @@ bool dc_vbios_init(struct gsgpu_dc *dc)
 		return false;
 
 	dc->vbios->funcs = &vbios_funcs;
+	dc->vbios->dc = dc;
 	INIT_LIST_HEAD(&dc->vbios->resource_list);
 
 	status = get_vbios_data(dc);
@@ -973,6 +1042,7 @@ bool check_vbios_info(void)
 	bool get_vbios = false;
 
 	struct pci_dev *pdev = pci_get_device(0x0014, 0x7A25, NULL);
+	pci_enable_device(pdev);
 	resource_size_t vram_base = pci_resource_start(pdev, 2);
 	resource_size_t vram_size = pci_resource_len(pdev, 2);
 	u64 vbios_addr = vram_base + vram_size - VBIOS_OFFSET;
@@ -1061,6 +1131,7 @@ sysconf:
 		case EDP_LT9721:
 		case EDP_LT6711:
 		case LVDS_LT8619:
+		case EDP_NCS8805:
 			support = true;
 			break;
 		default:

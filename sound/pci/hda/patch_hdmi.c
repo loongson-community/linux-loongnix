@@ -3834,6 +3834,26 @@ static int patch_atihdmi(struct hda_codec *codec)
 	return 0;
 }
 
+static int patch_lshdmi(struct hda_codec *codec)
+{
+	int ret;
+	struct hdmi_spec_per_cvt *per_cvt;
+	int cvt_idx;
+	struct hdmi_spec *spec;
+
+	ret = patch_generic_hdmi(codec);
+	if (ret < 0)
+		return ret;
+
+	spec = codec->spec;
+	for (cvt_idx = 0; cvt_idx < spec->num_cvts; cvt_idx++) {
+		per_cvt = get_cvt(spec, cvt_idx);
+		per_cvt->rates &= ~SNDRV_PCM_RATE_44100;
+	}
+
+	return 0;
+}
+
 /* VIA HDMI Implementation */
 #define VIAHDMI_CVT_NID	0x02	/* audio converter1 */
 #define VIAHDMI_PIN_NID	0x03	/* HDMI output pin1 */
@@ -3948,7 +3968,7 @@ HDA_CODEC_ENTRY(0x8086280c, "Cannonlake HDMI",	patch_i915_glk_hdmi),
 HDA_CODEC_ENTRY(0x8086280d, "Geminilake HDMI",	patch_i915_glk_hdmi),
 HDA_CODEC_ENTRY(0x80862800, "Geminilake HDMI",	patch_i915_glk_hdmi),
 HDA_CODEC_ENTRY(0x80862880, "CedarTrail HDMI",	patch_generic_hdmi),
-HDA_CODEC_ENTRY(0x00147a47, "Loongson HDMI",	patch_generic_hdmi),
+HDA_CODEC_ENTRY(0x00147a47, "Loongson HDMI",	patch_lshdmi),
 HDA_CODEC_ENTRY(0x80862882, "Valleyview2 HDMI",	patch_i915_byt_hdmi),
 HDA_CODEC_ENTRY(0x80862883, "Braswell HDMI",	patch_i915_byt_hdmi),
 HDA_CODEC_ENTRY(0x808629fb, "Crestline HDMI",	patch_generic_hdmi),

@@ -224,8 +224,9 @@ bool dc_crtc_timing_set(struct gsgpu_dc_crtc *crtc, struct dc_timing_info *timin
 bool dc_crtc_enable(struct gsgpu_crtc *acrtc, bool enable)
 {
 	struct gsgpu_device *adev = acrtc->base.dev->dev_private;
-	u32 crtc_cfg, hdmi_ctrl, crtc_pan;
+	u32 crtc_cfg, crtc_pan;
 	u32 hsync_val, vsync_val;
+	u32 hdmi_phy;
 	u32 crtc_id;
 
 	if (IS_ERR_OR_NULL(acrtc))
@@ -236,21 +237,21 @@ bool dc_crtc_enable(struct gsgpu_crtc *acrtc, bool enable)
 		return false;
 
 	crtc_cfg = dc_readl(adev, CURRENT_REG(DC_CRTC_CFG_REG, crtc_id));
-	hdmi_ctrl = dc_readl(adev, CURRENT_REG(DC_HDMI_CTRL_REG, crtc_id));
+	hdmi_phy = dc_readl(adev, CURRENT_REG(DC_HDMI_PHY_CTRL_REG, crtc_id));
 	crtc_pan = dc_readl(adev, CURRENT_REG(DC_CRTC_PANELCFG_REG, crtc_id));
 	hsync_val = dc_readl(adev, CURRENT_REG(DC_CRTC_HSYNC_REG, crtc_id));
 	vsync_val = dc_readl(adev, CURRENT_REG(DC_CRTC_VSYNC_REG, crtc_id));
 
 	if (enable) {
 		crtc_cfg |= CRTC_CFG_ENABLE;
-		hdmi_ctrl |= HDMI_CTRL_ENABLE;
+		hdmi_phy |= HDMI_PHY_CTRL_ENABLE;
 		crtc_pan |= CRTC_PANCFG_DE;
 		crtc_pan |= CRTC_PANCFG_CLKEN;
 		hsync_val |= CRTC_HSYNC_POLSE;
 		vsync_val |= CRTC_VSYNC_POLSE;
 	} else {
 		crtc_cfg &= ~CRTC_CFG_ENABLE;
-		hdmi_ctrl &= ~HDMI_CTRL_ENABLE;
+		hdmi_phy &= ~HDMI_PHY_CTRL_ENABLE;
 		crtc_pan &= ~CRTC_PANCFG_DE;
 		crtc_pan &= ~CRTC_PANCFG_CLKEN;
 		hsync_val &= ~CRTC_HSYNC_POLSE;
@@ -258,7 +259,7 @@ bool dc_crtc_enable(struct gsgpu_crtc *acrtc, bool enable)
 	}
 
 	dc_writel(adev, CURRENT_REG(DC_CRTC_CFG_REG, crtc_id), crtc_cfg);
-	dc_writel(adev, CURRENT_REG(DC_HDMI_CTRL_REG, crtc_id), hdmi_ctrl);
+	dc_writel(adev, CURRENT_REG(DC_HDMI_PHY_CTRL_REG, crtc_id), hdmi_phy);
 	dc_writel(adev, CURRENT_REG(DC_CRTC_PANELCFG_REG, crtc_id), crtc_pan);
 	dc_writel(adev, CURRENT_REG(DC_CRTC_HSYNC_REG, crtc_id), hsync_val);
 	dc_writel(adev, CURRENT_REG(DC_CRTC_VSYNC_REG, crtc_id), vsync_val);
@@ -490,7 +491,7 @@ static enum drm_mode_status gsgpu_dc_mode_valid(struct drm_crtc *crtc,
 			return MODE_BAD;
 		else if (mode->hdisplay > 4096)
 			return MODE_BAD;
-		if (mode->vdisplay > 1080 && crtc->index == 1)
+		if (mode->vdisplay > 1200 && crtc->index == 1)
 			return MODE_BAD;
 		else if (mode->vdisplay > 2160)
 			return MODE_BAD;

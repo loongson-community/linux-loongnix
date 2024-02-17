@@ -20,6 +20,8 @@
 #define SET_LEVEL6  6
 #define SET_LEVEL7  7
 
+#define STATIC_FREQ						0x00
+
 static ssize_t gsgpu_get_gpu_clk(struct device *dev,
 		struct device_attribute *attr,
 		char *buf)
@@ -112,7 +114,7 @@ static ssize_t gsgpu_read_level(const char *buf, size_t count, uint32_t max_leve
 		return -EINVAL;
 
 	ret = simple_strtoul(sub_str, str, 10);
-	if (ret >= 0 || ret <= (max_level - 1))
+	if (ret >= 0 && ret <= (max_level - 1))
 		return ret;
 	else
 		return -EINVAL;
@@ -169,7 +171,7 @@ static ssize_t gsgpu_set_gpu_clk(struct device *dev,
 		break;
 	}
 
-	gsgpu_cmd_exec(adev, GSCMD(GSCMD_FREQ, level), 0, 0);
+	gsgpu_cmd_exec(adev, GSCMD(GSCMD_FREQ, STATIC_FREQ), level, 0);
 
 	return count;
 }

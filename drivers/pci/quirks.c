@@ -263,7 +263,7 @@ static void loongson_pci_pin_quirk(struct pci_dev *dev)
 }
 DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_LOONGSON, PCI_ANY_ID, loongson_pci_pin_quirk);
 
-static void loongson_d3_quirk(struct pci_dev *dev)
+static void loongson_d3_and_link_quirk(struct pci_dev *dev)
 {
 	struct pci_bus *bus = dev->bus;
 	struct pci_dev *bridge;
@@ -281,14 +281,15 @@ static void loongson_d3_quirk(struct pci_dev *dev)
 		bus = bus->parent;
 
 		if (bridge && pci_match_id(bridge_devids, bridge)) {
-			dev->dev_flags |= PCI_DEV_FLAGS_NO_D3;
+			dev->dev_flags |= (PCI_DEV_FLAGS_NO_D3 |
+					   PCI_DEV_FLAGS_NO_LINK_SPEED_CHANGE);
 			dev->no_d1d2 = 1;
 
 			break;
 		}
 	}
 }
-DECLARE_PCI_FIXUP_ENABLE(PCI_ANY_ID, PCI_ANY_ID, loongson_d3_quirk);
+DECLARE_PCI_FIXUP_ENABLE(PCI_ANY_ID, PCI_ANY_ID, loongson_d3_and_link_quirk);
 static void loongson_mrrs_quirk(struct pci_dev *dev)
 {
 	struct pci_bus *bus = dev->bus;

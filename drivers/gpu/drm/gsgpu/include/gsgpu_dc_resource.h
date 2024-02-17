@@ -1,9 +1,11 @@
 #ifndef __DC_RESOURCE_H__
 #define __DC_RESOURCE_H__
+#define ENCODER_DATA_MAX  (1024*8)
 
 enum resource_type {
 	GSGPU_RESOURCE_DEFAULT,
 	GSGPU_RESOURCE_HEADER,
+	GSGPU_RESOURCE_EXT_ENCODER,
 	GSGPU_RESOURCE_GPU,
 	GSGPU_RESOURCE_GPIO,
 	GSGPU_RESOURCE_I2C,
@@ -98,6 +100,13 @@ struct gpu_resource {
 	u32 freq;
 	u32 shaders_num;
 	u32 shaders_freq;
+};
+
+struct ext_encoder_resources {
+	struct resource_object base;
+	u32 data_checksum;
+	u32 data_size;
+	u8 data[ENCODER_DATA_MAX-8];
 };
 
 enum gpio_placement {

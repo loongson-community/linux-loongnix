@@ -177,8 +177,12 @@ void amdgpu_bo_placement_from_domain(struct amdgpu_bo *abo, u32 domain)
 			places[c].lpfn = 0;
 		places[c].flags = TTM_PL_FLAG_TT;
 		if (flags & AMDGPU_GEM_CREATE_CPU_GTT_USWC)
+#ifdef CONFIG_LOONGARCH
+			places[c].flags |= TTM_PL_FLAG_CACHED;
+#else
 			places[c].flags |= TTM_PL_FLAG_WC |
 				TTM_PL_FLAG_UNCACHED;
+#endif
 		else if (dev_is_coherent(NULL))
 			places[c].flags |= TTM_PL_FLAG_CACHED;
 		else

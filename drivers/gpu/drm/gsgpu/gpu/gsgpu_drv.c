@@ -13,6 +13,7 @@
 #include "gsgpu.h"
 #include "gsgpu_irq.h"
 #include "gsgpu_dc_vbios.h"
+#include "gsgpu_dc_reg.h"
 
 #define KMS_DRIVER_MAJOR	0
 #define KMS_DRIVER_MINOR	1
@@ -420,9 +421,23 @@ static int loongson_vga_pci_register(struct pci_dev *pdev,
 
 {
 	int ret;
+	u32 crtc_cfg;
+	u32 i;
+	resource_size_t dc_rmmio_base;
+	resource_size_t dc_rmmio_size;
+	void __iomem *dc_rmmio;
 
 	ret = pci_enable_device(pdev);
 	loongson_dc_pdev = pdev;
+	dc_rmmio_base = pci_resource_start(pdev, 0);
+	dc_rmmio_size = pci_resource_len(pdev, 0);
+	dc_rmmio = pci_iomap(pdev, 0, dc_rmmio_size);
+
+	for (i = 0; i < 2; i++) {
+		crtc_cfg = readl(dc_rmmio + DC_CRTC_CFG_REG + (i * 0x10));
+		crtc_cfg &= ~CRTC_CFG_ENABLE;
+		writel(crtc_cfg, dc_rmmio + DC_CRTC_CFG_REG + (i * 0x10));
+	}
 
 	return ret;
 }
@@ -571,7 +586,7 @@ static int __init gsgpu_init(void)
 		if (!gsgpu_lg100_support || (pdev->device != 0x7a36))
 			return -EINVAL;
 
-		fw_file = filp_open("/usr/lib/firmware/loongson/lg100_cp.bin",
+		fw_file = filp_open("/lib/firmware/loongson/lg100_cp.bin",
 				    O_RDONLY, 0600);
 		if (IS_ERR(fw_file))
 			return -EINVAL;

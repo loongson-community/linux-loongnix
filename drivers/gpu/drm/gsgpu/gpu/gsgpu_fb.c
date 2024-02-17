@@ -169,6 +169,7 @@ static int gsgpufb_create(struct drm_fb_helper *helper,
 	struct drm_mode_fb_cmd2 mode_cmd;
 	struct drm_gem_object *gobj = NULL;
 	struct gsgpu_bo *abo = NULL;
+	unsigned long tmp;
 	int ret;
 
 	mode_cmd.width = sizes->surface_width;
@@ -217,10 +218,8 @@ static int gsgpufb_create(struct drm_fb_helper *helper,
 	info->fbops = &gsgpufb_ops;
 
 	/* not alloc from VRAM but GTT */
-	//tmp = gsgpu_bo_gpu_offset(abo) - adev->gmc.vram_start;
-	//info->fix.smem_start = adev->gmc.aper_base + tmp;
-	//info->fix.smem_start = page_to_pfn(abo->tbo.ttm->pages[0]) << PAGE_SHIFT;
-	info->fix.smem_start = adev->gmc.aper_base;
+	tmp = gsgpu_bo_gpu_offset(abo) - adev->gmc.vram_start;
+	info->fix.smem_start = adev->gmc.aper_base + tmp;
 	info->fix.smem_len = gsgpu_bo_size(abo);
 	info->screen_base = gsgpu_bo_kptr(abo);
 	info->screen_size = gsgpu_bo_size(abo);

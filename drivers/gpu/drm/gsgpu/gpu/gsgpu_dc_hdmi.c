@@ -161,15 +161,6 @@ int gsgpu_hdmi_init(struct gsgpu_device *adev)
 	u32 link = 0;
 
 	for (link = 0; link < 2; link++) {
-		/* init gamma */
-		dc_writel(adev, DC_CRTC_GAMINDEX_REG + (link * 0x10), 0x0);
-		val = 0xffffff;
-		val1 = 0x10101;
-		for (i = 0; i < 256; i++) {
-			dc_writel(adev, DC_CRTC_GAMDATA_REG + (link * 0x10), val);
-			val -= val1;
-		}
-
 		/* enable hdmi */
 		dc_writel(adev, DC_HDMI_CTRL_REG + (link * 0x10), 0x287);
 

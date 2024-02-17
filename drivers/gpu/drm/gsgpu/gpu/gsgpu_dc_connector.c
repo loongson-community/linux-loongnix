@@ -69,7 +69,7 @@ static bool is_connected(struct drm_connector *connector)
 	struct i2c_adapter *adapter;
 	struct i2c_msg msgs = {
 		.addr = DDC_ADDR,
-		.flags = 0,
+		.flags = I2C_M_RD,
 		.len = 1,
 		.buf = &start,
 	};

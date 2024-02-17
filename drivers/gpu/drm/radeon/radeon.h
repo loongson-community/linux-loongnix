@@ -600,7 +600,13 @@ struct radeon_semaphore {
 };
 
 int radeon_semaphore_create(struct radeon_device *rdev,
-			    struct radeon_semaphore **semaphore);
+#if defined(CONFIG_CPU_LOONGSON3) || defined(CONFIG_CPU_LOONGSON64)
+			    struct radeon_semaphore **semaphore,
+				int idx
+#else
+			    struct radeon_semaphore **semaphore
+#endif
+);
 bool radeon_semaphore_emit_signal(struct radeon_device *rdev, int ring,
 				  struct radeon_semaphore *semaphore);
 bool radeon_semaphore_emit_wait(struct radeon_device *rdev, int ring,
@@ -864,6 +870,10 @@ struct radeon_ring {
 	struct radeon_bo	*mqd_obj;
 	u32 doorbell_index;
 	unsigned		wptr_offs;
+#if defined(CONFIG_CPU_LOONGSON3) || defined(CONFIG_CPU_LOONGSON64)
+	unsigned		pool_ready;
+	struct radeon_sa_manager sa_manager;
+#endif
 };
 
 struct radeon_mec {

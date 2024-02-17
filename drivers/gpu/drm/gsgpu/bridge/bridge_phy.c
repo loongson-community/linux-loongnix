@@ -84,24 +84,7 @@ static struct drm_connector_helper_funcs bridge_phy_connector_helper_funcs = {
 static enum drm_connector_status
 bridge_phy_connector_detect(struct drm_connector *connector, bool force)
 {
-	struct gsgpu_device *adev = connector->dev->dev_private;
-	struct gsgpu_bridge_phy *phy =
-		adev->mode_info.encoders[connector->index]->bridge;
-	enum drm_connector_status status = connector_status_unknown;
-
-	if (phy->hpd_funcs && phy->hpd_funcs->get_hpd_status) {
-		status = phy->hpd_funcs->get_hpd_status(phy)
-			? connector_status_connected
-			: connector_status_disconnected;
-	}
-
-	DRM_DEBUG_DRIVER("[Bridge_phy] %s [CONNECTOR:%d:%s:%s] detect: %s.\n",
-			 phy->res->chip_name, connector->base.id,
-			 connector->name,
-			 connector->polled & DRM_CONNECTOR_POLL_HPD ?
-			"HPD" : "POLL", drm_get_connector_status_name(status));
-
-	return status;
+	return connector_status_connected;
 }
 
 static const struct drm_connector_funcs bridge_phy_connector_funcs = {
@@ -146,28 +129,25 @@ static int __bridge_phy_mode_set(struct gsgpu_bridge_phy *phy,
 				 const struct drm_display_mode *mode,
 				 const struct drm_display_mode *adj_mode)
 {
-	if (phy->cfg_funcs && !phy->cfg_funcs->mode_set) {
-		DRM_ERROR("Missing necessary feature mode_set\n");
-		return -EPERM;
-	}
 	if (phy->mode_config.input_mode.gen_sync)
 		DRM_DEBUG("[Bridge_phy] [%s] bridge_phy gen_sync\n",
 				phy->res->chip_name);
 	if (phy->cfg_funcs && phy->cfg_funcs->mode_set_pre)
 		phy->cfg_funcs->mode_set_pre(&phy->bridge, mode, adj_mode);
 	if (phy->cfg_funcs && phy->cfg_funcs->mode_set)
-		phy->cfg_funcs->mode_set(&phy->bridge, mode, adj_mode);
+		phy->cfg_funcs->mode_set(phy, mode, adj_mode);
 	if (phy->cfg_funcs && phy->cfg_funcs->mode_set_post)
 		phy->cfg_funcs->mode_set_post(&phy->bridge, mode, adj_mode);
 
 	return 0;
 }
 
-static void bridge_phy_mode_set(struct drm_bridge *bridge,
+void bridge_phy_mode_set(struct gsgpu_bridge_phy *phy,
 				struct drm_display_mode *mode,
 				struct drm_display_mode *adj_mode)
 {
-	struct gsgpu_bridge_phy *phy = to_bridge_phy(bridge);
+	if (!phy)
+		return;
 
 	DRM_DEBUG("[Bridge_phy] [%s] mode set\n", phy->res->chip_name);
 	drm_mode_debug_printmodeline(mode);
@@ -244,7 +224,6 @@ static int bridge_phy_attach(struct drm_bridge *bridge)
 static const struct drm_bridge_funcs bridge_funcs = {
 	.enable = bridge_phy_enable,
 	.disable = bridge_phy_disable,
-	.mode_set = bridge_phy_mode_set,
 	.attach = bridge_phy_attach,
 };
 
@@ -597,6 +576,9 @@ static int bridge_phy_encoder_obj_select(struct gsgpu_dc_bridge *dc_bridge)
 	case ENCODER_OBJECT_ID_LVDS_LT8619:
 		ret = bridge_phy_lt8619_init(dc_bridge);
 		break;
+	case ENCODER_OBJECT_ID_EDP_NCS8805:
+		ret = bridge_phy_ncs8805_init(dc_bridge);
+		break;
 	case ENCODER_OBJECT_ID_NONE:
 	case ENCODER_OBJECT_ID_VGA_TRANSPARENT:
 	case ENCODER_OBJECT_ID_HDMI_TRANSPARENT:
@@ -710,6 +692,7 @@ struct gsgpu_dc_bridge
 	switch (dc_bridge->encoder_obj) {
 	case ENCODER_OBJECT_ID_EDP_LT6711:
 	case ENCODER_OBJECT_ID_EDP_LT9721:
+	case ENCODER_OBJECT_ID_EDP_NCS8805:
 		dc->link_info[link].encoder->has_ext_encoder = true;
 		break;
 	default:

@@ -249,11 +249,13 @@ static void loongson_alloc_msi_irq(struct pci_dev *pdev,
 
 	pci_disable_msi(pdev);
 
-	vecs = ch_cnt * 2 + 1;
+	vecs = roundup_pow_of_two(ch_cnt * 2 + 1);
 	if (pci_alloc_irq_vectors(pdev, vecs, vecs, PCI_IRQ_MSI) < 0) {
 		dev_info(&pdev->dev,
 			"MSI enable failed, Fallback to line interrupt\n");
 		res->msi_vecs = 0;
+		res->irq = pdev->irq;
+		res->wol_irq = res->irq;
 		return;
 	}
 

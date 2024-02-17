@@ -140,9 +140,14 @@ void radeon_ttm_placement_from_domain(struct radeon_bo *rbo, u32 domain)
 		} else if ((rbo->flags & RADEON_GEM_GTT_WC) ||
 			   (rbo->rdev->flags & RADEON_IS_AGP)) {
 			rbo->placements[c].fpfn = 0;
+#ifdef CONFIG_LOONGARCH
+			rbo->placements[c++].flags = TTM_PL_FLAG_CACHED |
+				TTM_PL_FLAG_TT;
+#else
 			rbo->placements[c++].flags = TTM_PL_FLAG_WC |
 				TTM_PL_FLAG_UNCACHED |
 				TTM_PL_FLAG_TT;
+#endif
 		} else if (dev_is_coherent(NULL)) {
 			rbo->placements[c].fpfn = 0;
 			rbo->placements[c++].flags = TTM_PL_FLAG_CACHED |

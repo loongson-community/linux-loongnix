@@ -28,6 +28,7 @@ u64 loongarch_suspend_addr;
 
 extern unsigned long eentry;
 extern unsigned long tlbrentry;
+static u32 gpe_en_init;
 struct saved_registers {
 	u32 ecfg;
 	u64 pgd;
@@ -121,10 +122,27 @@ int loongarch_acpi_suspend(void)
 static int plat_pm_callback(struct notifier_block *nb, unsigned long action, void *ptr)
 {
 	int ret = 0;
+	u32 data, gpe_en;
+	acpi_event_status gpe_status = 0;
 
 	switch (action) {
 	case PM_POST_SUSPEND:
+		if (!loongson_sysconf.gpe0_ena_reg)
+			break;
+
 		enable_gpe_wakeup();
+		data = readl((volatile void *)loongson_sysconf.gpe0_ena_reg);
+		gpe_en = gpe_en_init;
+		while (gpe_en) {
+			int bit = __ffs(gpe_en);
+			(void)acpi_get_gpe_status(NULL, bit, &gpe_status);
+			if (gpe_status & ACPI_EVENT_FLAG_ENABLED) {
+				data |= BIT(bit);
+			}
+			gpe_en &= ~BIT(bit);
+		}
+		writel(data, (volatile void *)loongson_sysconf.gpe0_ena_reg);
+
 		break;
 	default:
 		break;
@@ -138,6 +156,10 @@ static int __init plat_pm_post_init(void)
 	if (acpi_disabled || acpi_gbl_reduced_hardware)
 		return 0;
 
+	if (!loongson_sysconf.gpe0_ena_reg)
+		return 0;
+
+	gpe_en_init = readl((volatile void *)loongson_sysconf.gpe0_ena_reg);
 	enable_gpe_wakeup();
 	pm_notifier(plat_pm_callback, -INT_MAX);
 	return 0;

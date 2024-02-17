@@ -120,6 +120,12 @@ struct vbios_gpu {
 	u32 shaders_freq;
 } __packed;
 
+struct vbios_ext_encoder {
+	u32 data_checksum;
+	u32 data_size;
+	u8 data[ENCODER_DATA_MAX-8];
+} __packed;
+
 struct gsgpu_vbios;
 
 struct vbios_funcs {
@@ -134,6 +140,7 @@ struct vbios_funcs {
 	bool (*create_crtc_resource)(struct gsgpu_vbios *vbios, void *data, u32 link, u32 size);
 	bool (*create_encoder_resource)(struct gsgpu_vbios *vbios, void *data, u32 link, u32 size);
 	bool (*create_connecor_resource)(struct gsgpu_vbios *vbios, void *data, u32 link, u32 size);
+	bool (*create_ext_encoder_resource)(struct gsgpu_vbios *vbios, void *data, u32 link, u32 size);
 
 	struct header_resource *(*get_header_resource)(struct gsgpu_vbios *vbios);
 	struct i2c_resource *(*get_i2c_resource)(struct gsgpu_vbios *vbios, u32 link);
@@ -143,6 +150,7 @@ struct vbios_funcs {
 	struct crtc_resource *(*get_crtc_resource)(struct gsgpu_vbios *vbios, u32 link);
 	struct connector_resource *(*get_connector_resource)(struct gsgpu_vbios *vbios, u32 link);
 	struct encoder_resource *(*get_encoder_resource)(struct gsgpu_vbios *vbios, u32 link);
+	struct ext_encoder_resources *(*get_ext_encoder_resource)(struct gsgpu_vbios *vbios, u32 link);
 };
 
 struct gsgpu_vbios {
@@ -189,6 +197,7 @@ void *dc_get_vbios_resource(struct gsgpu_vbios *vbios, u32 link,
 bool dc_vbios_init(struct gsgpu_dc *dc);
 void dc_vbios_exit(struct gsgpu_vbios *vbios);
 u8 gsgpu_vbios_checksum(const u8 *data, int size);
+u32 gsgpu_vbios_version(struct gsgpu_vbios *vbios);
 bool check_vbios_info(void);
 
 #endif

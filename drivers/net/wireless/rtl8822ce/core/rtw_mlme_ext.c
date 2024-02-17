@@ -16276,23 +16276,6 @@ exit:
 		*ch = u_ch;
 		*bw = u_bw;
 		*offset = u_offset;
-
-#if defined(CONFIG_IOCTL_CFG80211) && (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 5, 0))
-		{
-			u8 ht_option = 0;
-
-#ifdef CONFIG_80211N_HT
-			ht_option = adapter->mlmepriv.htpriv.ht_option;
-#endif /* CONFIG_80211N_HT */
-
-			/* 
-				when supplicant send the mlme frame,
-				the bss freq is updated by channel switch event.
-			*/
-			rtw_cfg80211_ch_switch_notify(adapter,
-				cur_ch, cur_bw, cur_ch_offset, ht_option);
-		}
-#endif
 	}
 
 	return connect_allow == _TRUE ? _SUCCESS : _FAIL;

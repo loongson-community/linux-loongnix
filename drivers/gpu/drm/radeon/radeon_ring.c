@@ -360,6 +360,30 @@ int radeon_ring_restore(struct radeon_device *rdev, struct radeon_ring *ring,
 	return 0;
 }
 
+#if defined(CONFIG_CPU_LOONGSON3) || defined(CONFIG_CPU_LOONGSON64)
+static int radeon_ring_pool_init(struct radeon_device *rdev, struct radeon_ring *ring)
+{
+	int r;
+
+	if (ring->pool_ready) {
+		return 0;
+	}
+
+	r = radeon_sa_bo_manager_init(rdev, &ring->sa_manager,
+			8*64*1024,
+			RADEON_GPU_PAGE_SIZE,
+			RADEON_GEM_DOMAIN_GTT, 0);
+	if (r)
+		return r;
+
+	r = radeon_sa_bo_manager_start(rdev, &ring->sa_manager);
+	if (r)
+		return r;
+
+	ring->pool_ready = true;
+	return 0;
+}
+#endif
 /**
  * radeon_ring_init - init driver ring struct.
  *
@@ -414,6 +438,12 @@ int radeon_ring_init(struct radeon_device *rdev, struct radeon_ring *ring, unsig
 		ring->next_rptr_gpu_addr = rdev->wb.gpu_addr + index;
 		ring->next_rptr_cpu_addr = &rdev->wb.wb[index/4];
 	}
+#if defined(CONFIG_CPU_LOONGSON3) || defined(CONFIG_CPU_LOONGSON64)
+	if (radeon_ring_pool_init(rdev, ring)) {
+		DRM_ERROR("Failed to alloc semaphore pool for rings !\n");
+		ring->pool_ready = false;
+	}
+#endif
 	if (radeon_debugfs_ring_init(rdev, ring)) {
 		DRM_ERROR("Failed to register debugfs file for rings !\n");
 	}
@@ -450,6 +480,12 @@ void radeon_ring_fini(struct radeon_device *rdev, struct radeon_ring *ring)
 		}
 		radeon_bo_unref(&ring_obj);
 	}
+#if defined(CONFIG_CPU_LOONGSON3) || defined(CONFIG_CPU_LOONGSON64)
+	if (ring->pool_ready) {
+		radeon_sa_bo_manager_fini(rdev, &ring->sa_manager);
+		ring->pool_ready = false;
+	}
+#endif
 }
 
 /*

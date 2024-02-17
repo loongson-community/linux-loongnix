@@ -538,6 +538,7 @@ static int loongson_modeset_init(struct loongson_device *ldev)
 {
 	struct loongson_encoder *ls_encoder;
 	struct loongson_crtc *ls_crtc;
+	struct pci_dev *pdev = NULL;
 	int ret, i;
 
 	ldev->dev->mode_config.max_width = LOONGSON_MAX_FB_WIDTH;
@@ -578,6 +579,12 @@ static int loongson_modeset_init(struct loongson_device *ldev)
 
 	if (ldev->chip == dc_7a2000)
 		get_gpu_resource_from_vbios(ldev);
+	else if (ldev->chip == dc_7a1000) {
+		pdev = pci_get_device(PCI_VENDOR_ID_LOONGSON, PCI_DEVICE_ID_LOONGSON_DC, NULL);
+		if (pdev)
+			dev_info(&pdev->dev, "VRAM: 128M\n");
+	}
+
 	DRM_INFO("loongson modeset init success\n");
 
 	return 0;
