@@ -450,19 +450,21 @@ static int __init eiointc_of_init(struct device_node *of_node,
 IRQCHIP_DECLARE(extioi_intc, "loongson,extioi-interrupt-controller", eiointc_of_init);
 
 #ifdef CONFIG_PM
-static bool extioi_managed_irq(struct irq_data *irq_data)
+static struct irq_data *extioi_managed_irq(struct irq_data *irq_data)
 {
 	int i;
 	struct irq_domain *parent;
 
 	for (parent = irq_data->domain; parent; parent = parent->parent) {
 		for (i = 0; i < nr_extioi; i++) {
-			if (extioi_priv[i]->extioi_domain == parent)
-				return true;
+			if (extioi_priv[i]->extioi_domain == parent) {
+				return irq_domain_get_irq_data(parent,
+							irq_data->irq);
+			}
 		}
 	}
 
-	return false;
+	return NULL;
 }
 
 static void extioi_irq_resume(void)
@@ -477,8 +479,10 @@ static void extioi_irq_resume(void)
 		if (desc && desc->handle_irq != NULL &&
 				desc->handle_irq != handle_bad_irq) {
 			irq_data = &desc->irq_data;
-			if (extioi_managed_irq(irq_data))
-				ext_set_irq_affinity(&desc->irq_data, desc->irq_data.common->affinity, 0);
+			irq_data = extioi_managed_irq(irq_data);
+			if (irq_data)
+				ext_set_irq_affinity(irq_data,
+					desc->irq_data.common->affinity, 0);
 		}
 	}
 }

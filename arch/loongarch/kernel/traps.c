@@ -905,6 +905,16 @@ void set_tlb_handler(void)
 	for (i = 0; i < 64; i++)
 		set_handler(i * VECSIZE, handle_reserved, VECSIZE);
 
+	if (cpu_has_ptw) {
+		exception_table[EXCCODE_TLBL] = handle_tlb_load_ptw;
+		exception_table[EXCCODE_TLBS] = handle_tlb_store_ptw;
+		exception_table[EXCCODE_TLBI] = handle_tlb_load_ptw;
+		exception_table[EXCCODE_TLBM] = handle_tlb_modify_ptw;
+	} else {
+		memcpy((void *)tlbrentry, handle_tlb_refill, 0x80);
+		local_flush_icache_range(tlbrentry, tlbrentry + 0x80);
+	}
+
 	for (i = EXCCODE_TLBL; i <= EXCCODE_TLBPE; i++)
 		set_handler(i * VECSIZE, exception_table[i], VECSIZE);
 }

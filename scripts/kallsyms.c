@@ -23,6 +23,7 @@
 #include <string.h>
 #include <ctype.h>
 #include <limits.h>
+#include "../include/linux/module_symbol.h"
 
 #ifndef ARRAY_SIZE
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof(arr[0]))
@@ -76,16 +77,6 @@ static void usage(void)
 	fprintf(stderr, "Usage: kallsyms [--all-symbols] "
 			"[--base-relative] < in.map > out.S\n");
 	exit(1);
-}
-
-/*
- * This ignores the intensely annoying "mapping symbols" found
- * in ARM ELF files: $a, $t and $d.
- */
-static inline int is_arm_mapping_symbol(const char *str)
-{
-	return str[0] == '$' && strchr("axtd", str[1])
-	       && (str[2] == '\0' || str[2] == '.');
 }
 
 static int check_symbol_range(const char *sym, unsigned long long addr,
@@ -144,7 +135,7 @@ static int read_symbol(FILE *in, struct sym_entry *s)
 
 	}
 	else if (toupper(stype) == 'U' ||
-		 is_arm_mapping_symbol(sym))
+		 is_mapping_symbol(sym))
 		return -1;
 	/* exclude also MIPS ELF local symbols ($L123 instead of .L123) */
 	else if (sym[0] == '$')

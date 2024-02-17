@@ -6,6 +6,7 @@
 #include "gsgpu_dc_resource.h"
 #include "gsgpu_dc_vbios.h"
 #include "bridge_phy.h"
+#include "gsgpu_backlight.h"
 
 /**
  * @section Bridge-phy connector functions
@@ -111,6 +112,7 @@ static const struct drm_connector_funcs bridge_phy_connector_funcs = {
 	.reset = drm_atomic_helper_connector_reset,
 	.atomic_duplicate_state = drm_atomic_helper_connector_duplicate_state,
 	.atomic_destroy_state = drm_atomic_helper_connector_destroy_state,
+	.late_register = gsgpu_backlight_register
 };
 
 /**

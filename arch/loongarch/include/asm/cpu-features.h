@@ -44,6 +44,7 @@
 #define cpu_has_fpu		cpu_opt(LOONGARCH_CPU_FPU)
 #define cpu_has_lsx		cpu_opt(LOONGARCH_CPU_LSX)
 #define cpu_has_lasx		cpu_opt(LOONGARCH_CPU_LASX)
+#define cpu_has_crc32		cpu_opt(LOONGARCH_CPU_CRC32)
 #define cpu_has_complex		cpu_opt(LOONGARCH_CPU_COMPLEX)
 #define cpu_has_crypto		cpu_opt(LOONGARCH_CPU_CRYPTO)
 #define cpu_has_lvz		cpu_opt(LOONGARCH_CPU_LVZ)
@@ -63,8 +64,9 @@
 #define cpu_has_scalefreq	cpu_opt(LOONGARCH_CPU_SCALEFREQ)
 #define cpu_has_guestid		cpu_opt(LOONGARCH_CPU_GUESTID)
 #define cpu_has_hypervisor	cpu_opt(LOONGARCH_CPU_HYPERVISOR)
-#define cpu_has_intdecode	cpu_opt(LOONGARCH_CPU_EXTIOI_DECODE)
+#define cpu_has_intdecode	cpu_opt(LOONGARCH_CPU_EIODECODE)
 #define cpu_has_flatmode	cpu_opt(LOONGARCH_CPU_FLATMODE)
+#define cpu_has_ptw		cpu_opt(LOONGARCH_CPU_PTW)
 
 
 

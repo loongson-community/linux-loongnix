@@ -247,10 +247,12 @@ unsigned int __init enter_virt_mode(void)
 	svam = rt->set_virtual_address_map;
 
 	efi_map_pgt();
+	local_flush_tlb_all();
 
 	status = svam(size * count, size, efi.memmap.desc_version, runtime_phy);
 
 	efi_unmap_pgt();
+	local_flush_tlb_all();
 
 	if (status != EFI_SUCCESS)
 		return -1;

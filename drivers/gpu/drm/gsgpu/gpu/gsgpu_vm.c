@@ -796,7 +796,7 @@ static void gsgpu_vm_cpu_set_ptes(struct gsgpu_pte_update_params *params,
 	r = gsgpu_bo_kmap(bo, &kptr);
 	if (r)
 		return;
-	pe += kptr;
+	pe += (u64)kptr;
 
 	trace_gsgpu_vm_set_ptes(pe, addr, count, incr, flags);
 

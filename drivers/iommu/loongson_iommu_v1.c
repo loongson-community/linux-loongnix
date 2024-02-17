@@ -167,7 +167,7 @@ int loongson_iommu_disable;
 static void iommu_write_regl(unsigned long off, unsigned long val)
 {
 	*(unsigned long *)(IOMMU_MEMORY_ADDRESS + off) = val;
-	__sync();
+	mb();
 }
 
 static unsigned long iommu_read_regl(unsigned long off)
@@ -175,7 +175,7 @@ static unsigned long iommu_read_regl(unsigned long off)
 	unsigned long val;
 
 	val = *(unsigned long *)(IOMMU_MEMORY_ADDRESS + off);
-	__sync();
+	mb();
 	return val;
 }
 
@@ -183,14 +183,14 @@ static void iommu_memory_writeable(void)
 {
 	/* write enable */
 	*(unsigned long *)IOMMU_MEMORY_WRITEABLE |= (0x1 << 26);
-	__sync();
+	mb();
 }
 
 static void iommu_memory_writedisable(void)
 {
 	/*write disable*/
 	*(unsigned long *)IOMMU_MEMORY_WRITEABLE &= ~(0x1 << 26);
-	__sync();
+	mb();
 }
 
 static loongson_iommu_priv *to_loongson_iommu_priv(struct iommu_domain *dom)
@@ -219,9 +219,9 @@ static void sync_hwiotlb(loongson_iommu_priv *priv)
 			iommu_write_regl(LS_IOMMU_PAGEMASK, 0);
 			iommu_write_regl(LS_IOMMU_BDF, 0);
 			iommu_write_regl(LS_IOMMU_INDEX, i);
-			__sync();
+			mb();
 			iommu_write_regl(LS_IOMMU_COMMAND, IOMMU_COMMAND_WR);
-			__sync();
+			mb();
 			mdelay(DELAY);
 		} else if (hwtable->op == ADD_IOMMU) {
 			iommu_write_regl(LS_IOMMU_ENTRYLO_0, hwtable->pgtable[i].entryLo0);
@@ -230,10 +230,10 @@ static void sync_hwiotlb(loongson_iommu_priv *priv)
 			iommu_write_regl(LS_IOMMU_PAGEMASK, hwtable->pgtable[i].pagemask);
 			iommu_write_regl(LS_IOMMU_BDF, hwtable->pgtable[i].bdf);
 			iommu_write_regl(LS_IOMMU_INDEX, i);
-			__sync();
+			mb();
 			/*0 write 0x2 read*/
 			iommu_write_regl(LS_IOMMU_COMMAND, IOMMU_COMMAND_WR);
-			__sync();
+			mb();
 			mdelay(DELAY);
 		}
 	}
@@ -241,7 +241,7 @@ static void sync_hwiotlb(loongson_iommu_priv *priv)
 	hwtable->op = INVALID_IOMMU_OP;
 	hwtable->pending = 0;
 	iommu_memory_writedisable();
-	__sync();
+	mb();
 }
 
 static void flush_shadowtlb(loongson_iommu_priv *priv,

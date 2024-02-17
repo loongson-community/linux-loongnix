@@ -678,9 +678,16 @@ static int __init etnaviv_init(void)
 	struct platform_device *pdev;
 	int ret;
 	struct device_node *np;
+	struct pci_dev *dev = NULL;
 
 	if (etnaviv_enable == 0)
 		return -ENODEV;
+
+	/* Discrete card prefer */
+	while ((dev = pci_get_class(PCI_CLASS_DISPLAY_VGA << 8, dev))) {
+		if (dev->vendor != PCI_VENDOR_ID_LOONGSON || dev->device == 0x1a05)
+			return 0;
+	}
 
 	etnaviv_validate_init();
 

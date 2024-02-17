@@ -28,13 +28,13 @@ static inline int btlock_lock(volatile union btlock *p, int n, unsigned char del
 		p->b[n] = delay;
 		t.u = p->u;
 		if (t.u == t1.u) {
-			__sync();
+			mb();
 			local_irq_restore(flags);
 			return 0;
 		}
 		p->b[n] = 0;
 		t.u = p->u;
-		__sync();
+		mb();
 		local_irq_restore(flags);
 		ndelay(((t.b[1 - n] & 0x7f) + (get_cycles() & 1)) * 100);
 	}
@@ -55,13 +55,13 @@ static inline int btlock_trylock(volatile union btlock *p, int n, unsigned char 
 	p->b[n] = delay;
 	t.u = p->u;
 	if (t.u == t1.u) {
-		__sync();
+		mb();
 		local_irq_restore(flags);
 		return 0;
 	}
 	p->b[n] = 0;
 	t.u = p->u;
-	__sync();
+	mb();
 	local_irq_restore(flags);
 	ndelay(((t.b[1 - n] & 0x7f) + (get_cycles() & 1)) * 100);
 	return -1;
@@ -70,7 +70,7 @@ static inline int btlock_trylock(volatile union btlock *p, int n, unsigned char 
 static inline int btlock_unlock(volatile union btlock *p, int n)
 {
 		p->b[n] = 0;
-		__sync();
+		mb();
 		return p->u;
 }
 

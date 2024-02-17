@@ -1478,8 +1478,14 @@ static void free_dma_rx_desc_resources(struct stmmac_priv *priv)
 					  sizeof(struct dma_extended_desc),
 					  rx_q->dma_erx, rx_q->dma_rx_phy);
 
+		rx_q->dma_rx = NULL;
+		rx_q->dma_erx = NULL;
+
 		kfree(rx_q->rx_skbuff_dma);
+		rx_q->rx_skbuff_dma = NULL;
+
 		kfree(rx_q->rx_skbuff);
+		rx_q->rx_skbuff = NULL;
 	}
 }
 
@@ -1508,9 +1514,14 @@ static void free_dma_tx_desc_resources(struct stmmac_priv *priv)
 			dma_free_coherent(priv->device, DMA_TX_SIZE *
 					  sizeof(struct dma_extended_desc),
 					  tx_q->dma_etx, tx_q->dma_tx_phy);
+		tx_q->dma_tx = NULL;
+		tx_q->dma_etx = NULL;
 
 		kfree(tx_q->tx_skbuff_dma);
+		tx_q->tx_skbuff_dma = NULL;
+
 		kfree(tx_q->tx_skbuff);
+		tx_q->tx_skbuff = NULL;
 	}
 }
 

@@ -531,6 +531,7 @@ static int ls2x_i2c_remove(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, NULL);
 	i2c_del_adapter(&dev->adapter);
+	free_irq(dev->irq, dev);
 	iounmap(dev->base);
 	kfree(dev);
 	mem = platform_get_resource(pdev, IORESOURCE_MEM, 0);

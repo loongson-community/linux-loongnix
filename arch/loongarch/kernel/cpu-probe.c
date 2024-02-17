@@ -94,12 +94,16 @@ static void cpu_probe_common(struct cpuinfo_loongarch *c)
 	c->options = LOONGARCH_CPU_CPUCFG | LOONGARCH_CPU_CSR |
 		LOONGARCH_CPU_TLB | LOONGARCH_CPU_VINT;
 
-	elf_hwcap = (HWCAP_LOONGARCH_CRC32 | HWCAP_LOONGARCH_CPUCFG);
+	elf_hwcap = HWCAP_LOONGARCH_CPUCFG;
 
 	config = read_cpucfg(LOONGARCH_CPUCFG1);
 	if (config & CPUCFG1_UAL) {
 		c->options |= LOONGARCH_CPU_UAL;
 		elf_hwcap |= HWCAP_LOONGARCH_UAL;
+	}
+	if (config & CPUCFG1_CRC32) {
+		c->options |= LOONGARCH_CPU_CRC32;
+		elf_hwcap |= HWCAP_LOONGARCH_CRC32;
 	}
 
 	config = read_cpucfg(LOONGARCH_CPUCFG2);
@@ -111,6 +115,8 @@ static void cpu_probe_common(struct cpuinfo_loongarch *c)
 		c->options |= LOONGARCH_CPU_FPU;
 		elf_hwcap |= HWCAP_LOONGARCH_FPU;
 	}
+	if (config & CPUCFG2_PTW)
+		c->options |= LOONGARCH_CPU_PTW;
 #ifdef CONFIG_CPU_HAS_LSX
 	if (config & CPUCFG2_LSX) {
 		c->options |= LOONGARCH_CPU_LSX;
@@ -164,7 +170,7 @@ static void cpu_probe_common(struct cpuinfo_loongarch *c)
 	if (config & IOCSRF_VM)
 		c->options |= LOONGARCH_CPU_HYPERVISOR;
 	if (config & IOCSRF_EXTIOI_DECODE)
-		c->options |= LOONGARCH_CPU_EXTIOI_DECODE;
+		c->options |= LOONGARCH_CPU_EIODECODE;
 	if (config & IOCSRF_FLATMODE)
 		c->options |= LOONGARCH_CPU_FLATMODE;
 

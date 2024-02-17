@@ -133,6 +133,7 @@ struct gsgpu_mode_info {
 	struct gsgpu_plane *planes[GSGPU_MAX_PLANES];
 	struct gsgpu_connector *connectors[2];
 	struct gsgpu_encoder *encoders[2];
+	struct gsgpu_backlight *backlights[2];
 	/* underscan */
 	struct drm_property *underscan_property;
 	struct drm_property *underscan_hborder_property;
@@ -141,9 +142,6 @@ struct gsgpu_mode_info {
 	struct drm_property *audio_property;
 	/* pointer to fbdev info structure */
 	struct gsgpu_fbdev *rfbdev;
-	/* pointer to backlight encoder */
-	struct gsgpu_encoder *bl_encoder;
-	u8 bl_level; /* saved backlight level */
 	int			num_crtc; /* number of crtcs */
 	int			num_hpd; /* number of hpd pins */
 	int			num_i2c;

@@ -75,7 +75,7 @@ int loongarch_iommu_disable;
 static void iommu_write_regl(unsigned long off, u32 val)
 {
 	*(u32 *)(iommu_mem_base + off) = val;
-	__sync();
+	mb();
 }
 
 static u32 iommu_read_regl(unsigned long off)
@@ -83,7 +83,7 @@ static u32 iommu_read_regl(unsigned long off)
 	u32 val;
 
 	val = *(u32 *)(iommu_mem_base + off);
-	__sync();
+	mb();
 	return val;
 }
 

@@ -85,6 +85,7 @@ config LOONGARCH
 	select ARCH_SUPPORTS_ACPI
 	select ARCH_HAS_ACPI_TABLE_UPGRADE	if ACPI
 	select ACPI_SYSTEM_POWER_STATES_SUPPORT	if ACPI
+	select ACPI_PPTT if ACPI
 	select HAVE_ARCH_KASAN if 64BIT
 	select GENERIC_PCI_IOMAP
 	select LOONGARCH_CRC32_SUPPORT
@@ -639,6 +640,13 @@ config SMP_UP
 
 config SYS_SUPPORTS_SMP
 	bool
+
+config SCHED_SMT
+	bool "SMT scheduler support"
+	help
+	  Improves scheduler's performance when there multiple threads in
+	  one physical core.
+
 
 config NR_CPUS_DEFAULT_4
 	bool

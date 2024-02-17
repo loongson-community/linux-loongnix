@@ -233,8 +233,7 @@ BUILDIO_MEM(q, u64)
 #define writeq_be(val, addr)						\
 	__raw_writeq(cpu_to_be64((val)), (__force unsigned *)(addr))
 
-/* Depends on LoongArch II instruction set */
-#define mmiowb() asm volatile ("dbar 0" ::: "memory")
+#define mmiowb() wmb()
 
 /*
  * String version of I/O memory access operations.

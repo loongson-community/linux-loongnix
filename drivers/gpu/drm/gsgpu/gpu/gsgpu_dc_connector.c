@@ -7,6 +7,7 @@
 #include "gsgpu_dc_irq.h"
 #include "gsgpu_dc_i2c.h"
 #include "gsgpu_dc_vbios.h"
+#include "gsgpu_backlight.h"
 
 static struct drm_encoder *best_encoder(struct drm_connector *connector)
 {
@@ -213,6 +214,7 @@ static const struct drm_connector_funcs gsgpu_dc_connector_funcs = {
 	.destroy = gsgpu_dc_connector_destroy,
 	.atomic_duplicate_state = gsgpu_dc_connector_atomic_duplicate_state,
 	.atomic_destroy_state = drm_atomic_helper_connector_destroy_state,
+	.late_register = gsgpu_backlight_register
 };
 
 struct gsgpu_dc_connector *dc_connector_construct(struct gsgpu_dc *dc, struct connector_resource *resource)

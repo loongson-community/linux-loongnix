@@ -53,7 +53,7 @@ gsgpu-$(CONFIG_MMU_NOTIFIER) += gsgpu_mn.o
 gsgpu-y += gsgpu_dc_drv.o gsgpu_dc_crtc.o gsgpu_dc_hdmi.o \
 	  gsgpu_dc_irq.o gsgpu_dc_plane.o gsgpu_dc_connector.o \
 	  gsgpu_dc_encoder.o gsgpu_dc_i2c.o  gsgpu_dc_cursor.o \
-	  gsgpu_dc_vbios.o
+	  gsgpu_dc_vbios.o gsgpu_backlight.o
 
 RELATIVE_GSGPU_BRIDGE_PATH = ../bridge
 include $(FULL_BRIDGE_PATH)/Makefile

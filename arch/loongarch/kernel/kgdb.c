@@ -37,6 +37,7 @@
 #include <asm/irq_regs.h>
 #include <asm/ptrace.h>
 #include <asm/watch.h>
+#include <asm/asm-offsets.h>
 static int kgdb_watch_dcount;
 static int kgdb_watch_icount;
 int kgdb_watch_activated;

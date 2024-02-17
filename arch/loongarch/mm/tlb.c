@@ -157,6 +157,8 @@ void __update_tlb(struct vm_area_struct *vma, unsigned long address, pte_t *ptep
 	unsigned long flags;
 	int idx;
 
+	if (cpu_has_ptw)
+		return;
 	/*
 	 * Handle debugger faulting in for debugee.
 	 */
@@ -229,7 +231,10 @@ static void setup_pw(void)
 	pwctl1 = pgd_i | pgd_w << 6;
 
 	csr_write64(pwctl0, LOONGARCH_CSR_PWCTL0);
-	csr_write64(pwctl1, LOONGARCH_CSR_PWCTL1);
+	if (cpu_has_ptw)
+		csr_write64(pwctl1 | CSR_PWCTL1_PTW, LOONGARCH_CSR_PWCTL1);
+	else
+		csr_write64(pwctl1, LOONGARCH_CSR_PWCTL1);
 }
 
 /*
@@ -301,8 +306,6 @@ static void build_tlb_handler(int cpu)
 	if (cpu == 0) {
 		output_pgtable_bits_defines();
 
-		memcpy((void *)tlbrentry, handle_tlb_refill, 0x80);
-		local_flush_icache_range(tlbrentry, tlbrentry + 0x80);
 		set_tlb_handler();
 
 		/* initial swapper_pg_dir so that refill can work */

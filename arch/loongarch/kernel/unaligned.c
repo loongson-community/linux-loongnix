@@ -528,6 +528,8 @@ asmlinkage void do_ale(struct pt_regs *regs)
 
 sigbus:
 	die_if_kernel("Kernel ale access", regs);
+	if (cpu_has_ual)
+		pr_warn_ratelimited("do_ale trap at era 0x%lx badv 0x%lx\n", regs->csr_era, regs->csr_badv);
 	force_sig_fault(SIGBUS, BUS_ADRALN, (void __user *)regs->csr_badv, current);
 
 	/*

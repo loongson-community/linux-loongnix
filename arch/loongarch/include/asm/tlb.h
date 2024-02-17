@@ -185,6 +185,9 @@ static inline void tlb_flush(struct mmu_gather *tlb)
 extern void handle_tlb_load(void);
 extern void handle_tlb_store(void);
 extern void handle_tlb_modify(void);
+extern void handle_tlb_load_ptw(void);
+extern void handle_tlb_store_ptw(void);
+extern void handle_tlb_modify_ptw(void);
 extern void handle_tlb_refill(void);
 
 extern void dump_tlb_all(void);

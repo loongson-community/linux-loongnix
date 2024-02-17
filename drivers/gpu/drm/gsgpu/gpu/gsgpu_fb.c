@@ -170,7 +170,6 @@ static int gsgpufb_create(struct drm_fb_helper *helper,
 	struct drm_gem_object *gobj = NULL;
 	struct gsgpu_bo *abo = NULL;
 	int ret;
-	unsigned long tmp;
 
 	mode_cmd.width = sizes->surface_width;
 	mode_cmd.height = sizes->surface_height;

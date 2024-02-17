@@ -21,6 +21,8 @@ extern int acpi_disabled;
 extern int acpi_pci_disabled;
 extern int acpi_noirq;
 
+#define LOONGARCH_DEFAULT_SMT_SIBLINGS	2
+
 static inline void __iomem *acpi_os_ioremap(acpi_physical_address phys,
 					    acpi_size size)
 {
@@ -44,6 +46,14 @@ static inline bool acpi_has_cpu_in_madt(void)
 }
 
 extern struct list_head acpi_wakeup_device_list;
+
+extern int pptt_enabled;
+
+struct acpi_madt_core_pic *acpi_cpu_get_madt_core_pic(int cpu);
+static inline u32 get_acpi_id_for_cpu(unsigned int cpu)
+{
+	return acpi_cpu_get_madt_core_pic(cpu)->processor_id;
+}
 
 #endif /* !CONFIG_ACPI */
 

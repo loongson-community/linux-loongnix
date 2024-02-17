@@ -43,6 +43,7 @@ static struct pch_pic {
 	void __iomem		*base;
 	struct fwnode_handle	*domain_handle;
 	struct irq_domain	*pic_domain;
+	u32			ht_vec_base;
 	u64			saved_vec_en[PIC_REG_COUNT];
 	u64			saved_vec_edge[PIC_REG_COUNT];
 	u64			saved_vec_pol[PIC_REG_COUNT];
@@ -246,9 +247,19 @@ static int pch_pic_domain_translate(struct irq_domain *d,
 					unsigned int *type)
 {
 	struct pch_pic *priv = d->host_data;
+	struct device_node *of_node = to_of_node(fwspec->fwnode);
+
 	if (fwspec->param_count < 1)
 		return -EINVAL;
-	*hwirq = fwspec->param[0] - priv->gsi_base;
+
+	if (of_device_is_compatible(of_node, "loongson,pch-pic-1.0")) {
+		if (fwspec->param_count < 2)
+			return -EINVAL;
+
+		*hwirq = fwspec->param[0];
+	} else {
+		*hwirq = fwspec->param[0] - priv->gsi_base;
+	}
 
 	if (fwspec->param_count > 1)
 		*type = fwspec->param[1] & IRQ_TYPE_SENSE_MASK;
@@ -288,10 +299,11 @@ static int pch_pic_alloc(struct irq_domain *domain, unsigned int virq,
 
 	fwspec.fwnode = domain->parent->fwnode;
 	fwspec.param_count = 1;
-	fwspec.param[0] = hwirq;
+	fwspec.param[0] = hwirq + priv->ht_vec_base;
 	err = irq_domain_alloc_irqs_parent(domain, virq, 1, &fwspec);
 	if (err)
 		return err;
+
 	irq_domain_set_info(domain, virq, hwirq,
 				&pch_pic_irq_chip, priv,
 				handle_level_irq, NULL, NULL);
@@ -317,7 +329,7 @@ static void pch_pic_reset(struct pch_pic *priv)
 	for (i = 0; i < PIC_COUNT; i++) {
 		if (priv->model != PCH_IRQ_ROUTE_LINE) {
 			/* Write vector ID */
-			writeb(i, priv->base + PCH_INT_HTVEC(i));
+			writeb(priv->ht_vec_base + i, priv->base + PCH_INT_HTVEC(i));
 		}
 		/* Hardcode route to HT0 Lo */
 		writeb(1, priv->base + PCH_INT_ROUTE(i));
@@ -363,6 +375,7 @@ int pch_pic_init(struct fwnode_handle *irq_handle,
 	int err;
 	struct fwnode_handle *parent;
 	int count;
+	struct device_node *of_node = to_of_node(irq_handle);
 
 	priv = kzalloc(sizeof(*priv), GFP_KERNEL);
 	if (!priv)
@@ -376,6 +389,17 @@ int pch_pic_init(struct fwnode_handle *irq_handle,
 		goto free_priv;
 	}
 
+	if (of_device_is_compatible(of_node, "loongson,pch-pic-1.0")) {
+		int vec_base;
+
+		if (of_property_read_u32(of_node, "loongson,pic-base-vec", &vec_base)) {
+			pr_err("Failed to determine pic-base-vec\n");
+			goto free_priv;
+		}
+		priv->ht_vec_base = vec_base;
+	} else {
+		priv->ht_vec_base = 0;
+	}
 	count = (((unsigned long)readq(priv->base) >> 48) & 0xff) + 1;
 	priv->domain_handle = irq_handle;
 	priv->model = model;
@@ -467,10 +491,25 @@ static int pch_pic_of_init(struct device_node *of_node,
 {
 	struct resource res;
 	u64 res_array[2];
+	struct irq_domain *parent_domain;
 
 	of_property_read_u64_array(of_node, "reg", res_array, 2);
 	res.start = res_array[0];
 	res.end = res_array[0] + res_array[1];
+
+	if (of_device_is_compatible(of_node, "loongson,pch-pic-1.0")) {
+		parent_domain = irq_find_host(parent);
+		if (!parent_domain) {
+			pr_err("Failed to find the parent domain\n");
+			return -ENXIO;
+		}
+
+		if ((parent_domain->fwnode != eiointc_get_fwnode(nr_pch_pic)) &&
+				(parent_domain->fwnode != htvec_get_fwnode())) {
+			pr_err("Wrong parent domain\n");
+			return -EINVAL;
+		}
+	}
 
 	pch_pic_init(of_node_to_fwnode(of_node),
 			res.start,
@@ -530,6 +569,7 @@ static int __init pch_pic_init_syscore_ops(void)
 }
 device_initcall(pch_pic_init_syscore_ops);
 IRQCHIP_DECLARE(pch_pic, "loongson,ls7a-interrupt-controller", pch_pic_of_init);
+IRQCHIP_DECLARE(pch_pic_v1, "loongson,pch-pic-1.0", pch_pic_of_init);
 #ifdef CONFIG_ACPI
 static int __init pch_pic_acpi_init_v1(struct acpi_subtable_header *header,
 				   const unsigned long end)

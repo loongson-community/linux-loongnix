@@ -21,6 +21,7 @@
 #include <linux/of_fdt.h>
 #include <asm/io.h>
 #include <asm/numa.h>
+#include <asm/cpu-info.h>
 #include <loongson.h>
 #include <loongson-pch.h>
 
@@ -35,6 +36,11 @@ int disabled_cpus;
 enum acpi_irq_model_id acpi_irq_model = ACPI_IRQ_MODEL_PIC;
 
 u64 acpi_saved_sp;
+
+static struct acpi_madt_core_pic cpu_madt_core_pic[NR_CPUS];
+
+int pptt_enabled = 1;
+EXPORT_SYMBOL(pptt_enabled);
 
 #define MAX_LOCAL_APIC 256
 
@@ -245,7 +251,7 @@ acpi_parse_core_pic(struct acpi_subtable_header *header, const unsigned long end
 
 	if (BAD_MADT_ENTRY(processor, end))
 		return -EINVAL;
-
+	cpu_madt_core_pic[processor->core_id] = *processor;
 	acpi_table_print_madt_entry(header);
 
 	set_processor_mask(processor->core_id, processor->flags);
@@ -323,6 +329,44 @@ err:
 	loongson_sysconf.nr_cpus = num_processors;
 }
 
+static bool __init acpi_cpu_has_smt(int cpu)
+{
+	int has_smt = acpi_pptt_cpu_is_thread(cpu);
+
+	if (has_smt < 0)
+		return 0;
+	return !!(has_smt);
+}
+
+static void __init acpi_parse_pptt(void)
+{
+	int cpu, topology_id;
+
+	for_each_possible_cpu(cpu) {
+
+		topology_id = find_acpi_cpu_topology(cpu, 0);
+		if (topology_id < 0) {
+			pr_warn("Invalid BIOS PPTT\n");
+			goto pptt_err;
+		}
+
+		if (acpi_cpu_has_smt(cpu)) {
+			smp_num_siblings = LOONGARCH_DEFAULT_SMT_SIBLINGS;
+			topology_id = find_acpi_cpu_topology(cpu, 1);
+			if (topology_id < 0)
+				goto pptt_err;
+			cpu_data[cpu].core = topology_id;
+		} else {
+			cpu_data[cpu].core = topology_id;
+		}
+	}
+
+	return;
+pptt_err:
+	pptt_enabled = 0;
+	smp_num_siblings = 1;
+}
+
 #ifndef CONFIG_SUSPEND
 int (*acpi_suspend_lowlevel)(void);
 #else
@@ -353,6 +397,10 @@ void __init acpi_boot_table_init(void)
 	 * Process the Multiple APIC Description Table (MADT), if present
 	 */
 	acpi_process_madt();
+	/*
+	 * Parse ACPI-PPTT table
+	 */
+	acpi_parse_pptt();
 
 	/* Do not enable ACPI SPCR console by default */
 	acpi_parse_spcr(earlycon_acpi_spcr_enable, false);
@@ -477,6 +525,11 @@ int acpi_map_cpu(acpi_handle handle, phys_cpuid_t physid, u32 acpi_id,
 	return 0;
 }
 EXPORT_SYMBOL(acpi_map_cpu);
+
+struct acpi_madt_core_pic *acpi_cpu_get_madt_core_pic(int cpu)
+{
+	return &cpu_madt_core_pic[cpu];
+}
 
 int acpi_unmap_cpu(int cpu)
 {

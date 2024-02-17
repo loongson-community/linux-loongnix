@@ -43,7 +43,6 @@ static DEFINE_PER_CPU(int, cpu_state);
 
 static u32 (*ipi_read_clear)(int cpu);
 static void (*ipi_write_action)(int cpu, u32 action);
-
 enum ipi_msg_type {
 	IPI_RESCHEDULE,
 	IPI_CALL_FUNC,
@@ -143,7 +142,7 @@ void loongson3_ipi_interrupt(int irq)
 
 	action = ipi_read_clear(cpu_logical_map(cpu));
 
-	smp_mb();
+	mb();
 
 	if (action & SMP_RESCHEDULE) {
 		__inc_irq_stat(cpu, ipi_irqs[IPI_RESCHEDULE]);
@@ -171,10 +170,14 @@ static void loongson3_init_secondary(void)
 
 	iocsr_write32(0xffffffff, LOONGARCH_IOCSR_IPI_EN);
 	per_cpu(cpu_state, cpu) = CPU_ONLINE;
-	cpu_data[cpu].core =
-		     cpu_logical_map(cpu) % loongson_sysconf.cores_per_package;
+
+	if (!pptt_enabled) {
+		cpu_data[cpu].core =
+			     cpu_logical_map(cpu) % loongson_sysconf.cores_per_package;
+	}
 	cpu_data[cpu].package =
-			cpu_logical_map(cpu) / loongson_sysconf.cores_per_package;
+				cpu_logical_map(cpu) / loongson_sysconf.cores_per_package;
+
 
 	if (cpu_has_extioi)
 		extioi_init();
@@ -220,7 +223,9 @@ static void __init loongson3_smp_setup(void)
 
 	iocsr_write32(0xffffffff, LOONGARCH_IOCSR_IPI_EN);
 
-	cpu_data[0].core = cpu_logical_map(0) % loongson_sysconf.cores_per_package;
+	if (!pptt_enabled)
+		cpu_data[0].core = cpu_logical_map(0) % loongson_sysconf.cores_per_package;
+
 	cpu_data[0].package = cpu_logical_map(0) / loongson_sysconf.cores_per_package;
 }
 

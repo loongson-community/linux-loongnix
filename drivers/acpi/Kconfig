@@ -554,6 +554,13 @@ config ACPI_PPTT
 	bool
 endif
 
+if LOONGARCH
+
+config ACPI_PPTT
+	bool
+
+endif
+
 config TPS68470_PMIC_OPREGION
 	bool "ACPI operation region support for TPS68470 PMIC"
 	depends on MFD_TPS68470
