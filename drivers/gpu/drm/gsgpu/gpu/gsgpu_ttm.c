@@ -1693,7 +1693,7 @@ int gsgpu_ttm_init(struct gsgpu_device *adev)
 		if (r)
 			return r;
 	}
-	DRM_INFO("gsgpu: %uM of VRAM memory ready\n",
+	DRM_DEBUG("gsgpu: %uM of VRAM memory ready\n",
 		 (unsigned) (adev->gmc.real_vram_size / (1024 * 1024)));
 
 	/* Compute GTT size, either bsaed on 3/4th the size of RAM size

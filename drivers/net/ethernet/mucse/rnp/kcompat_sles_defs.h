@@ -1,10 +1,10 @@
 /* SPDX-License-Identifier: GPL-2.0 */
-/* Copyright(c) 1999 - 2022 Intel Corporation. */
+/* Copyright(c) 2022 - 2023 Mucse Corporation. */
 
 #ifndef _KCOMPAT_SLES_DEFS_H_
 #define _KCOMPAT_SLES_DEFS_H_
 
-/* This is the SUSE Linux Enterprise distribution specific definitions file.
+/* This is the SUSE Linux Enterprise distribution specific definitions file
  * It defines what features need backports for a given version of the SUSE
  * Linux Enterprise kernel.
  *
@@ -32,24 +32,26 @@
 #error "SLE_KERNEL_REVISION is unexpectedly large"
 #endif
 
-/* SLE kernel versions are a combination of the LINUX_VERSION_CODE along with
- * an extra digit that indicates the SUSE specific revision of that kernel.
- * This value is found in the CONFIG_LOCALVERSION of the SUSE kernel, which is
- * extracted by common.mk and placed into SLE_KERNEL_REVISION_CODE.
+/* SLE kernel versions are a combination of the LINUX_VERSION_CODE along 
+ * with an extra digit that indicates the SUSE specific revision of that
+ * kernel. This value is found in the CONFIG_LOCALVERSION of the SUSE 
+ * kernel, which is extracted by common.mk and placed into 
+ * SLE_KERNEL_REVISION_CODE.
  *
- * We combine the value of SLE_KERNEL_REVISION along with the LINUX_VERSION code
- * to generate the useful value that determines what specific kernel we're
- * dealing with.
+ * We combine the value of SLE_KERNEL_REVISION along with the LINUX_VERSION
+ * code to generate the useful value that determines what specific kernel 
+ * we're dealing with.
  *
- * Just in case the SLE_KERNEL_REVISION ever goes above 255, we reserve 16 bits
- * instead of 8 for this value.
+ * Just in case the SLE_KERNEL_REVISION ever goes above 255, we reserve 16
+ * bits instead of 8 for this value.
  */
 #define SLE_KERNEL_CODE ((LINUX_VERSION_CODE << 16) + SLE_KERNEL_REVISION)
-#define SLE_KERNEL_VERSION(a, b, c, d) ((KERNEL_VERSION(a, b, c) << 16) + (d))
+#define SLE_KERNEL_VERSION(a, b, c, d) \
+	((KERNEL_VERSION(a, b, c) << 16) + (d))
 
-/* Unlike RHEL, SUSE kernels are not always tied to a single service pack. For
- * example, 4.12.14 was used as the base for SLE 15 SP1, SLE 12 SP4, and SLE 12
- * SP5.
+/* Unlike RHEL, SUSE kernels are not always tied to a single service pack.
+ * For example, 4.12.14 was used as the base for SLE 15 SP1, SLE 12 SP4, 
+ * and SLE 12 SP5.
  *
  * You can find the patches that SUSE applied to the kernel tree at
  * https://github.com/SUSE/kernel-source.
@@ -72,7 +74,7 @@
 
 /*****************************************************************************/
 #if (SLE_KERNEL_CODE > SLE_KERNEL_VERSION(4, 12, 14, 23) && \
- SLE_KERNEL_CODE < SLE_KERNEL_VERSION(4, 12, 14, 94))
+     SLE_KERNEL_CODE < SLE_KERNEL_VERSION(4, 12, 14, 94))
 /*
  * 4.12.14 is used as the base for SLE 12 SP4, SLE 12 SP5, SLE 15, and SLE 15
  * SP1. Unfortunately the revision codes do not line up cleanly. SLE 15
@@ -89,7 +91,8 @@
  * checks between this range. Issue a warning to indicate that we do not
  * support these.
  */
-#warning "SLE kernel versions between 4.12.14-23 and 4.12.14-94 are not supported"
+#warning \
+	"SLE kernel versions between 4.12.14-23 and 4.12.14-94 are not supported"
 #endif
 
 /*****************************************************************************/

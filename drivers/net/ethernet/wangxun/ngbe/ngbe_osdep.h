@@ -38,8 +38,6 @@
 
 #define usec_delay(_x) udelay(_x)
 
-#define STATIC static
-
 #define IOMEM __iomem
 
 #define NGBE_NAME "ngbe"

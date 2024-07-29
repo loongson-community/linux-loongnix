@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0
 obj-$(CONFIG_RNPM) := rnpm.o
 rnpm-objs :=   \
 	rnpm_common.o \
@@ -13,10 +14,12 @@ rnpm-objs :=   \
 	rnpm_sriov.o \
 	rnpm_compat.o \
 	rnpm_tc.o \
-	rnpm_ptp.o
+	rnpm_ptp.o \
+	rnpm_mpe.o
 
 EXTRA_CFLAGS += -DN10
 EXTRA_CFLAGS += -DFIX_VF_BUG
+EXTRA_CFLAGS += -DRNPM_FIX_MAC_PADDING
 
 rnp-${CONFIG_RNPM_DCB} += rnpm_dcb.o
 rnpm-${CONFIG_DEBUG_FS} += rnpm_debugfs.o

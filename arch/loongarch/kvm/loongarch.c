@@ -54,8 +54,8 @@ struct kvm_stats_debugfs_item vcpu_debugfs_entries[] = {
 	{ "tlbmiss_st",	VCPU_STAT(excep_exits[EXCCODE_TLBS]),	KVM_STAT_VCPU},
 	{ "tlb_ifetch",	VCPU_STAT(excep_exits[EXCCODE_TLBI]),	KVM_STAT_VCPU},
 	{ "tlbmod",	VCPU_STAT(excep_exits[EXCCODE_TLBM]),	KVM_STAT_VCPU},
-	{ "tlbri",	VCPU_STAT(excep_exits[EXCCODE_TLBRI]),	KVM_STAT_VCPU},
-	{ "tlbxi",	VCPU_STAT(excep_exits[EXCCODE_TLBXI]),	KVM_STAT_VCPU},
+	{ "tlbri",	VCPU_STAT(excep_exits[EXCCODE_TLBNR]),	KVM_STAT_VCPU},
+	{ "tlbxi",	VCPU_STAT(excep_exits[EXCCODE_TLBNX]),	KVM_STAT_VCPU},
 	{ "fp_dis",	VCPU_STAT(excep_exits[EXCCODE_FPDIS]),  KVM_STAT_VCPU},
 	{ "lsx_dis",	VCPU_STAT(excep_exits[EXCCODE_LSXDIS]), KVM_STAT_VCPU},
 	{ "lasx_dis",	VCPU_STAT(excep_exits[EXCCODE_LASXDIS]), KVM_STAT_VCPU},
@@ -63,7 +63,7 @@ struct kvm_stats_debugfs_item vcpu_debugfs_entries[] = {
 	{ "watch",	VCPU_STAT(excep_exits[EXCCODE_WATCH]),	KVM_STAT_VCPU},
 	{ "gspr",	VCPU_STAT(excep_exits[EXCCODE_GSPR]),	KVM_STAT_VCPU},
 	{ "gcm",	VCPU_STAT(excep_exits[EXCCODE_GCM]),	KVM_STAT_VCPU},
-	{ "hc",		VCPU_STAT(excep_exits[EXCCODE_HYP]),	KVM_STAT_VCPU},
+	{ "hc",		VCPU_STAT(excep_exits[EXCCODE_HVC]),	KVM_STAT_VCPU},
 
 	{ "rdcsr_cpu_feature",  VCPU_STAT(rdcsr_cpu_feature_exits),  KVM_STAT_VCPU },
 	{ "rdcsr_misc_func",  VCPU_STAT(rdcsr_misc_func_exits),  KVM_STAT_VCPU },
@@ -1792,7 +1792,7 @@ int kvm_cpu_has_pending_timer(struct kvm_vcpu *vcpu)
 {
 	return _kvm_pending_timer(vcpu) ||
 		kvm_read_hw_gcsr(KVM_CSR_ESTAT) &
-			(1 << (EXCCODE_TIMER - EXCCODE_INT_START));
+			(1 << (INT_TI));
 }
 
 int kvm_arch_vcpu_dump_regs(struct kvm_vcpu *vcpu)

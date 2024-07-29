@@ -59,7 +59,7 @@ static int loongarch_cpu_intc_map(struct irq_domain *d, unsigned int irq,
 	chip = &loongarch_cpu_irq_controller;
 
 	if (cpu_has_vint)
-		set_vi_handler(EXCCODE_INT_START + hw, plat_irq_dispatch);
+		set_vi_handler(hw, plat_irq_dispatch);
 
 	irq_set_chip_and_handler(irq, chip, handle_percpu_irq);
 

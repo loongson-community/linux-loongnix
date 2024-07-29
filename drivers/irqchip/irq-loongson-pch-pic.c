@@ -47,6 +47,8 @@ static struct pch_pic {
 	u64			saved_vec_en[PIC_REG_COUNT];
 	u64			saved_vec_edge[PIC_REG_COUNT];
 	u64			saved_vec_pol[PIC_REG_COUNT];
+	char			table[64];
+	int			table_index;
 	int			model;
 	int			gsi_end;
 	int			gsi_base;
@@ -67,7 +69,10 @@ static void pch_pic_bitset(struct pch_pic *priv, int offset, int bit)
 {
 	u64 reg;
 	unsigned long flags;
-	void __iomem *addr = priv->base + offset + PIC_REG_IDX(bit) * 8;
+	void __iomem *addr;
+
+	bit = priv->table[bit];
+	addr = priv->base + offset + PIC_REG_IDX(bit) * 8;
 
 	raw_spin_lock_irqsave(&priv->pic_lock, flags);
 	reg = readq(addr);
@@ -80,7 +85,10 @@ static void pch_pic_bitclr(struct pch_pic *priv, int offset, int bit)
 {
 	u64 reg;
 	unsigned long flags;
-	void __iomem *addr = priv->base + offset + PIC_REG_IDX(bit) * 8;
+	void __iomem *addr;
+
+	bit = priv->table[bit];
+	addr = priv->base + offset + PIC_REG_IDX(bit) * 8;
 
 	raw_spin_lock_irqsave(&priv->pic_lock, flags);
 	reg = readq(addr);
@@ -100,10 +108,10 @@ static void pch_pic_mask_irq(struct irq_data *d)
 static void pch_pic_unmask_irq(struct irq_data *d)
 {
 	struct pch_pic *priv = irq_data_get_irq_chip_data(d);
-	u32 idx = PIC_REG_IDX(d->hwirq);
+	u32 idx = PIC_REG_IDX(priv->table[d->hwirq]);
 
 	irq_chip_unmask_parent(d);
-	writeq(BIT(PIC_REG_BIT(d->hwirq)),
+	writeq(BIT(PIC_REG_BIT(priv->table[d->hwirq])),
 			priv->base + PCH_PIC_CLR + idx * 8);
 	pch_pic_bitclr(priv, PCH_PIC_MASK, d->hwirq);
 }
@@ -185,12 +193,12 @@ static void pch_pic_ack_irq(struct irq_data *d)
 	u64 reg;
 	struct pch_pic *priv = irq_data_get_irq_chip_data(d);
 	void __iomem *addr =
-			priv->base + PCH_PIC_EDGE + PIC_REG_IDX(d->hwirq) * 8;
+			priv->base + PIC_REG_IDX(priv->table[d->hwirq]) * 8;
 
-	reg = readq(addr);
-	if (reg & BIT_ULL(d->hwirq)) {
-		writeq(BIT(PIC_REG_BIT(d->hwirq)),
-			priv->base + PCH_PIC_CLR + PIC_REG_IDX(d->hwirq) * 8);
+	reg = readq(addr + PCH_PIC_EDGE);
+	if (reg & BIT_ULL(priv->table[d->hwirq])) {
+		writeq(BIT(PIC_REG_BIT(priv->table[d->hwirq])),
+			addr + PCH_PIC_CLR);
 	}
 	irq_chip_ack_parent(d);
 }
@@ -248,6 +256,8 @@ static int pch_pic_domain_translate(struct irq_domain *d,
 {
 	struct pch_pic *priv = d->host_data;
 	struct device_node *of_node = to_of_node(fwspec->fwnode);
+	int i;
+	unsigned char tmp;
 
 	if (fwspec->param_count < 1)
 		return -EINVAL;
@@ -258,7 +268,21 @@ static int pch_pic_domain_translate(struct irq_domain *d,
 
 		*hwirq = fwspec->param[0];
 	} else {
-		*hwirq = fwspec->param[0] - priv->gsi_base;
+		tmp = fwspec->param[0] - priv->gsi_base;
+		*hwirq = tmp;
+
+		if (priv->table_index >= 0) {
+			for (i = 0; i < priv->table_index; i++) {
+				if (priv->table[i] == tmp) {
+					*hwirq = i;
+					break;
+				}
+			}
+			if (i == priv->table_index && priv->table_index < 64) {
+				*hwirq = priv->table_index;
+				priv->table[priv->table_index++] = tmp;
+			}
+		}
 	}
 
 	if (fwspec->param_count > 1)
@@ -297,6 +321,9 @@ static int pch_pic_alloc(struct irq_domain *domain, unsigned int virq,
 
 	pch_pic_domain_translate(domain, arg, &hwirq, &type);
 
+	/* Write vector ID */
+	writeb(priv->ht_vec_base + hwirq, priv->base + PCH_INT_HTVEC(priv->table[hwirq]));
+
 	fwspec.fwnode = domain->parent->fwnode;
 	fwspec.param_count = 1;
 	fwspec.param[0] = hwirq + priv->ht_vec_base;
@@ -326,11 +353,15 @@ static void pch_pic_reset(struct pch_pic *priv)
 {
 	int i;
 
-	for (i = 0; i < PIC_COUNT; i++) {
+	for (i = 0; i < (priv->table_index > 0 ? priv->table_index : PIC_COUNT); i++) {
 		if (priv->model != PCH_IRQ_ROUTE_LINE) {
 			/* Write vector ID */
-			writeb(priv->ht_vec_base + i, priv->base + PCH_INT_HTVEC(i));
+			writeb(priv->ht_vec_base + i,
+					priv->base + PCH_INT_HTVEC(priv->table[i]));
 		}
+	}
+
+	for (i = 0; i < PIC_COUNT; i++) {
 		/* Hardcode route to HT0 Lo */
 		writeb(1, priv->base + PCH_INT_ROUTE(i));
 	}
@@ -380,6 +411,15 @@ int pch_pic_init(struct fwnode_handle *irq_handle,
 	priv = kzalloc(sizeof(*priv), GFP_KERNEL);
 	if (!priv)
 		return -ENOMEM;
+
+	if (size == 0x54)
+		priv->table_index = 0;
+	else {
+		priv->table_index = -1;
+		for (count = 0; count < PIC_COUNT; count++)
+			priv->table[count] = count;
+	}
+
 
 	raw_spin_lock_init(&priv->pic_lock);
 	priv->base = ioremap(addr, size);

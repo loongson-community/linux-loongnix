@@ -422,11 +422,25 @@ void ncs8805_commit(struct gsgpu_bridge_phy *phy)
 	ncs8805_working_ctrl(phy, NCS8805_WORKING_ENABLE);
 }
 
+int ncs8805_suspend(struct gsgpu_bridge_phy *phy)
+{
+	ncs8805_bl_ctrl(phy, DRM_MODE_DPMS_OFF);
+	return 0;
+}
+
+int ncs8805_resume(struct gsgpu_bridge_phy *phy)
+{
+	ncs8805_bl_ctrl(phy, DRM_MODE_DPMS_ON);
+	return 0;
+}
+
 static struct bridge_phy_cfg_funcs ncs8805_cfg_funcs = {
 	.backlight_ctrl = ncs8805_bl_ctrl,
 	.prepare = ncs8805_prepare,
 	.commit = ncs8805_commit,
 	.mode_set = ncs8805_mode_set,
+	.suspend = ncs8805_suspend,
+	.resume = ncs8805_resume
 };
 
 static int ncs8805_get_modes(struct gsgpu_bridge_phy *phy,

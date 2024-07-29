@@ -79,7 +79,7 @@ struct dentry;
 	rcu_dereference_check_fdtable((files), (files)->fdt)
 
 #ifndef ls_get_file
-#define ls_get_file
+#define ls_get_file(fd, fdt)
 #endif
 /*
  * The caller must ensure that fd table isn't shared or hold rcu or file lock

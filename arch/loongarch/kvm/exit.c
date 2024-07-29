@@ -471,14 +471,14 @@ static exit_handle_fn _kvm_fault_tables[EXCCODE_INT_START] = {
 	[EXCCODE_TLBS]		= _kvm_handle_write_fault,
 	[EXCCODE_TLBI]		= _kvm_handle_read_fault,
 	[EXCCODE_TLBM]		= _kvm_handle_write_fault,
-	[EXCCODE_TLBRI]		= _kvm_handle_read_fault,
-	[EXCCODE_TLBXI]		= _kvm_handle_read_fault,
+	[EXCCODE_TLBNR]		= _kvm_handle_read_fault,
+	[EXCCODE_TLBNX]		= _kvm_handle_read_fault,
 	[EXCCODE_FPDIS]		= _kvm_handle_fpu_disabled,
 	[EXCCODE_LSXDIS]	= _kvm_handle_lsx_disabled,
 	[EXCCODE_LASXDIS]	= _kvm_handle_lasx_disabled,
 	[EXCCODE_WATCH]		= _kvm_handle_debug,
 	[EXCCODE_GSPR]		= _kvm_handle_gspr,
-	[EXCCODE_HYP]		= _kvm_handle_hypcall,
+	[EXCCODE_HVC]		= _kvm_handle_hypcall,
 	[EXCCODE_GCM]		= _kvm_handle_gcm,
 };
 

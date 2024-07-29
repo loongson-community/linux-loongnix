@@ -32,6 +32,7 @@ int txgbe_set_vf_mac(struct txgbe_adapter *adapter,
 		     u16 vf, unsigned char *mac_addr);
 void txgbe_disable_tx_rx(struct txgbe_adapter *adapter);
 void txgbe_ping_all_vfs(struct txgbe_adapter *adapter);
+void txgbe_set_all_vfs(struct txgbe_adapter *adapter);
 #ifdef IFLA_VF_MAX
 int txgbe_ndo_set_vf_mac(struct net_device *netdev, int queue, u8 *mac);
 #ifdef IFLA_VF_VLAN_INFO_MAX
@@ -50,6 +51,9 @@ int txgbe_ndo_set_vf_bw(struct net_device *netdev, int vf, int tx_rate);
 #ifdef HAVE_VF_SPOOFCHK_CONFIGURE
 int txgbe_ndo_set_vf_spoofchk(struct net_device *netdev, int vf, bool setting);
 #endif
+#ifdef HAVE_NDO_SET_VF_LINK_STATE
+int txgbe_ndo_set_vf_link_state(struct net_device *netdev, int vf, int state);
+#endif
 #ifdef HAVE_NDO_SET_VF_TRUST
 int txgbe_ndo_set_vf_trust(struct net_device *netdev, int vf, bool setting);
 #endif
@@ -62,6 +66,7 @@ int txgbe_vf_configuration(struct pci_dev *pdev, unsigned int event_mask);
 void txgbe_enable_sriov(struct txgbe_adapter *adapter);
 #endif
 int txgbe_pci_sriov_configure(struct pci_dev *dev, int num_vfs);
+void txgbe_set_vf_link_state(struct txgbe_adapter *adapter, int vf, int state);
 
 /*
  * These are defined in txgbe_type.h on behalf of the VF driver

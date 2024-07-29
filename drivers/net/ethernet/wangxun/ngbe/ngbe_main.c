@@ -41,6 +41,13 @@
 
 #include <linux/if_bridge.h>
 #include "ngbe.h"
+
+#ifdef HAVE_XDP_SUPPORT
+#include <linux/bpf.h>
+#include <linux/bpf_trace.h>
+#include <linux/atomic.h>
+#endif
+
 #ifdef HAVE_VXLAN_CHECKS
 #include <net/vxlan.h>
 #endif /* HAVE_VXLAN_CHECKS */
@@ -64,9 +71,13 @@ static const char ngbe_driver_string[] =
 #define RELEASE_TAG
 
 #if defined(NGBE_SUPPORT_KYLIN)
-#define DRV_VERSION     __stringify(1.1.1kylin)
+#define DRV_VERSION     __stringify(1.2.5.3klos)
+#elif defined(CONFIG_EULER_KERNEL)
+#define DRV_VERSION     __stringify(1.2.5.3elos)
+#elif defined(CONFIG_UOS_KERNEL)
+#define DRV_VERSION     __stringify(1.2.5.3uos)
 #else
-#define DRV_VERSION     __stringify(1.1.1)
+#define DRV_VERSION     __stringify(1.2.5.3)
 #endif
 const char ngbe_driver_version[32] = DRV_VERSION;
 static const char ngbe_copyright[] =
@@ -113,6 +124,10 @@ MODULE_DESCRIPTION("WangXun(R) Gigabit PCI Express Network Driver");
 MODULE_LICENSE("GPL");
 MODULE_VERSION(DRV_VERSION);
 
+#ifdef HAVE_XDP_SUPPORT
+DEFINE_STATIC_KEY_FALSE(ngbe_xdp_locking_key);
+EXPORT_SYMBOL(ngbe_xdp_locking_key);
+#endif
 #define DEFAULT_DEBUG_LEVEL_SHIFT 3
 
 static struct workqueue_struct *ngbe_wq;
@@ -120,6 +135,7 @@ static struct workqueue_struct *ngbe_wq;
 static bool ngbe_check_cfg_remove(struct ngbe_hw *hw, struct pci_dev *pdev);
 static void ngbe_clean_rx_ring(struct ngbe_ring *rx_ring);
 static void ngbe_clean_tx_ring(struct ngbe_ring *tx_ring);
+static u32 ngbe_tx_cmd_type(u32 tx_flags);
 
 extern ngbe_dptype ngbe_ptype_lookup[256];
 
@@ -132,6 +148,40 @@ static inline ngbe_dptype
 decode_rx_desc_ptype(const union ngbe_rx_desc *rx_desc)
 {
 	return ngbe_decode_ptype(NGBE_RXD_PKTTYPE(rx_desc));
+}
+
+void ngbe_print_tx_hang_status(struct ngbe_adapter *adapter)
+{
+	int pos;
+	u32 value;
+	struct pci_dev *pdev = adapter->pdev;
+	u16 devctl2;
+
+	pos = pci_find_ext_capability(pdev, PCI_EXT_CAP_ID_ERR);
+	if (!pos)
+		return;
+	pci_read_config_dword(pdev, pos + PCI_ERR_UNCOR_STATUS, &value);
+	e_info(probe, "AER Uncorrectable Error Status: 0x%08x\n", value);
+	pci_read_config_dword(pdev, pos + PCI_ERR_UNCOR_MASK, &value);
+	e_info(probe, "AER Uncorrectable Error Mask: 0x%08x\n", value);
+	pci_read_config_dword(pdev, pos + PCI_ERR_UNCOR_SEVER, &value);
+	e_info(probe, "AER Uncorrectable Error Severity: 0x%08x\n", value);
+	pci_read_config_dword(pdev, pos + PCI_ERR_COR_STATUS, &value);
+	e_info(probe, "AER Correctable Error Status: 0x%08x\n", value);
+	pci_read_config_dword(pdev, pos + PCI_ERR_COR_MASK, &value);
+	e_info(probe, "AER Correctable Error Mask: 0x%08x\n", value);
+	pci_read_config_dword(pdev, pos + PCI_ERR_CAP, &value);
+	e_info(probe, "AER Capabilities and Control Register: 0x%08x\n", value);
+
+	pcie_capability_read_word(pdev, PCI_EXP_DEVCTL2, &devctl2);
+	e_info(probe, "Device Control2 Register: 0x%04x\n", devctl2);
+
+	e_info(probe, "Tx flow control Status[TDB_TFCS 0xCE00]: 0x%x\n",
+		rd32(&adapter->hw, NGBE_TDB_TFCS));
+
+	e_info(probe, "Tx Desc Fatal Error[TDM_DESC_FATAL 0x80D0]: 0x%x\n",
+		rd32(&adapter->hw, NGBE_TDM_DESC_FATAL));
+	return;
 }
 
 static void ngbe_check_minimum_link(struct ngbe_adapter *adapter,
@@ -190,7 +240,7 @@ static inline int ngbe_enumerate_functions(struct ngbe_adapter *adapter)
 	return physfns;
 }
 
-void ngbe_service_event_schedule(struct ngbe_adapter *adapter)
+static void ngbe_service_event_schedule(struct ngbe_adapter *adapter)
 {
 	if (!test_bit(__NGBE_DOWN, &adapter->state) &&
 	    !test_bit(__NGBE_REMOVING, &adapter->state) &&
@@ -294,16 +344,22 @@ u32 ngbe_read_reg(struct ngbe_hw *hw, u32 reg, bool quiet)
 
 static void ngbe_release_hw_control(struct ngbe_adapter *adapter)
 {
+	struct ngbe_hw *hw = &adapter->hw;
 	/* Let firmware take over control of h/w */
 	wr32m(&adapter->hw, NGBE_CFG_PORT_CTL,
 		NGBE_CFG_PORT_CTL_DRV_LOAD, 0);
+	if (hw->phy.type == ngbe_phy_yt8521s_sfi)
+		wr32(&adapter->hw, NGBE_CFG_LED_CTL, 0x0);
 }
 
 static void ngbe_get_hw_control(struct ngbe_adapter *adapter)
 {
+	struct ngbe_hw *hw = &adapter->hw;
 	/* Let firmware know the driver has taken over */
 	wr32m(&adapter->hw, NGBE_CFG_PORT_CTL,
 		NGBE_CFG_PORT_CTL_DRV_LOAD, NGBE_CFG_PORT_CTL_DRV_LOAD);
+	if (hw->phy.type == ngbe_phy_yt8521s_sfi)
+		wr32(&adapter->hw, NGBE_CFG_LED_CTL, BIT(18));
 }
 
 /**
@@ -323,7 +379,7 @@ static void ngbe_set_ivar(struct ngbe_adapter *adapter, s8 direction,
 	if (direction == -1) {
 		/* other causes */
 		msix_vector |= NGBE_PX_IVAR_ALLOC_VAL;
-		index = 0;
+		index = 0; 
 		ivar = rd32(&adapter->hw, NGBE_PX_MISC_IVAR);
 		ivar &= ~(0xFF << index);
 		ivar |= (msix_vector << index);
@@ -386,6 +442,9 @@ static void ngbe_update_xoff_rx_lfc(struct ngbe_adapter *adapter)
 	for (i = 0; i < adapter->num_tx_queues; i++)
 		clear_bit(__NGBE_HANG_CHECK_ARMED,
 			  &adapter->tx_ring[i]->state);
+	for (i = 0; i < adapter->num_xdp_queues; i++)
+		clear_bit(__NGBE_HANG_CHECK_ARMED,
+			  &adapter->xdp_ring[i]->state);
 }
 
 
@@ -446,14 +505,23 @@ static inline bool ngbe_check_tx_hang(struct ngbe_ring *tx_ring)
 	return false;
 }
 
-#if 0
+static void ngbe_tx_timeout_dorecovery(struct ngbe_adapter *adapter)
+{
+	/* schedule immediate reset if we believe we hung */
+	if (adapter->hw.bus.lan_id == 0)
+		adapter->flags2 |= NGBE_FLAG2_PCIE_NEED_RECOVER;
+	else
+		wr32(&adapter->hw, NGBE_MIS_PF_SM, 1);
+	ngbe_service_event_schedule(adapter);
+}
+
 /**
  * ngbe_tx_timeout_reset - initiate reset due to Tx timeout
  * @adapter: driver private struct
  **/
 static void ngbe_tx_timeout_reset(struct ngbe_adapter *adapter)
 {
-
+#if 0
 	if (time_after(jiffies, (adapter->tx_timeout_last_recovery + HZ*20)))
 		adapter->tx_timeout_recovery_level = 0;
 	else if (time_before(jiffies,
@@ -483,11 +551,15 @@ static void ngbe_tx_timeout_reset(struct ngbe_adapter *adapter)
 			break;
 		}
 	}
-	e_warn(drv, "initiating reset due to tx timeout\n");
-	ngbe_service_event_schedule(adapter);
-	adapter->tx_timeout_recovery_level++;
-}
 #endif
+	if (!test_bit(__NGBE_DOWN, &adapter->state)) {
+		adapter->flags2 |= NGBE_FLAG2_PF_RESET_REQUESTED;
+		e_warn(drv, "initiating reset due to tx timeout\n");
+		ngbe_service_event_schedule(adapter);
+	}
+//	adapter->tx_timeout_recovery_level++;
+}
+
 /**
  * ngbe_tx_timeout - Respond to a Tx Hang
  * @netdev: network interface device structure
@@ -500,78 +572,51 @@ static void ngbe_tx_timeout_reset(struct ngbe_adapter *adapter)
 {
 	struct ngbe_adapter *adapter = netdev_priv(netdev);
 	struct ngbe_hw *hw = &adapter->hw;
-	bool real_tx_hang = false;
 	int i;
-	u16 value = 0;
-	u32 value2 = 0;
+	u16 vid = 0;
+	u16 cmd = 0;
+	u32 reg32 = 0;
 	u32 head, tail;
 
-#define TX_TIMEO_LIMIT 16000
-	for (i = 0; i < adapter->num_tx_queues; i++) {
-		struct ngbe_ring *tx_ring = adapter->tx_ring[i];
-		if (check_for_tx_hang(tx_ring) && ngbe_check_tx_hang(tx_ring)) {
-			real_tx_hang = true;
-			e_info(drv, "&&ngbe_tx_timeout:i=%d&&", i);
-		}
-	}
+	pci_read_config_word(adapter->pdev, PCI_VENDOR_ID, &vid);
+	ERROR_REPORT1(NGBE_ERROR_POLLING, "pci vendor id is 0x%x\n", vid);
 
-	pci_read_config_word(adapter->pdev, PCI_VENDOR_ID, &value);
-	ERROR_REPORT1(NGBE_ERROR_POLLING, "pci vendor id is 0x%x\n", value);
+	pci_read_config_word(adapter->pdev, PCI_COMMAND, &cmd);
+	ERROR_REPORT1(NGBE_ERROR_POLLING, "pci command reg is 0x%x.\n", cmd);
 
-	pci_read_config_word(adapter->pdev, PCI_COMMAND, &value);
-	ERROR_REPORT1(NGBE_ERROR_POLLING, "pci command reg is 0x%x.\n", value);
-
-	value2 = rd32(&adapter->hw, 0x10000);
-	ERROR_REPORT1(NGBE_ERROR_POLLING, "reg 0x10000 value is 0x%08x\n", value2);
-	value2 = rd32(&adapter->hw, 0x180d0);
-	ERROR_REPORT1(NGBE_ERROR_POLLING, "reg 0x180d0 value is 0x%08x\n", value2);
-	value2 = rd32(&adapter->hw, 0x180d4);
-	ERROR_REPORT1(NGBE_ERROR_POLLING, "reg 0x180d4 value is 0x%08x\n", value2);
-	value2 = rd32(&adapter->hw, 0x180d8);
-	ERROR_REPORT1(NGBE_ERROR_POLLING, "reg 0x180d8 value is 0x%08x\n", value2);
-	value2 = rd32(&adapter->hw, 0x180dc);
-	ERROR_REPORT1(NGBE_ERROR_POLLING, "reg 0x180dc value is 0x%08x\n", value2);
-
-#if 0
-	for (i = 0; i < adapter->tx_ring_count; i++) {
-		tx_desc = TXGBE_TX_DESC(tx_ring0, i);
-		e_info(hw, "tx desc no. is %d\n", i);
-		e_info(hw, "tx desc buffer addr is 0x%16llx\n", tx_desc->read.buffer_addr);
-		e_info(hw, "tx desc cmd_type_len is 0x%08x\n", tx_desc->read.cmd_type_len);
-		e_info(hw, "tx desc olinfo_status is 0x%08x\n", tx_desc->read.olinfo_status);
-	}
-#endif
+	reg32 = rd32(&adapter->hw, 0x10000);
+	ERROR_REPORT1(NGBE_ERROR_POLLING, "reg 0x10000 value is 0x%08x\n", reg32);
 
 	for (i = 0; i < adapter->num_tx_queues; i++) {
 		head = rd32(&adapter->hw, NGBE_PX_TR_RP(adapter->tx_ring[i]->reg_idx));
 		tail = rd32(&adapter->hw, NGBE_PX_TR_WP(adapter->tx_ring[i]->reg_idx));
 
 		ERROR_REPORT1(NGBE_ERROR_POLLING,
-			"tx ring %d next_to_use is %d, next_to_clean is %d\n",
+			"tx ring %d next_to_use is %d, next_to_clean is %d\n", 
 			i, adapter->tx_ring[i]->next_to_use, adapter->tx_ring[i]->next_to_clean);
 		ERROR_REPORT1(NGBE_ERROR_POLLING,
 			"tx ring %d hw rp is 0x%x, wp is 0x%x\n", i, head, tail);
 	}
 
-//	ERROR_REPORT1(TXGBE_ERROR_POLLING,
-//			"interrupt count is %lld.\n", adapter->intcnt);
-
-	value2 = rd32(&adapter->hw, NGBE_PX_IMS);
+	reg32 = rd32(&adapter->hw, NGBE_PX_IMS);
 	ERROR_REPORT1(NGBE_ERROR_POLLING,
-			"PX_IMS value is 0x%08x\n", value2);
-
-	if (value2) {
+			"PX_IMS value is 0x%08x\n", reg32);
+	if (reg32) {
 		ERROR_REPORT1(NGBE_ERROR_POLLING, "clear interrupt mask.\n");
-		wr32(&adapter->hw, NGBE_PX_ICS, value2);
-		wr32(&adapter->hw, NGBE_PX_IMC, value2);
+		wr32(&adapter->hw, NGBE_PX_ICS, reg32);
+		wr32(&adapter->hw, NGBE_PX_IMC, reg32);
 	}
 
-	if (adapter->hw.bus.lan_id == 0) {
-		ERROR_REPORT1(NGBE_ERROR_POLLING, "tx timeout. do pcie recovery.\n");
-		adapter->flags2 |= NGBE_FLAG2_PCIE_NEED_RECOVER;
-		ngbe_service_event_schedule(adapter);
-	} else
-		wr32(&adapter->hw, NGBE_MIS_PF_SM, 1);
+	if (NGBE_RECOVER_CHECK == 1) {
+		if (vid == NGBE_FAILED_READ_CFG_WORD) {
+			ngbe_tx_timeout_dorecovery(adapter);
+		} else {
+			ngbe_print_tx_hang_status(adapter);
+			ngbe_tx_timeout_reset(adapter);
+		}
+	} else {
+		ngbe_tx_timeout_dorecovery(adapter);
+	}
 }
 
 /**
@@ -588,6 +633,8 @@ static bool ngbe_clean_tx_irq(struct ngbe_q_vector *q_vector,
 	unsigned int total_bytes = 0, total_packets = 0;
 	unsigned int budget = q_vector->tx.work_limit;
 	unsigned int i = tx_ring->next_to_clean;
+	struct ngbe_hw *hw = &adapter->hw;
+	u16 vid = 0;
 
 	if (test_bit(__NGBE_DOWN, &adapter->state))
 		return true;
@@ -595,8 +642,8 @@ static bool ngbe_clean_tx_irq(struct ngbe_q_vector *q_vector,
 	tx_buffer = &tx_ring->tx_buffer_info[i];
 	tx_desc = NGBE_TX_DESC(tx_ring, i);
 	i -= tx_ring->count;
-
 	do {
+
 		union ngbe_tx_desc *eop_desc = tx_buffer->next_to_watch;
 
 		/* if next_to_watch is not set then there is no work pending */
@@ -618,8 +665,16 @@ static bool ngbe_clean_tx_irq(struct ngbe_q_vector *q_vector,
 		total_packets += tx_buffer->gso_segs;
 
 		/* free the skb */
-		dev_consume_skb_any(tx_buffer->skb);
-
+#ifdef HAVE_XDP_SUPPORT
+		if (ring_is_xdp(tx_ring))
+#ifdef HAVE_XDP_FRAME_STRUCT
+			xdp_return_frame(tx_buffer->xdpf);
+#else
+			page_frag_free(tx_buffer->data);
+#endif
+		else
+#endif
+			dev_consume_skb_any(tx_buffer->skb);
 		/* unmap skb header data */
 		dma_unmap_single(tx_ring->dev,
 						dma_unmap_addr(tx_buffer, dma),
@@ -627,9 +682,15 @@ static bool ngbe_clean_tx_irq(struct ngbe_q_vector *q_vector,
 						DMA_TO_DEVICE);
 
 		/* clear tx_buffer data */
-		tx_buffer->skb = NULL;
+		if (ring_is_xdp(tx_ring))
+#ifdef HAVE_XDP_FRAME_STRUCT
+			tx_buffer->xdpf = NULL;
+#else
+			tx_buffer->data = NULL;
+#endif
+		else
+			tx_buffer->skb = NULL;
 		dma_unmap_len_set(tx_buffer, len, 0);
-
 		/* unmap remaining buffers */
 		while (tx_desc != eop_desc) {
 			tx_buffer++;
@@ -650,7 +711,6 @@ static bool ngbe_clean_tx_irq(struct ngbe_q_vector *q_vector,
 				dma_unmap_len_set(tx_buffer, len, 0);
 			}
 		}
-
 		/* move us one more past the eop_desc for start of next pkt */
 		tx_buffer++;
 		tx_desc++;
@@ -667,7 +727,6 @@ static bool ngbe_clean_tx_irq(struct ngbe_q_vector *q_vector,
 		/* update budget accounting */
 		budget--;
 	} while (likely(budget));
-
 	i += tx_ring->count;
 	tx_ring->next_to_clean = i;
 	u64_stats_update_begin(&tx_ring->syncp);
@@ -685,10 +744,8 @@ static bool ngbe_clean_tx_irq(struct ngbe_q_vector *q_vector,
 
 		if ( adapter->hang_cnt >= 5 ) {
 			/* schedule immediate reset if we believe we hung */
-			struct ngbe_hw *hw = &adapter->hw;
-			u16 value = 0;
 
-			e_err(drv, "Detected Tx Unit Hang\n"
+			e_err(drv, "Detected Tx Unit Hang%s\n"
 				"  Tx Queue             <%d>\n"
 				"  TDH, TDT             <%x>, <%x>\n"
 				"  next_to_use          <%x>\n"
@@ -696,33 +753,42 @@ static bool ngbe_clean_tx_irq(struct ngbe_q_vector *q_vector,
 				"tx_buffer_info[next_to_clean]\n"
 				"  time_stamp           <%lx>\n"
 				"  jiffies              <%lx>\n",
+				ring_is_xdp(tx_ring) ? " (XDP)" : "",
 				tx_ring->queue_index,
 				rd32(hw, NGBE_PX_TR_RP(tx_ring->reg_idx)),
 				rd32(hw, NGBE_PX_TR_WP(tx_ring->reg_idx)),
 				tx_ring->next_to_use, i,
 				tx_ring->tx_buffer_info[i].time_stamp, jiffies);
 
-			pci_read_config_word(adapter->pdev, PCI_VENDOR_ID, &value);
-			if (value == NGBE_FAILED_READ_CFG_WORD) {
+			pci_read_config_word(adapter->pdev, PCI_VENDOR_ID, &vid);
+			if (vid == NGBE_FAILED_READ_CFG_WORD) {
 				e_info(hw, "pcie link has been lost.\n");
 			}
 
-			netif_stop_subqueue(tx_ring->netdev, tx_ring->queue_index);
+			if (!ring_is_xdp(tx_ring))
+				netif_stop_subqueue(tx_ring->netdev, tx_ring->queue_index);
 
 			e_info(probe,
 				"tx hang %d detected on queue %d, resetting adapter\n",
 				adapter->tx_timeout_count + 1, tx_ring->queue_index);
 
-			/* schedule immediate reset if we believe we hung */
-			e_info(hw, "real tx hang. do pcie recovery.\n");
-			adapter->flags2 |= NGBE_FLAG2_PCIE_NEED_RECOVER;
-			ngbe_service_event_schedule(adapter);
+			if (NGBE_RECOVER_CHECK == 1) {
+				if (vid == NGBE_FAILED_READ_CFG_WORD) {
+					ngbe_tx_timeout_dorecovery(adapter);
+				} else {
+					ngbe_print_tx_hang_status(adapter);
+					ngbe_tx_timeout_reset(adapter);
+				}
+			} else {
+				ngbe_tx_timeout_dorecovery(adapter);
+			}
 
 			/* the adapter is about to reset, no point in enabling stuff */
 			return true;
 		}
 	}
-
+	if(ring_is_xdp(tx_ring))
+		return !!budget;
 	netdev_tx_completed_queue(txring_txq(tx_ring),
 				  total_packets, total_bytes);
 
@@ -834,7 +900,7 @@ static inline void ngbe_rx_checksum(struct ngbe_ring *ring,
 	if (dptype.etype >= NGBE_DEC_PTYPE_ETYPE_IG) {
 	#ifdef HAVE_SKBUFF_CSUM_LEVEL
 		skb->csum_level = 1;
-	#endif
+	#endif 
 	}
 
 	/* It must be a TCP or UDP or SCTP packet with a valid checksum */
@@ -881,7 +947,7 @@ static bool ngbe_alloc_mapped_skb(struct ngbe_ring *rx_ring,
 	bi->dma = dma;
 	return true;
 }
-
+#ifndef CONFIG_NGBE_DISABLE_PACKET_SPLIT
 static bool ngbe_alloc_mapped_page(struct ngbe_ring *rx_ring,
 				    struct ngbe_rx_buffer *bi)
 {
@@ -916,11 +982,11 @@ static bool ngbe_alloc_mapped_page(struct ngbe_ring *rx_ring,
 
 	bi->page_dma = dma;
 	bi->page = page;
-	bi->page_offset = 0;
+	bi->page_offset = rx_ring->xdp_prog ? XDP_PACKET_HEADROOM : 0;
 
 	return true;
 }
-
+#endif
 /**
  * ngbe_alloc_rx_buffers - Replace used receive buffers
  * @rx_ring: ring to place buffers on
@@ -1606,9 +1672,10 @@ static bool ngbe_is_non_eop(struct ngbe_ring *rx_ring,
 {
 #ifdef CONFIG_NGBE_DISABLE_PACKET_SPLIT
 	struct sk_buff *next_skb;
-#endif
+#else
 	struct ngbe_rx_buffer *rx_buffer =
 			&rx_ring->rx_buffer_info[rx_ring->next_to_clean];
+#endif
 	u32 ntc = rx_ring->next_to_clean + 1;
 
 	/* fetch, update, and store next to clean */
@@ -1753,6 +1820,9 @@ static bool ngbe_cleanup_headers(struct ngbe_ring *rx_ring,
 				  struct sk_buff *skb)
 {
 	struct net_device *netdev = rx_ring->netdev;
+
+	if (IS_ERR(skb))
+		return true;
 
 	/* verify that the packet does not have any known errors */
 	if (unlikely(ngbe_test_staterr(rx_desc,
@@ -2046,6 +2116,258 @@ add_frag:
 
 	return skb;
 }
+#define NGBE_XDP_PASS 0
+#define NGBE_XDP_CONSUMED 1
+#define NGBE_XDP_TX 2
+#define NGBE_XDP_REDIR 4
+
+
+#define NGBE_TXD_CMD (NGBE_TXD_EOP | \
+		       NGBE_TXD_RS)
+
+#ifdef HAVE_XDP_SUPPORT
+#ifdef HAVE_XDP_FRAME_STRUCT
+int ngbe_xmit_xdp_ring(struct ngbe_ring *ring, struct xdp_frame *xdpf)
+#else
+int ngbe_xmit_xdp_ring(struct ngbe_ring *ring, struct xdp_buff *xdp)
+#endif
+{
+	struct ngbe_tx_buffer *tx_buffer;
+	union ngbe_tx_desc *tx_desc;
+	u32 len, cmd_type = 0;
+	dma_addr_t dma;
+	u16 i;
+#ifdef HAVE_XDP_FRAME_STRUCT
+	len = xdpf->len;
+#else
+	len = xdp->data_end - xdp->data;
+#endif
+
+	if (unlikely(!ngbe_desc_unused(ring)))
+		return NGBE_XDP_CONSUMED;
+
+#ifdef HAVE_XDP_FRAME_STRUCT
+	dma = dma_map_single(ring->dev, xdpf->data, len, DMA_TO_DEVICE);
+#else
+	dma = dma_map_single(ring->dev, xdp->data, len, DMA_TO_DEVICE);
+#endif
+	if (dma_mapping_error(ring->dev, dma))
+		return NGBE_XDP_CONSUMED;
+
+	/* record the location of the first descriptor for this packet */
+	tx_buffer = &ring->tx_buffer_info[ring->next_to_use];
+	tx_buffer->bytecount = len;
+	tx_buffer->gso_segs = 1;
+	tx_buffer->protocol = 0;
+
+	i = ring->next_to_use;
+	tx_desc = NGBE_TX_DESC(ring, i);
+
+
+	dma_unmap_len_set(tx_buffer, len, len);
+	dma_unmap_addr_set(tx_buffer, dma, dma);
+	
+#ifdef HAVE_XDP_FRAME_STRUCT
+	tx_buffer->xdpf = xdpf;
+#else
+	tx_buffer->data = xdp->data;
+#endif
+
+	tx_desc->read.buffer_addr = cpu_to_le64(dma);
+	cmd_type = ngbe_tx_cmd_type(tx_buffer->tx_flags);
+	cmd_type |= len | NGBE_TXD_CMD;
+
+	tx_desc->read.buffer_addr = cpu_to_le64(dma);
+
+	tx_desc->read.cmd_type_len = cpu_to_le32(cmd_type);
+	tx_desc->read.olinfo_status =
+		cpu_to_le32(len << NGBE_TXD_PAYLEN_SHIFT);
+
+
+	/* Avoid any potential race with xdp_xmit and cleanup */
+	smp_wmb();
+
+
+	/* set next_to_watch value indicating a packet is present */
+	i++;
+	if (i == ring->count)
+		i = 0;
+
+	tx_buffer->next_to_watch = tx_desc;
+	ring->next_to_use = i;
+
+	return NGBE_XDP_TX;
+}
+#endif
+#ifdef NEED_NO_NETDEV_PROG_XDP_WARN_ACTION
+#ifdef HAVE_XDP_SUPPORT
+#include <linux/filter.h>
+static inline void
+_kc_bpf_warn_invalid_xdp_action(__maybe_unused struct net_device *dev,
+				__maybe_unused struct bpf_prog *prog, u32 act)
+{
+	bpf_warn_invalid_xdp_action(act);
+}
+
+#define bpf_warn_invalid_xdp_action(dev, prog, act) \
+	_kc_bpf_warn_invalid_xdp_action(dev, prog, act)
+#endif /* HAVE_XDP_SUPPORT */
+#endif /* HAVE_NETDEV_PROG_XDP_WARN_ACTION */
+
+static bool ngbe_can_reuse_rx_page(struct ngbe_rx_buffer *rx_buffer,
+				   struct ngbe_ring *rx_ring)
+{
+	struct page *page = rx_buffer->page;
+#if (PAGE_SIZE < 8192)
+#else
+	unsigned int last_offset = ngbe_rx_pg_size(rx_ring) -
+					ngbe_rx_bufsz(rx_ring);
+#endif
+
+	/* avoid re-using remote pages */
+	if (unlikely(ngbe_page_is_reserved(page)))
+		return false;
+
+#if (PAGE_SIZE < 8192)
+	/* if we are only owner of page we can reuse it */
+	if (unlikely(page_count(page) != 1))
+		return false;
+#else
+	if (rx_buffer->page_offset > last_offset)
+		return false;
+
+#endif
+	page_ref_inc(page);
+	return true;
+}
+
+
+static void ngbe_put_rx_buffer(struct ngbe_ring *rx_ring,
+				  struct ngbe_rx_buffer *rx_buffer,
+				  struct sk_buff *skb)
+{
+	if (ngbe_can_reuse_rx_page(rx_buffer, rx_ring)) {
+		/* hand second half of page back to the ring */
+		ngbe_reuse_rx_page(rx_ring, rx_buffer);
+	} else {
+			/* We are not reusing the buffer so unmap it and free
+			 * any references we are holding to it
+			 */
+			dma_unmap_page(rx_ring->dev, rx_buffer->page_dma,
+			ngbe_rx_pg_size(rx_ring),
+			DMA_FROM_DEVICE);
+			__free_pages(rx_buffer->page,
+				     ngbe_rx_pg_order(rx_ring));
+
+	}
+
+	/* clear contents of rx_buffer */
+	rx_buffer->page = NULL;
+}
+
+static struct sk_buff *
+ngbe_run_xdp(struct ngbe_adapter __maybe_unused *adapter,
+	     struct ngbe_ring __maybe_unused *rx_ring,
+	     struct ngbe_rx_buffer __maybe_unused *rx_buffer,
+	     struct xdp_buff __maybe_unused *xdp)
+{
+	int result = NGBE_XDP_PASS;
+#ifdef HAVE_XDP_SUPPORT
+	struct bpf_prog *xdp_prog;
+	struct ngbe_ring *ring;
+#ifdef HAVE_XDP_FRAME_STRUCT
+	struct xdp_frame *xdpf;
+#endif
+	int err;
+	u32 act;
+	rcu_read_lock();
+	xdp_prog = READ_ONCE(rx_ring->xdp_prog);
+
+	if (!xdp_prog) {
+		goto xdp_out;
+	}
+#ifdef HAVE_XDP_FRAME_STRUCT
+	prefetchw(xdp->data_hard_start); /* xdp_frame write */
+#endif
+	act = bpf_prog_run_xdp(xdp_prog, xdp);
+	switch (act) {
+	case XDP_PASS:
+		break;
+	case XDP_TX:
+		page_ref_inc(rx_buffer->page);
+#ifdef HAVE_XDP_FRAME_STRUCT
+		xdpf = xdp_convert_buff_to_frame(xdp);
+		if (unlikely(!xdpf)) {
+			result = NGBE_XDP_CONSUMED;
+			break;
+		}
+#endif
+		ring = adapter->xdp_ring[rx_ring->queue_index % adapter->num_xdp_queues];
+		if (static_branch_unlikely(&ngbe_xdp_locking_key))
+			spin_lock(&ring->tx_lock);
+#ifdef HAVE_XDP_FRAME_STRUCT
+		result = ngbe_xmit_xdp_ring(ring, xdpf);
+#else
+		result = ngbe_xmit_xdp_ring(ring, xdp);
+#endif
+		if (static_branch_unlikely(&ngbe_xdp_locking_key))
+			spin_unlock(&ring->tx_lock);
+		break;
+	case XDP_REDIRECT:
+		page_ref_inc(rx_buffer->page);
+		err = xdp_do_redirect(adapter->netdev, xdp, xdp_prog);
+		if (!err) {
+			result = NGBE_XDP_REDIR;
+		} else {
+			result = NGBE_XDP_CONSUMED;
+		}
+		break;
+	default:
+		bpf_warn_invalid_xdp_action(rx_ring->netdev, xdp_prog, act);
+		fallthrough;
+	case XDP_ABORTED:
+		trace_xdp_exception(rx_ring->netdev, xdp_prog, act);
+		/* fallthrough -- handle aborts by dropping packet */
+		fallthrough;
+	case XDP_DROP:
+		result = NGBE_XDP_CONSUMED;
+		break;
+	}
+xdp_out:
+	rcu_read_unlock();
+#endif /* HAVE_XDP_SUPPORT */
+
+	return ERR_PTR(-result);
+}
+
+static unsigned int ngbe_rx_frame_truesize(struct ngbe_ring *rx_ring,
+					    unsigned int size)
+{
+	
+	unsigned int truesize;
+
+#if (PAGE_SIZE < 8192)
+	truesize = ngbe_rx_bufsz(rx_ring);
+#else
+	truesize = ALIGN(size, L1_CACHE_BYTES)
+#ifdef HAVE_XDP_BUFF_FRAME_SZ
+	+ SKB_DATA_ALIGN(sizeof(struct skb_shared_info))
+#endif
+	;
+#endif
+	return truesize;
+}
+static void ngbe_rx_buffer_flip(struct ngbe_ring *rx_ring,
+				   struct ngbe_rx_buffer *rx_buffer,
+				   unsigned int size)
+{
+	unsigned int truesize = ngbe_rx_frame_truesize(rx_ring, size);
+#if (PAGE_SIZE < 8192)
+	rx_buffer->page_offset ^= truesize;
+#else
+	rx_buffer->page_offset += truesize;
+#endif
+}
 
 /**
  * ngbe_clean_rx_irq - Clean completed descriptors from Rx ring - bounce buf
@@ -2064,13 +2386,31 @@ static int ngbe_clean_rx_irq(struct ngbe_q_vector *q_vector,
 			       struct ngbe_ring *rx_ring,
 			       int budget)
 {
-	unsigned int total_rx_bytes = 0, total_rx_packets = 0;
+	unsigned int total_rx_bytes = 0, total_rx_packets = 0, xdp_xmit = 0;
 	u16 cleaned_count = ngbe_desc_unused(rx_ring);
+	struct ngbe_adapter *adapter = q_vector->adapter;
+	struct xdp_buff xdp;
+	xdp.data = NULL;
+	xdp.data_end = NULL;
+#ifdef HAVE_XDP_BUFF_RXQ
+	if(rx_ring->xdp_prog)
+		xdp.rxq = &rx_ring->xdp_rxq;
+#endif
 
+#ifdef HAVE_XDP_BUFF_FRAME_SZ
+	/* Frame size depend on rx_ring setup when PAGE_SIZE=4K */
+#if (PAGE_SIZE < 8192)
+	if(rx_ring->xdp_prog)
+		xdp.frame_sz = ngbe_rx_frame_truesize(rx_ring, 0);
+#endif
+#endif
 	do {
+		struct ngbe_rx_buffer *rx_buffer;
 		union ngbe_rx_desc *rx_desc;
-		struct sk_buff *skb;
+		struct sk_buff *skb = NULL;
+		unsigned int size = 0;
 
+		rx_buffer = &rx_ring->rx_buffer_info[rx_ring->next_to_clean];
 		/* return some buffers to hardware, one at a time is too slow */
 		if (cleaned_count >= NGBE_RX_BUFFER_WRITE) {
 			ngbe_alloc_rx_buffers(rx_ring, cleaned_count);
@@ -2079,25 +2419,58 @@ static int ngbe_clean_rx_irq(struct ngbe_q_vector *q_vector,
 
 		rx_desc = NGBE_RX_DESC(rx_ring, rx_ring->next_to_clean);
 
-		if (!ngbe_test_staterr(rx_desc, NGBE_RXD_STAT_DD))
+		if (!ngbe_test_staterr(rx_desc, NGBE_RXD_STAT_DD)) {
 			break;
-
+		}
+		if (rx_ring->xdp_prog){
+			size = le16_to_cpu(rx_desc->wb.upper.length);
+			if (!size) {
+				break;
+			}
+		}
 		/* This memory barrier is needed to keep us from reading
 		 * any other fields out of the rx_desc until we know the
 		 * descriptor has been written back
 		 */
 		dma_rmb();
+		if (rx_ring->xdp_prog) {
+			xdp.data = page_address(rx_buffer->page) +
+				   rx_buffer->page_offset;
+#ifdef HAVE_XDP_BUFF_DATA_META
+			xdp.data_meta = xdp.data;
+#endif /* HAVE_XDP_BUFF_DATA_META */
+			xdp.data_hard_start = xdp.data - XDP_PACKET_HEADROOM;
+			xdp.data_end = xdp.data + size;
 
-		/* retrieve a buffer from the ring */
-		if (ring_is_hs_enabled(rx_ring))
-			skb = ngbe_fetch_rx_buffer_hs(rx_ring, rx_desc);
-		else
-			skb = ngbe_fetch_rx_buffer(rx_ring, rx_desc);
-
+#ifdef HAVE_XDP_BUFF_FRAME_SZ
+#if (PAGE_SIZE > 4096)
+			/* At larger PAGE_SIZE, frame_sz depend on len size */
+			xdp.frame_sz = ngbe_rx_frame_truesize(rx_ring, size);
+#endif
+#endif
+			skb = ngbe_run_xdp(adapter, rx_ring, rx_buffer, &xdp);
+		}
+		if (IS_ERR(skb)) {
+			if ((PTR_ERR(skb) == -NGBE_XDP_TX) || (PTR_ERR(skb) == -NGBE_XDP_REDIR)) {
+				xdp_xmit = (-PTR_ERR(skb));
+				ngbe_rx_buffer_flip(rx_ring, rx_buffer,
+					    size);
+			}
+			total_rx_packets++;
+			total_rx_bytes += size;
+		} else {
+			if (ring_is_hs_enabled(rx_ring))
+				skb = ngbe_fetch_rx_buffer_hs(rx_ring, rx_desc);
+			else
+				skb = ngbe_fetch_rx_buffer(rx_ring, rx_desc);
+		}
 		/* exit if we failed to retrieve a buffer */
-		if (!skb)
+		if (!skb) {
 			break;
-
+		}
+		if (IS_ERR(skb)) {
+			ngbe_put_rx_buffer(rx_ring, rx_buffer, skb);
+		}
 		cleaned_count++;
 
 		/* place incomplete frames back on ring for completion */
@@ -2119,7 +2492,19 @@ static int ngbe_clean_rx_irq(struct ngbe_q_vector *q_vector,
 		/* update budget accounting */
 		total_rx_packets++;
 	} while (likely(total_rx_packets < budget));
-
+#ifdef HAVE_XDP_SUPPORT
+	if (xdp_xmit & NGBE_XDP_TX) {
+		struct ngbe_ring *ring = adapter->xdp_ring[rx_ring->queue_index % adapter->num_xdp_queues];
+		if (static_branch_unlikely(&ngbe_xdp_locking_key))
+			spin_lock(&ring->tx_lock);
+		wmb();
+		writel(ring->next_to_use, ring->tail);
+		if (static_branch_unlikely(&ngbe_xdp_locking_key))
+			spin_unlock(&ring->tx_lock);
+	}
+	if (xdp_xmit & NGBE_XDP_REDIR)
+		xdp_do_flush_map();
+#endif
 	u64_stats_update_begin(&rx_ring->syncp);
 	rx_ring->stats.packets += total_rx_packets;
 	rx_ring->stats.bytes += total_rx_bytes;
@@ -2314,7 +2699,7 @@ static void ngbe_configure_msix(struct ngbe_adapter *adapter)
 	if (!(adapter->flags & NGBE_FLAG_VMDQ_ENABLED))
 		wr32(&adapter->hw, NGBE_PX_ITRSEL, eitrsel);
 	else {
-		for (i = 0; i < adapter->num_vfs; i++) {
+		for(i = 0;i < adapter->num_vfs; i++) {
 			eitrsel |= 1 << i;
 		}
 		wr32(&adapter->hw, NGBE_PX_ITRSEL, eitrsel);
@@ -2484,7 +2869,7 @@ static void ngbe_check_overtemp_subtask(struct ngbe_adapter *adapter)
 {
 	struct ngbe_hw *hw = &adapter->hw;
 	u32 eicr = adapter->interrupt_event;
-	s32 temp_state;
+	int temp_state;
 #ifdef HAVE_VIRTUAL_STATION
 	struct net_device *upper;
 	struct list_head *iter;
@@ -2569,8 +2954,10 @@ static void ngbe_handle_phy_event(struct ngbe_hw *hw)
 	u32 reg;
 
 	reg = rd32(hw, NGBE_GPIO_INTSTATUS);
-	wr32(hw, NGBE_GPIO_EOI, reg);
-	TCALL(hw, phy.ops.check_event);
+	wr32(hw, NGBE_GPIO_EOI,reg);
+
+	if (!((hw->subsystem_device_id & OEM_MASK) == RGMII_FPGA))
+		hw->phy.ops.check_event(hw);
 	adapter->lsc_int++;
 	adapter->link_check_timeout = jiffies;
 	if (!test_bit(__NGBE_DOWN, &adapter->state)) {
@@ -2585,6 +2972,7 @@ static void ngbe_handle_phy_event(struct ngbe_hw *hw)
 void ngbe_irq_enable(struct ngbe_adapter *adapter, bool queues, bool flush)
 {
 	u32 mask = 0;
+	struct ngbe_hw *hw = &adapter->hw;
 
 	/* enable misc interrupt */
 	mask = NGBE_PX_MISC_IEN_MASK;
@@ -2599,16 +2987,18 @@ void ngbe_irq_enable(struct ngbe_adapter *adapter, bool queues, bool flush)
 	wr32(&adapter->hw, NGBE_GPIO_DDR, 0x1);
 	wr32(&adapter->hw, NGBE_GPIO_INTEN, 0x3);
 	wr32(&adapter->hw, NGBE_GPIO_INTTYPE_LEVEL, 0x0);
-	if (adapter->hw.phy.type == ngbe_phy_yt8521s_sfi)
+	if (adapter->hw.phy.type == ngbe_phy_yt8521s_sfi ||
+		adapter->hw.phy.type == ngbe_phy_internal_yt8521s_sfi)
 		wr32(&adapter->hw, NGBE_GPIO_POLARITY, 0x0);
 	else
 		wr32(&adapter->hw, NGBE_GPIO_POLARITY, 0x3);
 
-	if (adapter->hw.phy.type == ngbe_phy_yt8521s_sfi)
+	if (adapter->hw.phy.type == ngbe_phy_yt8521s_sfi ||
+		adapter->hw.phy.type == ngbe_phy_internal_yt8521s_sfi)
 		mask |= NGBE_PX_MISC_IEN_GPIO;
 //		mask &= ~NGBE_PX_MISC_IEN_GPIO;
-
-	wr32(&adapter->hw, NGBE_PX_MISC_IEN, mask);
+	
+	wr32(hw, NGBE_PX_MISC_IEN, mask);
 
 	/* unmask interrupt */
 	if (queues)
@@ -2631,7 +3021,6 @@ static irqreturn_t ngbe_msix_other(int __always_unused irq, void *data)
 	struct ngbe_hw *hw = &adapter->hw;
 	u32 eicr;
 	u32 ecc;
-	u16 pci_val = 0;
 
 	eicr = ngbe_misc_isb(adapter, NGBE_ISB_MISC);
 	if (eicr & (NGBE_PX_MISC_IC_PHY | NGBE_PX_MISC_IC_GPIO))
@@ -2643,13 +3032,6 @@ static irqreturn_t ngbe_msix_other(int __always_unused irq, void *data)
 	if (eicr & NGBE_PX_MISC_IC_PCIE_REQ_ERR) {
 		ERROR_REPORT1(NGBE_ERROR_POLLING,
 			"lan id %d, PCIe request error founded.\n", hw->bus.lan_id);
-
-		pci_read_config_word(adapter->pdev, PCI_VENDOR_ID, &pci_val);
-		ERROR_REPORT1(NGBE_ERROR_POLLING, "pci vendor id is 0x%x\n", pci_val);
-
-		pci_read_config_word(adapter->pdev, PCI_COMMAND, &pci_val);
-		ERROR_REPORT1(NGBE_ERROR_POLLING, "pci command reg is 0x%x.\n", pci_val);
-
 		if (hw->bus.lan_id == 0) {
 			adapter->flags2 |= NGBE_FLAG2_PCIE_NEED_RECOVER;
 			ngbe_service_event_schedule(adapter);
@@ -2663,9 +3045,12 @@ static irqreturn_t ngbe_msix_other(int __always_unused irq, void *data)
 		ecc = rd32(hw, NGBE_MIS_ST);
 		e_info(link, "ecc error status is 0x%08x\n", ecc);
 		if (((ecc & NGBE_MIS_ST_LAN0_ECC) && (hw->bus.lan_id == 0)) ||
-		    ((ecc & NGBE_MIS_ST_LAN1_ECC) && (hw->bus.lan_id == 1)))
-			adapter->flags2 |= NGBE_FLAG2_DEV_RESET_REQUESTED;
-
+		    ((ecc & NGBE_MIS_ST_LAN1_ECC) && (hw->bus.lan_id == 1)) ||
+		    ((ecc & NGBE_MIS_ST_LAN2_ECC) && (hw->bus.lan_id == 2)) ||
+		    ((ecc & NGBE_MIS_ST_LAN3_ECC) && (hw->bus.lan_id == 3))) {
+			adapter->flags2 |= NGBE_FLAG2_DEV_RESET_REQUESTED |
+							   NGBE_FLAG2_ECC_ERR_RESET;
+		}
 		ngbe_service_event_schedule(adapter);
 	}
 	if (eicr & NGBE_PX_MISC_IC_DEV_RST) {
@@ -2814,13 +3199,13 @@ static int ngbe_request_msix_irqs(struct ngbe_adapter *adapter)
 	}
 
 	if (adapter->flags2 & NGBE_FLAG2_SRIOV_MISC_IRQ_REMAP)
-		vector += adapter->ring_feature[RING_F_VMDQ].offset;
+		vector += adapter->irq_remap_offset;
 
 	err = request_irq(adapter->msix_entries[vector].vector,
 			  ngbe_msix_other, 0, netdev->name, adapter);
 
 	if (adapter->flags2 & NGBE_FLAG2_SRIOV_MISC_IRQ_REMAP)
-		vector -= adapter->ring_feature[RING_F_VMDQ].offset;
+		vector -= adapter->irq_remap_offset;
 
 	if (err) {
 		e_err(probe, "request_irq for msix_other failed: %d\n", err);
@@ -2884,7 +3269,8 @@ static irqreturn_t ngbe_intr(int __always_unused irq, void *data)
 			"initiating reset.\n");
 		ecc = rd32(hw, NGBE_MIS_ST);
 		e_info(link, "ecc error status is 0x%08x\n", ecc);
-		adapter->flags2 |= NGBE_FLAG2_DEV_RESET_REQUESTED;
+		adapter->flags2 |= NGBE_FLAG2_DEV_RESET_REQUESTED |
+						   NGBE_FLAG2_ECC_ERR_RESET;
 		ngbe_service_event_schedule(adapter);
 	}
 
@@ -2968,9 +3354,10 @@ static void ngbe_free_irq(struct ngbe_adapter *adapter)
 
 	if (adapter->flags2 & NGBE_FLAG2_SRIOV_MISC_IRQ_REMAP) {
 		free_irq(
-			adapter->msix_entries[vector + adapter->ring_feature[RING_F_VMDQ].offset].vector,
+			adapter->msix_entries[vector + adapter->irq_remap_offset].vector,
 			adapter);
-	} else
+	}
+	else
 		free_irq(adapter->msix_entries[vector++].vector, adapter);
 }
 
@@ -3063,20 +3450,7 @@ void ngbe_configure_tx_ring(struct ngbe_adapter *adapter,
 	 * currently 40.
 	 */
 	txdctl |= 0x20 << NGBE_PX_TR_CFG_WTHRESH_SHIFT;
-	/*
-	 * Setting PTHRESH to 32 both improves performance
-	 * and avoids a TX hang with DFP enabled
-	 */
 
-	/* initialize XPS */
-	if (!test_and_set_bit(__NGBE_TX_XPS_INIT_DONE, &ring->state)) {
-		struct ngbe_q_vector *q_vector = ring->q_vector;
-
-		if (q_vector)
-			netif_set_xps_queue(adapter->netdev,
-					    &q_vector->affinity_mask,
-					    ring->queue_index);
-	}
 
 	clear_bit(__NGBE_HANG_CHECK_ARMED, &ring->state);
 
@@ -3121,6 +3495,8 @@ static void ngbe_configure_tx(struct ngbe_adapter *adapter)
 	/* Setup the HW Tx Head and Tail descriptor pointers */
 	for (i = 0; i < adapter->num_tx_queues; i++)
 		ngbe_configure_tx_ring(adapter, adapter->tx_ring[i]);
+	for (i = 0; i < adapter->num_xdp_queues; i++)
+		ngbe_configure_tx_ring(adapter, adapter->xdp_ring[i]);
 
 	wr32m(hw, NGBE_TSEC_BUF_AE, 0x3FF, 0x10);
 	wr32m(hw, NGBE_TSEC_CTL, 0x2, 0);
@@ -3465,7 +3841,11 @@ void ngbe_configure_rx_ring(struct ngbe_adapter *adapter,
 	/* disable queue to avoid issues while updating state */
 	rxdctl = rd32(hw, NGBE_PX_RR_CFG(reg_idx));
 	ngbe_disable_rx_queue(adapter, ring);
-
+#ifdef HAVE_XDP_BUFF_RXQ
+	if(ring->q_vector)
+		WARN_ON(xdp_rxq_info_reg_mem_model(&ring->xdp_rxq,
+						MEM_TYPE_PAGE_SHARED, NULL));
+#endif
 	wr32(hw, NGBE_PX_RR_BAL(reg_idx), rdba & DMA_BIT_MASK(32));
 	wr32(hw, NGBE_PX_RR_BAH(reg_idx), rdba >> 32);
 
@@ -3596,7 +3976,7 @@ static void ngbe_configure_virtualization(struct ngbe_adapter *adapter)
 			ngbe_ndo_set_vf_spoofchk(adapter->netdev, i, false);
 #endif
 		/* enable ethertype anti spoofing if hw supports it */
-		TCALL(hw, mac.ops.set_ethertype_anti_spoofing, true, i);
+		hw->mac.ops.set_ethertype_anti_spoofing(hw, true, i);
 	}
 }
 
@@ -3674,7 +4054,7 @@ static void ngbe_configure_rx(struct ngbe_adapter *adapter)
 	u32 rxctrl;
 
 	/* disable receives while setting up the descriptors */
-	TCALL(hw, mac.ops.disable_rx);
+	hw->mac.ops.disable_rx(hw);
 
 	ngbe_setup_psrtype(adapter);
 
@@ -3699,7 +4079,7 @@ static void ngbe_configure_rx(struct ngbe_adapter *adapter)
 
 	/* enable all receives */
 	rxctrl |= NGBE_RDB_PB_CTL_PBEN;
-	TCALL(hw, mac.ops.enable_rx_dma, rxctrl);
+	hw->mac.ops.enable_rx_dma(hw, rxctrl);
 }
 
 #if defined(NETIF_F_HW_VLAN_TX) || defined(NETIF_F_HW_VLAN_CTAG_TX) || \
@@ -3725,13 +4105,13 @@ static void ngbe_vlan_rx_add_vid(struct net_device *netdev, u16 vid)
 		if (vid < VLAN_N_VID)
 			set_bit(vid, adapter->active_vlans);
 #endif
-		TCALL(hw, mac.ops.set_vfta, vid, pool_ndx, true);
+		hw->mac.ops.set_vfta(hw, vid, pool_ndx, true);
 		if (adapter->flags & NGBE_FLAG_VMDQ_ENABLED) {
 			int i;
 			/* enable vlan id for all pools */
 			for_each_set_bit(i, &adapter->fwd_bitmask,
 					 NGBE_MAX_MACVLANS)
-				TCALL(hw, mac.ops.set_vfta, vid,
+				hw->mac.ops.set_vfta(hw, vid,
 					   VMDQ_P(i), true);
 		}
 	}
@@ -3792,13 +4172,13 @@ static void ngbe_vlan_rx_kill_vid(struct net_device *netdev, u16 vid)
 #endif /* HAVE_VLAN_RX_REGISTER */
 	/* remove VID from filter table */
 	if (hw->mac.ops.set_vfta) {
-		TCALL(hw, mac.ops.set_vfta, vid, pool_ndx, false);
+		hw->mac.ops.set_vfta(hw, vid, pool_ndx, false);
 		if (adapter->flags & NGBE_FLAG_VMDQ_ENABLED) {
 			int i;
 			/* remove vlan id from all pools */
 			for_each_set_bit(i, &adapter->fwd_bitmask,
 					 NGBE_MAX_MACVLANS)
-				TCALL(hw, mac.ops.set_vfta, vid,
+				hw->mac.ops.set_vfta(hw, vid,
 					   VMDQ_P(i), false);
 		}
 	}
@@ -4009,7 +4389,7 @@ int ngbe_write_mc_addr_list(struct net_device *netdev)
 
 
 	if (netdev_mc_empty(netdev)) {
-		TCALL(hw, mac.ops.update_mc_addr_list, NULL, 0,
+		hw->mac.ops.update_mc_addr_list(hw, NULL, 0,
 						ngbe_addr_list_itr, true);
 	} else {
 #ifdef NETDEV_HW_ADDR_T_MULTICAST
@@ -4021,7 +4401,7 @@ int ngbe_write_mc_addr_list(struct net_device *netdev)
 #endif
 		addr_count = netdev_mc_count(netdev);
 
-		TCALL(hw, mac.ops.update_mc_addr_list, addr_list, addr_count,
+		hw->mac.ops.update_mc_addr_list(hw, addr_list, addr_count,
 						ngbe_addr_list_itr, true);
 	}
 
@@ -4038,12 +4418,12 @@ void ngbe_full_sync_mac_table(struct ngbe_adapter *adapter)
 	int i;
 	for (i = 0; i < hw->mac.num_rar_entries; i++) {
 		if (adapter->mac_table[i].state & NGBE_MAC_STATE_IN_USE) {
-			TCALL(hw, mac.ops.set_rar, i,
+			hw->mac.ops.set_rar(hw, i,
 				adapter->mac_table[i].addr,
 				adapter->mac_table[i].pools,
 				NGBE_PSR_MAC_SWC_AD_H_AV);
 		} else {
-			TCALL(hw, mac.ops.clear_rar, i);
+			hw->mac.ops.clear_rar(hw, i);
 		}
 		adapter->mac_table[i].state &= ~(NGBE_MAC_STATE_MODIFIED);
 	}
@@ -4057,12 +4437,12 @@ static void ngbe_sync_mac_table(struct ngbe_adapter *adapter)
 		if (adapter->mac_table[i].state & NGBE_MAC_STATE_MODIFIED) {
 			if (adapter->mac_table[i].state &
 					NGBE_MAC_STATE_IN_USE) {
-				TCALL(hw, mac.ops.set_rar, i,
+				hw->mac.ops.set_rar(hw, i,
 						adapter->mac_table[i].addr,
 						adapter->mac_table[i].pools,
 						NGBE_PSR_MAC_SWC_AD_H_AV);
 			} else {
-				TCALL(hw, mac.ops.clear_rar, i);
+				hw->mac.ops.clear_rar(hw, i);
 			}
 			adapter->mac_table[i].state &=
 				~(NGBE_MAC_STATE_MODIFIED);
@@ -4092,7 +4472,7 @@ static void ngbe_mac_set_default_filter(struct ngbe_adapter *adapter,
 	adapter->mac_table[0].pools = 1ULL << VMDQ_P(0);
 	adapter->mac_table[0].state = (NGBE_MAC_STATE_DEFAULT |
 				       NGBE_MAC_STATE_IN_USE);
-	TCALL(hw, mac.ops.set_rar, 0, adapter->mac_table[0].addr,
+	hw->mac.ops.set_rar(hw, 0, adapter->mac_table[0].addr,
 			    adapter->mac_table[0].pools,
 			    NGBE_PSR_MAC_SWC_AD_H_AV);
 }
@@ -4104,6 +4484,19 @@ int ngbe_add_mac_filter(struct ngbe_adapter *adapter, u8 *addr, u16 pool)
 
 	if (is_zero_ether_addr(addr))
 		return -EINVAL;
+
+	for (i = 0; i < hw->mac.num_rar_entries; i++) {
+		if (adapter->mac_table[i].state & NGBE_MAC_STATE_IN_USE) {
+			if (ether_addr_equal(addr, adapter->mac_table[i].addr)) {
+				if (adapter->mac_table[i].pools != (1ULL << pool)) {
+					adapter->mac_table[i].pools |= (1ULL << pool);
+					adapter->mac_table[i].state |= NGBE_MAC_STATE_MODIFIED;
+					ngbe_sync_mac_table(adapter);
+					return i;
+				}
+			}
+		}
+	}
 
 	for (i = 0; i < hw->mac.num_rar_entries; i++) {
 		if (adapter->mac_table[i].state & NGBE_MAC_STATE_IN_USE) {
@@ -4143,14 +4536,17 @@ int ngbe_del_mac_filter(struct ngbe_adapter *adapter, u8 *addr, u16 pool)
 		return -EINVAL;
 
 	for (i = 0; i < hw->mac.num_rar_entries; i++) {
-		if (ether_addr_equal(addr, adapter->mac_table[i].addr) &&
-		    adapter->mac_table[i].pools | (1ULL << pool)) {
-			adapter->mac_table[i].state |= NGBE_MAC_STATE_MODIFIED;
-			adapter->mac_table[i].state &= ~NGBE_MAC_STATE_IN_USE;
-			memset(adapter->mac_table[i].addr, 0, ETH_ALEN);
-			adapter->mac_table[i].pools = 0;
-			ngbe_sync_mac_table(adapter);
-			return 0;
+		if (ether_addr_equal(addr, adapter->mac_table[i].addr)) {
+			if (adapter->mac_table[i].pools & (1ULL << pool)) {
+				adapter->mac_table[i].state |= NGBE_MAC_STATE_MODIFIED;
+				adapter->mac_table[i].pools &= ~(1ULL << pool);
+				if (!adapter->mac_table[i].pools) {
+					adapter->mac_table[i].state &= ~NGBE_MAC_STATE_IN_USE;
+					memset(adapter->mac_table[i].addr, 0, ETH_ALEN);
+				}
+				ngbe_sync_mac_table(adapter);
+				return 0;
+			}
 		}
 	}
 	return -ENOMEM;
@@ -4522,11 +4918,11 @@ static void ngbe_configure_pb(struct ngbe_adapter *adapter)
 	int hdrm = 0;
 	int tc = netdev_get_num_tc(adapter->netdev);
 
-	TCALL(hw, mac.ops.setup_rxpba, tc, hdrm, PBA_STRATEGY_EQUAL);
+	hw->mac.ops.setup_rxpba(hw, tc, hdrm, PBA_STRATEGY_EQUAL);
 	ngbe_pbthresh_setup(adapter);
 }
 
-void ngbe_configure_isb(struct ngbe_adapter *adapter)
+static void ngbe_configure_isb(struct ngbe_adapter *adapter)
 {
 	/* set ISB Address */
 	struct ngbe_hw *hw = &adapter->hw;
@@ -4536,16 +4932,14 @@ void ngbe_configure_isb(struct ngbe_adapter *adapter)
 	wr32(hw, NGBE_PX_ISB_ADDR_H, adapter->isb_dma >> 32);
 }
 
-void ngbe_configure_port(struct ngbe_adapter *adapter)
+static void ngbe_configure_port(struct ngbe_adapter *adapter)
 {
 	struct ngbe_hw *hw = &adapter->hw;
 	u32 value, i;
 
-	if (adapter->num_vfs == 0) {
-		value = NGBE_CFG_PORT_CTL_NUM_VT_NONE;
-	}
-	else
-		value = NGBE_CFG_PORT_CTL_NUM_VT_8;
+	value = (adapter->num_vfs == 0) ?
+		NGBE_CFG_PORT_CTL_NUM_VT_NONE :
+		NGBE_CFG_PORT_CTL_NUM_VT_8;
 
 	/* enable double vlan and qinq, NONE VT at default */
 	value |= NGBE_CFG_PORT_CTL_D_VLAN |
@@ -4774,24 +5168,25 @@ static int ngbe_non_sfp_link_config(struct ngbe_hw *hw)
 {
 	u32 speed;
 	u32 ret = NGBE_ERR_LINK_SETUP;
+	struct ngbe_adapter *adapter = hw->back;
 
 	if (hw->mac.autoneg)
 		speed = hw->phy.autoneg_advertised;
 	else
 		speed = hw->phy.force_speed;
 
-	if ((hw->subsystem_device_id & OEM_MASK) == OCP_CARD ||
-		((hw->subsystem_device_id & NCSI_SUP_MASK) == NCSI_SUP)) {
+	if (hw->ncsi_enabled ||
+	    (hw->subsystem_device_id & OEM_MASK) == RGMII_FPGA ||
+	    adapter->eth_priv_flags & NGBE_ETH_PRIV_FLAG_LLDP)
+		return 0;
 
-	} else {
-		msleep(50);
-		if (hw->phy.type == ngbe_phy_internal) {
-			TCALL(hw, eeprom.ops.phy_signal_set);
-			TCALL(hw, phy.ops.setup_once);
-		}
+	if (hw->phy.type == ngbe_phy_internal ||
+	    hw->phy.type == ngbe_phy_internal_yt8521s_sfi) {
+		hw->phy.ops.phy_resume(hw);
+		hw->phy.ops.setup_once(hw);
 	}
 
-	ret = TCALL(hw, mac.ops.setup_link, speed, false);
+	ret = hw->mac.ops.setup_link(hw, speed, false);
 
 	return ret;
 }
@@ -4892,8 +5287,7 @@ static void ngbe_up_complete(struct ngbe_adapter *adapter)
 	rd32(hw, NGBE_PX_MISC_IC);
 	ngbe_irq_enable(adapter, true, true);
 
-	if (((hw->subsystem_device_id & OEM_MASK) == LY_M88E1512_SFP) ||
-		 (hw->subsystem_device_id & OEM_MASK) == LY_YT8521S_SFP)
+	if (hw->gpio_ctl == 1)
 		/* gpio0 is used to power on/off control*/
 		wr32(hw, NGBE_GPIO_DR, 0);
 
@@ -4905,15 +5299,38 @@ static void ngbe_up_complete(struct ngbe_adapter *adapter)
 	 * link up interrupt but shouldn't be a problem */
 	adapter->flags |= NGBE_FLAG_NEED_LINK_UPDATE;
 	adapter->link_check_timeout = jiffies;
-#ifdef POLL_LINK_STATUS
-	mod_timer(&adapter->link_check_timer, jiffies);
-#endif
+	if (NGBE_POLL_LINK_STATUS == 1)
+		mod_timer(&adapter->link_check_timer, jiffies);
 	mod_timer(&adapter->service_timer, jiffies);
 	/* ngbe_clear_vf_stats_counters(adapter); */
+
+	if (hw->bus.lan_id == 0) {
+		wr32m(hw, NGBE_MIS_PRB_CTL,
+			NGBE_MIS_PRB_CTL_LAN0_UP, NGBE_MIS_PRB_CTL_LAN0_UP);
+	}
+	else if (hw->bus.lan_id == 1) {
+		wr32m(hw, NGBE_MIS_PRB_CTL,
+			NGBE_MIS_PRB_CTL_LAN1_UP, NGBE_MIS_PRB_CTL_LAN1_UP);
+	}
+	else if (hw->bus.lan_id == 2) {
+		wr32m(hw, NGBE_MIS_PRB_CTL,
+			NGBE_MIS_PRB_CTL_LAN2_UP, NGBE_MIS_PRB_CTL_LAN2_UP);
+	}
+	else if (hw->bus.lan_id == 3) {
+		wr32m(hw, NGBE_MIS_PRB_CTL,
+			NGBE_MIS_PRB_CTL_LAN3_UP, NGBE_MIS_PRB_CTL_LAN3_UP);
+	}
+	else
+		e_err(probe, "ngbe_up_complete:invalid bus lan id %d\n", hw->bus.lan_id);
 
 	/* Set PF Reset Done bit so PF/VF Mail Ops can work */
 	wr32m(hw, NGBE_CFG_PORT_CTL,
 		NGBE_CFG_PORT_CTL_PFRSTD, NGBE_CFG_PORT_CTL_PFRSTD);
+
+	/* clear ecc reset flag if set */
+	if (adapter->flags2 & NGBE_FLAG2_ECC_ERR_RESET) {
+		adapter->flags2 &= ~NGBE_FLAG2_ECC_ERR_RESET;
+	}
 }
 
 void ngbe_reinit_locked(struct ngbe_adapter *adapter)
@@ -4959,7 +5376,7 @@ void ngbe_reset(struct ngbe_adapter *adapter)
 	if (NGBE_REMOVED(hw->hw_addr))
 		return;
 
-	err = TCALL(hw, mac.ops.init_hw);
+	err = hw->mac.ops.init_hw(hw);
 	switch (err) {
 	case 0:
 		break;
@@ -4985,7 +5402,7 @@ void ngbe_reset(struct ngbe_adapter *adapter)
 	ngbe_mac_set_default_filter(adapter, old_addr);
 
 	/* update SAN MAC vmdq pool selection */
-	TCALL(hw, mac.ops.set_vmdq_san_mac, VMDQ_P(0));
+	hw->mac.ops.set_vmdq_san_mac(hw, VMDQ_P(0));
 
 	/* Clear saved DMA coalescing values except for watchdog_timer */
 	hw->mac.dmac_config.fcoe_en = false;
@@ -5101,8 +5518,8 @@ static void ngbe_clean_tx_ring(struct ngbe_ring *tx_ring)
 		tx_buffer_info = &tx_ring->tx_buffer_info[i];
 		ngbe_unmap_and_free_tx_resource(tx_ring, tx_buffer_info);
 	}
-
-	netdev_tx_reset_queue(txring_txq(tx_ring));
+	if (!ring_is_xdp(tx_ring))
+		netdev_tx_reset_queue(txring_txq(tx_ring));
 
 	size = sizeof(struct ngbe_tx_buffer) * tx_ring->count;
 	memset(tx_ring->tx_buffer_info, 0, size);
@@ -5133,9 +5550,11 @@ static void ngbe_clean_all_tx_rings(struct ngbe_adapter *adapter)
 
 	for (i = 0; i < adapter->num_tx_queues; i++)
 		ngbe_clean_tx_ring(adapter->tx_ring[i]);
+	for (i = 0; i < adapter->num_xdp_queues; i++)
+		ngbe_clean_tx_ring(adapter->xdp_ring[i]);
 }
 
-void ngbe_disable_device(struct ngbe_adapter *adapter)
+static void ngbe_disable_device(struct ngbe_adapter *adapter)
 {
 	struct net_device *netdev = adapter->netdev;
 	struct ngbe_hw *hw = &adapter->hw;
@@ -5149,9 +5568,26 @@ void ngbe_disable_device(struct ngbe_adapter *adapter)
 	if (test_and_set_bit(__NGBE_DOWN, &adapter->state))
 		return; /* do nothing if already down */
 
-	ngbe_disable_pcie_master(hw);
+	if (adapter->num_vfs) {
+		/* Clear EITR Select mapping */
+		wr32(&adapter->hw, NGBE_PX_ITRSEL, 0);
+
+		/* Mark all the VFs as inactive */
+		for (i = 0 ; i < adapter->num_vfs; i++)
+		adapter->vfinfo[i].clear_to_send = 0;
+
+		/* ping all the active vfs to let them know we are going down */
+		ngbe_ping_all_vfs_with_link_status(adapter, false);
+
+		/* Disable all VFTE/VFRE TX/RX */
+		ngbe_disable_tx_rx(adapter);
+	}
+
+	if (!(adapter->flags2 & NGBE_FLAG2_ECC_ERR_RESET))
+		ngbe_disable_pcie_master(hw);
+
 	/* disable receives */
-	TCALL(hw, mac.ops.disable_rx);
+	hw->mac.ops.disable_rx(hw);
 
 	/* disable all enabled rx queues */
 	for (i = 0; i < adapter->num_rx_queues; i++)
@@ -5163,6 +5599,7 @@ void ngbe_disable_device(struct ngbe_adapter *adapter)
 	/* call carrier off first to avoid false dev_watchdog timeouts */
 	netif_carrier_off(netdev);
 	netif_tx_disable(netdev);
+
 #ifdef HAVE_VIRTUAL_STATION
 	/* disable any upper devices */
 	netdev_for_each_all_upper_dev_rcu(adapter->netdev, upper, iter) {
@@ -5178,10 +5615,13 @@ void ngbe_disable_device(struct ngbe_adapter *adapter)
 	}
 #endif
 
-	if ((hw->subsystem_device_id & OEM_MASK) == LY_M88E1512_SFP ||
-		 (hw->subsystem_device_id & OEM_MASK) == LY_YT8521S_SFP)
+	if (hw->gpio_ctl == 1)
 		/* gpio0 is used to power on/off control*/
 		wr32(hw, NGBE_GPIO_DR, NGBE_GPIO_DR_0);
+
+	/* synchronize_rcu() needed for pending XDP buffers to drain */
+	if (adapter->xdp_ring[0])
+		synchronize_rcu();
 
 	ngbe_irq_disable(adapter);
 
@@ -5193,31 +5633,30 @@ void ngbe_disable_device(struct ngbe_adapter *adapter)
 	adapter->flags &= ~NGBE_FLAG_NEED_LINK_UPDATE;
 
 	del_timer_sync(&adapter->service_timer);
-#ifdef POLL_LINK_STATUS
-	del_timer_sync(&adapter->link_check_timer);
-#endif
-	if (adapter->num_vfs) {
-		/* Clear EITR Select mapping */
-		wr32(&adapter->hw, NGBE_PX_ITRSEL, 0);
+	if (NGBE_POLL_LINK_STATUS == 1)
+		del_timer_sync(&adapter->link_check_timer);
 
-		/* Mark all the VFs as inactive */
-		for (i = 0 ; i < adapter->num_vfs; i++)
-			adapter->vfinfo[i].clear_to_send = 0;
-
-		/* ping all the active vfs to let them know we are going down */
-		ngbe_ping_all_vfs(adapter);
-
-		/* Disable all VFTE/VFRE TX/RX */
-		ngbe_disable_tx_rx(adapter);
-	}
+	if (hw->bus.lan_id == 0)
+		wr32m(hw, NGBE_MIS_PRB_CTL,
+			NGBE_MIS_PRB_CTL_LAN0_UP, 0);
+	else if (hw->bus.lan_id == 1)
+		wr32m(hw, NGBE_MIS_PRB_CTL,
+			NGBE_MIS_PRB_CTL_LAN1_UP, 0);
+	else if (hw->bus.lan_id == 2)
+		wr32m(hw, NGBE_MIS_PRB_CTL,
+			NGBE_MIS_PRB_CTL_LAN2_UP, 0);
+	else if (hw->bus.lan_id == 3)
+		wr32m(hw, NGBE_MIS_PRB_CTL,
+			NGBE_MIS_PRB_CTL_LAN3_UP, 0);
+	else
+		e_dev_err("ngbe_disable_device:invalid bus lan id %d\n", hw->bus.lan_id);
 
 	/*OCP NCSI need it*/
-	if (!(((hw->subsystem_device_id & OEM_MASK) == OCP_CARD) ||
-		((hw->subsystem_device_id & WOL_SUP_MASK) == WOL_SUP) ||
-		((hw->subsystem_device_id & NCSI_SUP_MASK) == NCSI_SUP))) {
-	/* disable mac transmiter */
+	if (!((hw->subsystem_device_id & WOL_SUP_MASK) == WOL_SUP ||
+	      hw->ncsi_enabled ||
+	      adapter->eth_priv_flags & NGBE_ETH_PRIV_FLAG_LLDP))
+		/* disable mac transmiter */
 		wr32m(hw, NGBE_MAC_TX_CFG, NGBE_MAC_TX_CFG_TE, 0);
-	}
 
 	/* disable transmits in the hardware now that interrupts are off */
 	for (i = 0; i < adapter->num_tx_queues; i++) {
@@ -5226,6 +5665,11 @@ void ngbe_disable_device(struct ngbe_adapter *adapter)
 				NGBE_PX_TR_CFG_SWFLSH);
 	}
 
+	for (i = 0; i < adapter->num_xdp_queues; i++) {
+		u8 reg_idx = adapter->xdp_ring[i]->reg_idx;
+		wr32(hw, NGBE_PX_TR_CFG(reg_idx),
+				NGBE_PX_TR_CFG_SWFLSH);
+	}
 	/* Disable the Tx DMA engine */
 	wr32m(hw, NGBE_TDM_CTL, NGBE_TDM_CTL_TE, 0);
 }
@@ -5256,25 +5700,70 @@ void ngbe_down(struct ngbe_adapter *adapter)
  *  hw_addr, back, device_id, vendor_id, subsystem_device_id,
  *  subsystem_vendor_id, and revision_id
  **/
-s32 ngbe_init_shared_code(struct ngbe_hw *hw)
+static int ngbe_init_shared_code(struct ngbe_hw *hw)
 {
-	DEBUGFUNC("\n");
+	int wol_mask = 0, ncsi_mask = 0;
+	u16 type_mask = 0, val;
+	u32 lan_en;
 
-	if ((hw->subsystem_device_id & INTERNAL_SFP_MASK) == INTERNAL_SFP ||
-		(hw->subsystem_device_id & OEM_MASK) == LY_M88E1512_SFP)
+	lan_en = rd32(hw, NGBE_MIS_PWR);
+	if (!(lan_en & BIT(hw->bus.lan_id + 28)))
+		return -EIO;
+	type_mask = (u16)(hw->subsystem_device_id & OEM_MASK);
+	ncsi_mask = hw->subsystem_device_id & NCSI_SUP_MASK;
+	wol_mask = hw->subsystem_device_id & WOL_SUP_MASK;
+
+	val = rd32(hw, NGBE_CFG_PORT_ST);
+	hw->mac_type = (val & BIT(7)) >> 7 ?
+		       em_mac_type_rgmii :
+		       em_mac_type_mdi;
+
+	hw->wol_enabled = (wol_mask == WOL_SUP) ? 1 : 0;
+	hw->ncsi_enabled = (ncsi_mask == NCSI_SUP ||
+			   type_mask == OCP_CARD) ? 1 : 0;
+
+	switch (type_mask) {
+	case LY_YT8521S_SFP:
+	case LY_M88E1512_SFP:
+	case YT8521S_SFP_GPIO:
+	case INTERNAL_YT8521S_SFP_GPIO:
+		hw->gpio_ctl = 1;
+		break;
+	default:
+		hw->gpio_ctl = 0;
+		break;
+	}
+
+	switch (type_mask) {
+	case M88E1512_SFP:
+	case LY_M88E1512_SFP:
 		hw->phy.type = ngbe_phy_m88e1512_sfi;
-	else if (hw->subsystem_device_id == NGBE_WX1860AL_M88E1512_RJ45)
+		break;
+	case M88E1512_RJ45:
 		hw->phy.type = ngbe_phy_m88e1512;
-	else if ((hw->subsystem_device_id & OEM_MASK) == YT8521S_SFP ||
-			(hw->subsystem_device_id & OEM_MASK) == LY_YT8521S_SFP)
-			hw->phy.type = ngbe_phy_yt8521s_sfi;
-	else
+		break;
+	case M88E1512_MIX:
+		hw->phy.type = ngbe_phy_m88e1512_unknown;
+		break;
+	case YT8521S_SFP:
+	case YT8521S_SFP_GPIO:
+	case LY_YT8521S_SFP:
+		hw->phy.type = ngbe_phy_yt8521s_sfi;
+		break;
+	case INTERNAL_YT8521S_SFP:
+	case INTERNAL_YT8521S_SFP_GPIO:
+		hw->phy.type = ngbe_phy_internal_yt8521s_sfi;
+		break;
+	default:
 		hw->phy.type = ngbe_phy_internal;
+		break;
+	}
 
-/* select claus22 */
+	/* select claus22 */
 	wr32(hw, NGBE_MDIO_CLAUSE_SELECT, 0xF);
+	ngbe_init_ops(hw);
 
-	return ngbe_init_ops(hw);
+	return 0;
 }
 
 /**
@@ -5296,6 +5785,7 @@ static int __devinit ngbe_sw_init(struct ngbe_adapter *adapter)
 	struct ngbe_hw *hw = &adapter->hw;
 	struct pci_dev *pdev = adapter->pdev;
 	int err;
+	u32 ssid = 0;
 
 	/* PCI config space info */
 	hw->vendor_id = pdev->vendor;
@@ -5307,8 +5797,23 @@ static int __devinit ngbe_sw_init(struct ngbe_adapter *adapter)
 		err = -ENODEV;
 		goto out;
 	}
-	hw->subsystem_vendor_id = pdev->subsystem_vendor;
-	hw->subsystem_device_id = pdev->subsystem_device;
+
+	hw->oem_svid = pdev->subsystem_vendor;
+	hw->oem_ssid = pdev->subsystem_device;	
+	if (pdev->subsystem_vendor == 0x8088) {
+		hw->subsystem_vendor_id = pdev->subsystem_vendor;
+		hw->subsystem_device_id = pdev->subsystem_device;
+	} else {
+		err = ngbe_flash_read_dword(hw, 0xfffdc, &ssid);
+		if (err) {
+			e_err(probe, "read of internel subsystem device id failed\n");
+			err = -ENODEV;
+			goto out;
+		}
+		hw->subsystem_device_id = (u16)ssid;
+		hw->subsystem_device_id = hw->subsystem_device_id >> 8 |
+					  hw->subsystem_device_id << 8;
+	}
 
 	/* phy type, phy ops, mac ops */
 	err = ngbe_init_shared_code(hw);
@@ -5337,7 +5842,7 @@ static int __devinit ngbe_sw_init(struct ngbe_adapter *adapter)
 	adapter->flags2 |= NGBE_FLAG2_EEE_CAPABLE;
 
 	/* init mailbox params */
-	TCALL(hw, mbx.ops.init_params);
+	hw->mbx.ops.init_params(hw);
 
 	/* default flow control settings */
 	hw->fc.requested_mode = ngbe_fc_full;
@@ -5362,6 +5867,9 @@ static int __devinit ngbe_sw_init(struct ngbe_adapter *adapter)
 	adapter->num_vmdqs = 1;
 	set_bit(0, &adapter->fwd_bitmask);
 	set_bit(__NGBE_DOWN, &adapter->state);
+	if (NGBE_LINK_RETRY == 1)
+		hw->restart_an = 0;
+
 out:
 	return err;
 }
@@ -5427,7 +5935,7 @@ err:
  **/
 static int ngbe_setup_all_tx_resources(struct ngbe_adapter *adapter)
 {
-	int i, err = 0;
+	int i = 0, j = 0, err = 0;
 
 	for (i = 0; i < adapter->num_tx_queues; i++) {
 		err = ngbe_setup_tx_resources(adapter->tx_ring[i]);
@@ -5438,14 +5946,32 @@ static int ngbe_setup_all_tx_resources(struct ngbe_adapter *adapter)
 		goto err_setup_tx;
 	}
 
+	for (j = 0; j < adapter->num_xdp_queues; j++) {
+		err = ngbe_setup_tx_resources(adapter->xdp_ring[j]);
+		if (!err)
+			continue;
+
+		e_err(probe, "Allocation for Tx(XDP) Queue %u failed\n", j);
+		goto err_setup_tx;
+	}
+
 	return 0;
 err_setup_tx:
 	/* rewind the index freeing the rings as we go */
+	while (j--)
+		ngbe_free_tx_resources(adapter->xdp_ring[j]);
 	while (i--)
 		ngbe_free_tx_resources(adapter->tx_ring[i]);
 	return err;
 }
+#ifdef HAVE_XDP_BUFF_RXQ
+static int ngbe_rx_napi_id(struct ngbe_ring *rx_ring)
+{
+	struct ngbe_q_vector *q_vector = rx_ring->q_vector;
 
+	return q_vector ? q_vector->napi.napi_id : 0;
+}
+#endif
 /**
  * ngbe_setup_rx_resources - allocate Rx resources (Descriptors)
  * @rx_ring:    rx descriptor ring (for a specific queue) to setup
@@ -5485,6 +6011,17 @@ int ngbe_setup_rx_resources(struct ngbe_ring *rx_ring)
 						   &rx_ring->dma, GFP_KERNEL);
 	if (!rx_ring->desc)
 		goto err;
+
+	if (!rx_ring->q_vector)
+		return 0;
+#ifdef HAVE_XDP_BUFF_RXQ
+	/* XDP RX-queue info */
+	if (xdp_rxq_info_reg(&rx_ring->xdp_rxq, rx_ring->netdev,
+			     rx_ring->queue_index,
+			     ngbe_rx_napi_id(rx_ring)) < 0)
+		goto err;
+#endif
+	rx_ring->xdp_prog = rx_ring->q_vector->adapter->xdp_prog;
 
 	return 0;
 err:
@@ -5597,6 +6134,8 @@ static void ngbe_free_all_tx_resources(struct ngbe_adapter *adapter)
 
 	for (i = 0; i < adapter->num_tx_queues; i++)
 		ngbe_free_tx_resources(adapter->tx_ring[i]);
+	for (i = 0; i < adapter->num_xdp_queues; i++)
+		ngbe_free_tx_resources(adapter->xdp_ring[i]);
 }
 
 /**
@@ -5608,7 +6147,12 @@ static void ngbe_free_all_tx_resources(struct ngbe_adapter *adapter)
 void ngbe_free_rx_resources(struct ngbe_ring *rx_ring)
 {
 	ngbe_clean_rx_ring(rx_ring);
+	rx_ring->xdp_prog = NULL;
 
+#ifdef HAVE_XDP_BUFF_RXQ
+	if(rx_ring->q_vector)
+		xdp_rxq_info_unreg(&rx_ring->xdp_rxq);
+#endif
 	vfree(rx_ring->rx_buffer_info);
 	rx_ring->rx_buffer_info = NULL;
 
@@ -5941,6 +6485,7 @@ static int __ngbe_shutdown(struct pci_dev *pdev, bool *enable_wake)
 #endif
 
 	netif_device_detach(netdev);
+	ngbe_mac_set_default_filter(adapter, hw->mac.perm_addr);
 
 	rtnl_lock();
 	if (netif_running(netdev))
@@ -5961,8 +6506,6 @@ static int __ngbe_shutdown(struct pci_dev *pdev, bool *enable_wake)
 	if (wufc) {
 		ngbe_set_rx_mode(netdev);
 		ngbe_configure_rx(adapter);
-		/* enable the optics for SFP+ fiber as we can WoL */
-		TCALL(hw, mac.ops.enable_tx_laser);
 
 		/* turn on all-multi mode if wake on multicast is enabled */
 		if (wufc & NGBE_PSR_WKUP_CTL_MC) {
@@ -6020,7 +6563,7 @@ static int ngbe_suspend(struct pci_dev *pdev,
 #ifndef USE_REBOOT_NOTIFIER
 static void ngbe_shutdown(struct pci_dev *pdev)
 {
-	bool wake;
+	bool wake = 0;
 
 	__ngbe_shutdown(pdev, &wake);
 
@@ -6071,6 +6614,22 @@ static struct rtnl_link_stats64 *ngbe_get_stats64(struct net_device *netdev,
 
 	for (i = 0; i < adapter->num_tx_queues; i++) {
 		struct ngbe_ring *ring = READ_ONCE(adapter->tx_ring[i]);
+		u64 bytes, packets;
+		unsigned int start;
+
+		if (ring) {
+			do {
+				start = u64_stats_fetch_begin_irq(&ring->syncp);
+				packets = ring->stats.packets;
+				bytes   = ring->stats.bytes;
+			} while (u64_stats_fetch_retry_irq(&ring->syncp,
+				 start));
+			stats->tx_packets += packets;
+			stats->tx_bytes   += bytes;
+		}
+	}
+	for (i = 0; i < adapter->num_xdp_queues; i++) {
+		struct ngbe_ring *ring = READ_ONCE(adapter->xdp_ring[i]);
 		u64 bytes, packets;
 		unsigned int start;
 
@@ -6193,6 +6752,14 @@ void ngbe_update_stats(struct ngbe_adapter *adapter)
 		bytes += tx_ring->stats.bytes;
 		packets += tx_ring->stats.packets;
 	}
+	for (i = 0; i < adapter->num_xdp_queues; i++) {
+		struct ngbe_ring *xdp_ring = adapter->xdp_ring[i];
+
+		restart_queue += xdp_ring->tx_stats.restart_queue;
+		tx_busy += xdp_ring->tx_stats.tx_busy;
+		bytes += xdp_ring->stats.bytes;
+		packets += xdp_ring->stats.packets;
+	}
 	adapter->restart_queue = restart_queue;
 	adapter->tx_busy = tx_busy;
 	net_stats->tx_bytes = bytes;
@@ -6248,7 +6815,7 @@ void ngbe_update_stats(struct ngbe_adapter *adapter)
 	net_stats->rx_length_errors = hwstats->rlec;
 	net_stats->rx_crc_errors = hwstats->crcerrs;
 	total_mpc = rd32(hw, NGBE_RDB_MPCNT);
-	net_stats->rx_missed_errors = total_mpc;
+	net_stats->rx_missed_errors += total_mpc;
 
 	/*
 	 * VF Stats Collection - skip while resetting because these
@@ -6303,6 +6870,10 @@ static void ngbe_check_hang_subtask(struct ngbe_adapter *adapter)
 		for (i = 0; i < adapter->num_tx_queues; i++)
 			set_check_for_tx_hang(adapter->tx_ring[i]);
 	}
+	if (netif_carrier_ok(adapter->netdev)) {
+		for (i = 0; i < adapter->num_xdp_queues; i++)
+			set_check_for_tx_hang(adapter->xdp_ring[i]);
+	}
 }
 
 static void ngbe_watchdog_an_complete(struct ngbe_adapter *adapter)
@@ -6315,7 +6886,7 @@ static void ngbe_watchdog_an_complete(struct ngbe_adapter *adapter)
 	if (!(adapter->flags & NGBE_FLAG_NEED_ANC_CHECK))
 		return;
 
-	TCALL(hw, mac.ops.check_link, &link_speed, &link_up, false);
+	hw->mac.ops.check_link(hw, &link_speed, &link_up, false);
 
 	adapter->link_speed = link_speed;
 	switch (link_speed) {
@@ -6363,24 +6934,25 @@ static void ngbe_watchdog_update_link_status(struct ngbe_adapter *adapter)
 	u32 lan_speed = 0;
 	u32 reg;
 
-#ifndef POLL_LINK_STATUS
-	if (!(adapter->flags & NGBE_FLAG_NEED_LINK_UPDATE))
-		return;
-#endif
+	if (NGBE_POLL_LINK_STATUS != 1) {
+		if (!(adapter->flags & NGBE_FLAG_NEED_LINK_UPDATE))
+			return;
+	}
+
 	link_speed = NGBE_LINK_SPEED_1GB_FULL;
 	link_up = true;
 
-	TCALL(hw, mac.ops.check_link, &link_speed, &link_up, false);
-#ifndef POLL_LINK_STATUS
-	if (link_up || time_after(jiffies, (adapter->link_check_timeout +
-		NGBE_TRY_LINK_TIMEOUT))) {
-		adapter->flags &= ~NGBE_FLAG_NEED_LINK_UPDATE;
+	hw->mac.ops.check_link(hw, &link_speed, &link_up, false);
+
+	if (NGBE_POLL_LINK_STATUS != 1) {
+		if (link_up || time_after(jiffies, (adapter->link_check_timeout +
+			NGBE_TRY_LINK_TIMEOUT))) {
+			adapter->flags &= ~NGBE_FLAG_NEED_LINK_UPDATE;
+		}
+	} else {
+		if (adapter->link_up == link_up && adapter->link_speed == link_speed)
+			return;
 	}
-#else
-	if (adapter->link_up == link_up &&
-		adapter->link_speed == link_speed)
-		return;
-#endif
 
 	adapter->link_speed = link_speed;
 	switch (link_speed) {
@@ -6400,7 +6972,7 @@ static void ngbe_watchdog_update_link_status(struct ngbe_adapter *adapter)
 			0x3, lan_speed);
 
 	if (link_up) {
-		TCALL(hw, mac.ops.fc_enable);
+		hw->mac.ops.fc_enable(hw);
 		ngbe_set_rx_drop_en(adapter);
 	}
 
@@ -6430,6 +7002,7 @@ static void ngbe_watchdog_update_link_status(struct ngbe_adapter *adapter)
 	}
 
 	adapter->link_up = link_up;
+	/* hw->mac.ops.dmac_config is null*/
 	if (hw->mac.ops.dmac_config && hw->mac.dmac_config.watchdog_timer) {
 		u8 num_tcs = netdev_get_num_tc(adapter->netdev);
 
@@ -6437,7 +7010,7 @@ static void ngbe_watchdog_update_link_status(struct ngbe_adapter *adapter)
 			hw->mac.dmac_config.num_tcs != num_tcs) {
 			hw->mac.dmac_config.link_speed = link_speed;
 			hw->mac.dmac_config.num_tcs = num_tcs;
-			TCALL(hw, mac.ops.dmac_config);
+			hw->mac.ops.dmac_config(hw);
 		}
 	}
 	return;
@@ -6510,7 +7083,7 @@ static void ngbe_watchdog_link_is_up(struct ngbe_adapter *adapter)
 	ngbe_update_default_up(adapter);
 
 	/* ping all the active vfs to let them know link has changed */
-	ngbe_ping_all_vfs(adapter);
+	ngbe_ping_all_vfs_with_link_status(adapter, adapter->link_up);
 }
 
 /**
@@ -6540,7 +7113,7 @@ static void ngbe_watchdog_link_is_down(struct ngbe_adapter *adapter)
 	netif_tx_stop_all_queues(netdev);
 
 	/* ping all the active vfs to let them know link has changed */
-	ngbe_ping_all_vfs(adapter);
+	ngbe_ping_all_vfs_with_link_status(adapter, adapter->link_up);
 }
 
 static bool ngbe_ring_tx_pending(struct ngbe_adapter *adapter)
@@ -6551,6 +7124,12 @@ static bool ngbe_ring_tx_pending(struct ngbe_adapter *adapter)
 		struct ngbe_ring *tx_ring = adapter->tx_ring[i];
 
 		if (tx_ring->next_to_use != tx_ring->next_to_clean)
+			return true;
+	}
+	for (i = 0; i < adapter->num_xdp_queues; i++) {
+		struct ngbe_ring *xdp_ring = adapter->xdp_ring[i];
+
+		if (xdp_ring->next_to_use != xdp_ring->next_to_clean)
 			return true;
 	}
 
@@ -6663,6 +7242,7 @@ static void ngbe_spoof_check(struct ngbe_adapter *adapter)
  **/
 static void ngbe_watchdog_subtask(struct ngbe_adapter *adapter)
 {
+
 	/* if interface is down do nothing */
 	if (test_bit(__NGBE_DOWN, &adapter->state) ||
 		test_bit(__NGBE_REMOVING, &adapter->state) ||
@@ -6670,14 +7250,15 @@ static void ngbe_watchdog_subtask(struct ngbe_adapter *adapter)
 		return;
 
 	ngbe_watchdog_an_complete(adapter);
-#ifndef POLL_LINK_STATUS
-	ngbe_watchdog_update_link_status(adapter);
 
-	if (adapter->link_up)
-		ngbe_watchdog_link_is_up(adapter);
-	else
-		ngbe_watchdog_link_is_down(adapter);
-#endif
+	if (NGBE_POLL_LINK_STATUS != 1) {
+		ngbe_watchdog_update_link_status(adapter);
+
+		if (adapter->link_up)
+			ngbe_watchdog_link_is_up(adapter);
+		else
+			ngbe_watchdog_link_is_down(adapter);
+	}
 #ifdef CONFIG_PCI_IOV
 	ngbe_spoof_check(adapter);
 #endif /* CONFIG_PCI_IOV */
@@ -6696,6 +7277,7 @@ static void ngbe_service_timer(struct timer_list *t)
 	struct ngbe_adapter *adapter = from_timer(adapter, t, service_timer);
 	unsigned long next_event_offset;
 	struct ngbe_hw *hw = &adapter->hw;
+	u32 val = 0;
 
 	/* poll faster when waiting for link */
 	if ((adapter->flags & NGBE_FLAG_NEED_LINK_UPDATE) ||
@@ -6704,8 +7286,33 @@ static void ngbe_service_timer(struct timer_list *t)
 	else
 		next_event_offset = HZ * 2;
 
-	if ((rd32(&adapter->hw, NGBE_MIS_PF_SM) == 1) && !(hw->bus.lan_id)) {
-		adapter->flags2 |= NGBE_FLAG2_PCIE_NEED_RECOVER;
+	/* flags to records which func to handle pcie recovery */
+	if (rd32(&adapter->hw, NGBE_MIS_PF_SM) == 1) {
+		val = rd32m(&adapter->hw, NGBE_MIS_PRB_CTL, NGBE_MIS_PRB_CTL_LAN0_UP |
+												    NGBE_MIS_PRB_CTL_LAN1_UP |
+												    NGBE_MIS_PRB_CTL_LAN2_UP |
+												    NGBE_MIS_PRB_CTL_LAN3_UP);
+		if (val & NGBE_MIS_PRB_CTL_LAN0_UP) {
+			if (hw->bus.lan_id == 0) {
+				adapter->flags2 |= NGBE_FLAG2_PCIE_NEED_RECOVER;
+				e_info(probe, "ngbe_service_timer: set recover on Lan0\n");
+				}
+		} else if (val & NGBE_MIS_PRB_CTL_LAN1_UP) {
+			if (hw->bus.lan_id == 1) {
+				adapter->flags2 |= NGBE_FLAG2_PCIE_NEED_RECOVER;
+				e_info(probe, "ngbe_service_timer: set recover on Lan1\n");
+			}
+		} else if (val & NGBE_MIS_PRB_CTL_LAN2_UP) {
+			if (hw->bus.lan_id == 2) {
+				adapter->flags2 |= NGBE_FLAG2_PCIE_NEED_RECOVER;
+				e_info(probe, "ngbe_service_timer: set recover on Lan2\n");
+			}
+		} else if (val & NGBE_MIS_PRB_CTL_LAN3_UP) {
+			if (hw->bus.lan_id == 3) {
+				adapter->flags2 |= NGBE_FLAG2_PCIE_NEED_RECOVER;
+				e_info(probe, "ngbe_service_timer: set recover on Lan3\n");
+			}
+		}
 	}
 
 	/* Reset the timer */
@@ -6714,7 +7321,6 @@ static void ngbe_service_timer(struct timer_list *t)
 	ngbe_service_event_schedule(adapter);
 }
 
-#ifdef POLL_LINK_STATUS
 static void ngbe_link_check_timer(struct timer_list *t)
 {
 	struct ngbe_adapter *adapter = from_timer(adapter, t, link_check_timer);
@@ -6723,8 +7329,7 @@ static void ngbe_link_check_timer(struct timer_list *t)
 		next_event_offset = HZ / 10;
 
 	mod_timer(&adapter->link_check_timer, next_event_offset + jiffies);
-//	printk("in timer.\n");
-		/* if interface is down do nothing */
+	/* if interface is down do nothing */
 	if (test_bit(__NGBE_DOWN, &adapter->state) ||
 		test_bit(__NGBE_REMOVING, &adapter->state) ||
 		test_bit(__NGBE_RESETTING, &adapter->state))
@@ -6737,7 +7342,6 @@ static void ngbe_link_check_timer(struct timer_list *t)
 	else
 		ngbe_watchdog_link_is_down(adapter);
 }
-#endif
 
 static void ngbe_reset_subtask(struct ngbe_adapter *adapter)
 {
@@ -6844,13 +7448,15 @@ static void ngbe_check_pcie_subtask(struct ngbe_adapter *adapter)
 	if (!(adapter->flags2 & NGBE_FLAG2_PCIE_NEED_RECOVER))
 		return;
 
-	e_info(probe, "do recovery\n");
-	ngbe_pcie_do_recovery(adapter->pdev);
-	wr32m(&adapter->hw, NGBE_MIS_PF_SM,
-		NGBE_MIS_PF_SM_SM, 0);
+	ngbe_print_tx_hang_status(adapter);
+
+	wr32m(&adapter->hw, NGBE_MIS_PF_SM, NGBE_MIS_PF_SM_SM, 0);
+	if ((NGBE_PCIE_RECOVER == 1) && !(adapter->flags & NGBE_FLAG_SRIOV_ENABLED)) {
+		e_info(probe, "do recovery\n");
+		ngbe_pcie_do_recovery(adapter->pdev);
+	}
 	adapter->flags2 &= ~NGBE_FLAG2_PCIE_NEED_RECOVER;
 }
-
 
 /**
  * ngbe_service_task - manages and runs subtasks
@@ -7463,8 +8069,6 @@ static inline int ngbe_maybe_stop_tx(struct ngbe_ring *tx_ring, u16 size)
 	return __ngbe_maybe_stop_tx(tx_ring, size);
 }
 
-#define NGBE_TXD_CMD (NGBE_TXD_EOP | \
-		       NGBE_TXD_RS)
 
 static int ngbe_tx_map(struct ngbe_ring *tx_ring,
 			 struct ngbe_tx_buffer *first,
@@ -7644,7 +8248,6 @@ static u16 ngbe_select_queue(struct net_device *dev, struct sk_buff *skb,
 static u16 ngbe_select_queue(struct net_device *dev, struct sk_buff *skb)
 #endif /* HAVE_NDO_SELECT_QUEUE_ACCEL */
 {
-	struct ngbe_adapter *adapter = netdev_priv(dev);
 	int txq;
 
 	/*
@@ -7653,8 +8256,7 @@ static u16 ngbe_select_queue(struct net_device *dev, struct sk_buff *skb)
 	 */
 	switch (vlan_get_protocol(skb)) {
 	case __constant_htons(ETH_P_FIP):
-		adapter = netdev_priv(dev);
-		/* fall through */
+		fallthrough;
 	default:
 #if defined(HAVE_NDO_SELECT_QUEUE_FALLBACK_REMOVED)
 		return netdev_pick_tx(dev, skb, sb_dev);
@@ -7667,7 +8269,6 @@ static u16 ngbe_select_queue(struct net_device *dev, struct sk_buff *skb)
 #endif
 	}
 
-
 	txq = skb_rx_queue_recorded(skb) ? skb_get_rx_queue(skb) :
 					   smp_processor_id();
 
@@ -7676,53 +8277,6 @@ static u16 ngbe_select_queue(struct net_device *dev, struct sk_buff *skb)
 }
 #endif /* CONFIG_FCOE */
 #endif /* HAVE_NETDEV_SELECT_QUEUE */
-
-
-/**
- *	skb_pad			-	zero pad the tail of an skb
- *	@skb: buffer to pad
- *	@pad: space to pad
- *
- *	Ensure that a buffer is followed by a padding area that is zero
- *	filled. Used by network drivers which may DMA or transfer data
- *	beyond the buffer end onto the wire.
- *
- *	May return error in out of memory cases. The skb is freed on error.
- */
-
-int ngbe_skb_pad_nonzero(struct sk_buff *skb, int pad)
-{
-	int err;
-	int ntail;
-
-	/* If the skbuff is non linear tailroom is always zero.. */
-	if (!skb_cloned(skb) && skb_tailroom(skb) >= pad) {
-		memset(skb->data+skb->len, 0x1, pad);
-		return 0;
-	}
-
-	ntail = skb->data_len + pad - (skb->end - skb->tail);
-	if (likely(skb_cloned(skb) || ntail > 0)) {
-		err = pskb_expand_head(skb, 0, ntail, GFP_ATOMIC);
-		if (unlikely(err))
-			goto free_skb;
-	}
-
-	/* FIXME: The use of this function with non-linear skb's really needs
-	 * to be audited.
-	 */
-	err = skb_linearize(skb);
-	if (unlikely(err))
-		goto free_skb;
-
-	memset(skb->data + skb->len, 0x1, pad);
-	return 0;
-
-free_skb:
-	kfree_skb(skb);
-	return err;
-}
-
 
 netdev_tx_t ngbe_xmit_frame_ring(struct sk_buff *skb,
 				  struct ngbe_adapter __maybe_unused *adapter,
@@ -7736,7 +8290,6 @@ netdev_tx_t ngbe_xmit_frame_ring(struct sk_buff *skb,
 	__be16 protocol = skb->protocol;
 	u8 hdr_len = 0;
 	ngbe_dptype dptype;
-
 
 	/*
 	 * need: 1 descriptor per page * PAGE_SIZE/NGBE_MAX_DATA_PER_TXD,
@@ -7764,16 +8317,15 @@ netdev_tx_t ngbe_xmit_frame_ring(struct sk_buff *skb,
 	if (skb_vlan_tag_present(skb)) {
 		tx_flags |= skb_vlan_tag_get(skb) << NGBE_TX_FLAGS_VLAN_SHIFT;
 		tx_flags |= NGBE_TX_FLAGS_HW_VLAN;
-	/* else if it is a SW VLAN check the next protocol and store the tag */
-	} else if (protocol == htons(ETH_P_8021Q)) {
+	}
+
+	if (protocol == htons(ETH_P_8021Q) || protocol == htons(ETH_P_8021AD)) {
 		struct vlan_hdr *vhdr, _vhdr;
 		vhdr = skb_header_pointer(skb, ETH_HLEN, sizeof(_vhdr), &_vhdr);
 		if (!vhdr)
 			goto out_drop;
 
 		protocol = vhdr->h_vlan_encapsulated_proto;
-		tx_flags |= ntohs(vhdr->h_vlan_TCI) <<
-				  NGBE_TX_FLAGS_VLAN_SHIFT;
 		tx_flags |= NGBE_TX_FLAGS_SW_VLAN;
 	}
 
@@ -7781,7 +8333,7 @@ netdev_tx_t ngbe_xmit_frame_ring(struct sk_buff *skb,
 #ifdef SKB_SHARED_TX_IS_UNION
 	if (unlikely(skb_tx(skb)->hardware) &&
 	    adapter->ptp_clock) {
-	    if (!test_and_set_bit_lock(__NGBE_PTP_TX_IN_PROGRESS,
+	    if(!test_and_set_bit_lock(__NGBE_PTP_TX_IN_PROGRESS,
 				   &adapter->state)) {
 		skb_tx(skb)->in_progress = 1;
 #else
@@ -7896,7 +8448,7 @@ static int ngbe_set_mac(struct net_device *netdev, void *p)
 		return -EADDRNOTAVAIL;
 
 	ngbe_del_mac_filter(adapter, hw->mac.addr, VMDQ_P(0));
-	memcpy(netdev->dev_addr, addr->sa_data, netdev->addr_len);
+	eth_hw_addr_set(netdev, addr->sa_data);
 	memcpy(hw->mac.addr, addr->sa_data, netdev->addr_len);
 
 	ngbe_mac_set_default_filter(adapter, hw->mac.addr);
@@ -7905,22 +8457,6 @@ static int ngbe_set_mac(struct net_device *netdev, void *p)
 		 hw->mac.addr[3], hw->mac.addr[4], hw->mac.addr[5]);
 
 	return 0;
-}
-
-
-
-
-
-static int ngbe_mii_ioctl(struct net_device *netdev, struct ifreq *ifr,
-			   int cmd)
-{
-	struct mii_ioctl_data *mii = (struct mii_ioctl_data *) &ifr->ifr_data;
-	int prtad, devad, ret = 0;
-
-	prtad = (mii->phy_id & MDIO_PHY_ID_PRTAD) >> 5;
-	devad = (mii->phy_id & MDIO_PHY_ID_DEVAD);
-
-	return ret;
 }
 
 static int ngbe_ioctl(struct net_device *netdev, struct ifreq *ifr, int cmd)
@@ -7944,7 +8480,6 @@ static int ngbe_ioctl(struct net_device *netdev, struct ifreq *ifr, int cmd)
 #endif
 	case SIOCGMIIREG:
 	case SIOCSMIIREG:
-		return ngbe_mii_ioctl(netdev, ifr, cmd);
 	default:
 		return -EOPNOTSUPP;
 	}
@@ -7977,6 +8512,54 @@ static void ngbe_netpoll(struct net_device *netdev)
 }
 #endif /* CONFIG_NET_POLL_CONTROLLER */
 
+void ngbe_save_ring_stats(struct ngbe_adapter *adapter)
+{
+	struct ngbe_ring *ring;
+	int i = 0;
+
+	memset(adapter->old_tx_qstats, 0, sizeof(struct ngbe_queue_stats)*MAX_TX_QUEUES);
+	memset(adapter->old_tx_stats, 0, sizeof(struct ngbe_tx_queue_stats) * MAX_TX_QUEUES);
+	memset(adapter->old_rx_qstats, 0, sizeof(struct ngbe_queue_stats)*MAX_RX_QUEUES);
+	memset(adapter->old_rx_stats, 0, sizeof(struct ngbe_rx_queue_stats)*MAX_RX_QUEUES);
+
+	for (;i < adapter->num_q_vectors;i++) {
+		struct ngbe_q_vector *q_vector = adapter->q_vector[i];
+		ngbe_for_each_ring(ring, q_vector->tx) {
+
+			adapter->old_tx_qstats[i].packets += ring->stats.packets;
+			adapter->old_tx_qstats[i].bytes += ring->stats.bytes;
+#ifdef BP_EXTENDED_STATS
+			adapter->old_tx_qstats[i].yields += ring->stats.yields;
+			adapter->old_tx_qstats[i].misses += ring->stats.misses;
+			adapter->old_tx_qstats[i].cleaned += ring->stats.cleaned;
+#endif
+			adapter->old_tx_stats[i].restart_queue += ring->tx_stats.restart_queue;
+			adapter->old_tx_stats[i].tx_busy += ring->tx_stats.tx_busy;
+			adapter->old_tx_stats[i].tx_done_old += ring->tx_stats.tx_done_old;
+		}
+		ngbe_for_each_ring(ring, q_vector->rx)
+		{
+			adapter->old_rx_qstats[i] = ring->stats;
+			adapter->old_rx_stats[i] = ring->rx_stats;
+		}
+	}
+}
+
+void ngbe_set_ring_stats(struct ngbe_adapter *adapter)
+{
+	struct ngbe_ring *ring;
+	int i = 0;
+
+	for (;i < adapter->num_q_vectors;i++) {
+		ring = adapter->q_vector[i]->tx.ring;
+		ring->stats = adapter->old_tx_qstats[i];
+		ring->tx_stats = adapter->old_tx_stats[i];
+		ring = adapter->q_vector[i]->rx.ring;
+		ring->stats = adapter->old_rx_qstats[i];
+		ring->rx_stats = adapter->old_rx_stats[i];
+	}
+}
+
 /**
  * ngbe_setup_tc - routine to configure net_device for multiple traffic
  * classes.
@@ -7984,14 +8567,28 @@ static void ngbe_netpoll(struct net_device *netdev)
  * @netdev: net device to configure
  * @tc: number of traffic classes to enable
  */
-int ngbe_setup_tc(struct net_device *dev, u8 tc)
+int ngbe_setup_tc(struct net_device *dev, u8 tc, bool save_stats)
 {
 	struct ngbe_adapter *adapter = netdev_priv(dev);
 
+	if (save_stats)
+		ngbe_save_ring_stats(adapter);
 	/* Hardware has to reinitialize queues and interrupts to
 	 * match packet buffer alignment. Unfortunately, the
 	 * hardware is not flexible enough to do this dynamically.
 	 */
+	if (adapter->xdp_prog) {
+		if (adapter->num_rx_queues > MAX_RX_QUEUES / 2) {
+		adapter->old_rss_limit = adapter->ring_feature[RING_F_RSS].limit;
+		adapter->ring_feature[RING_F_RSS].limit = MAX_RX_QUEUES / 2;
+		e_dev_info("limit tx rx ring to 4 "
+			   "because xdpring take up half of the txring");
+		}
+		else {
+			adapter->old_rss_limit = 0;
+		}
+	}
+
 	if (netif_running(dev))
 		ngbe_close(dev);
 	else
@@ -8004,8 +8601,9 @@ int ngbe_setup_tc(struct net_device *dev, u8 tc)
 	} else {
 		netdev_reset_tc(dev);
 	}
-
 	ngbe_init_interrupt_scheme(adapter);
+	if (save_stats)
+		ngbe_set_ring_stats(adapter);
 	if (netif_running(dev))
 		ngbe_open(dev);
 
@@ -8018,7 +8616,7 @@ void ngbe_sriov_reinit(struct ngbe_adapter *adapter)
 	struct net_device *netdev = adapter->netdev;
 
 	rtnl_lock();
-	ngbe_setup_tc(netdev, netdev_get_num_tc(netdev));
+	ngbe_setup_tc(netdev, netdev_get_num_tc(netdev), 0);
 	rtnl_unlock();
 }
 #endif
@@ -8089,13 +8687,13 @@ static int ngbe_set_features(struct net_device *netdev,
 
 	if (features & NETIF_F_RXHASH) {
 		if (!(adapter->flags2 & NGBE_FLAG2_RSS_ENABLED)) {
-			wr32m(&adapter->hw, NGBE_RDB_RA_CTL,
+			wr32m(&adapter->hw, NGBE_RDB_RA_CTL, 
 				NGBE_RDB_RA_CTL_RSS_EN, NGBE_RDB_RA_CTL_RSS_EN);
 			adapter->flags2 |= NGBE_FLAG2_RSS_ENABLED;
 		}
 	} else {
 		if (adapter->flags2 & NGBE_FLAG2_RSS_ENABLED) {
-			wr32m(&adapter->hw, NGBE_RDB_RA_CTL,
+			wr32m(&adapter->hw, NGBE_RDB_RA_CTL, 
 				NGBE_RDB_RA_CTL_RSS_EN, ~NGBE_RDB_RA_CTL_RSS_EN);
 			adapter->flags2 &= ~NGBE_FLAG2_RSS_ENABLED;
 		}
@@ -8287,6 +8885,178 @@ static netdev_features_t ngbe_features_check(struct sk_buff *skb,
 }
 #endif /* HAVE_NDO_FEATURES_CHECK */
 
+
+#ifdef HAVE_XDP_SUPPORT
+static int ngbe_xdp_setup(struct net_device *dev, struct bpf_prog *prog)
+{
+	int i, frame_size = dev->mtu + ETH_HLEN + ETH_FCS_LEN + VLAN_HLEN;
+	struct ngbe_adapter *adapter = netdev_priv(dev);
+	struct bpf_prog *old_prog;
+	bool need_reset;
+	if (adapter->flags & NGBE_FLAG_SRIOV_ENABLED)
+		return -EINVAL;
+
+	if (adapter->flags & NGBE_FLAG_DCB_ENABLED)
+		return -EINVAL;
+
+	if (adapter->xdp_prog && prog) {
+		e_dev_err("XDP can't be active at the same time");
+		return -EBUSY;
+	}
+		
+	/* verify ngbe ring attributes are sufficient for XDP */
+	for (i = 0; i < adapter->num_rx_queues; i++) {
+		struct ngbe_ring *ring = adapter->rx_ring[i];
+
+		if (frame_size > ngbe_rx_bufsz(ring))
+			return -EINVAL;
+	}
+
+	old_prog = xchg(&adapter->xdp_prog, prog);
+	need_reset = (!!prog != !!old_prog);
+
+	/* If transitioning XDP modes reconfigure rings */
+	if (need_reset) {
+		int err = 0;
+		if (!adapter->xdp_prog && adapter->old_rss_limit)
+			adapter->ring_feature[RING_F_RSS].limit = adapter->old_rss_limit;
+
+		err = ngbe_setup_tc(dev, netdev_get_num_tc(dev), 1);
+
+		if (err) {
+			rcu_assign_pointer(adapter->xdp_prog, old_prog);
+			return -EINVAL;
+		}
+	} else {
+		for (i = 0; i < adapter->num_rx_queues; i++)
+			xchg(&adapter->rx_ring[i]->xdp_prog, adapter->xdp_prog);
+	}
+	if (adapter->xdp_prog)
+		e_dev_info("xdp program is setup");
+	else
+		e_dev_info("xdp program not load");
+	if (old_prog)
+		bpf_prog_put(old_prog);
+
+	return 0;
+}
+
+
+#ifdef HAVE_NDO_BPF
+static int ngbe_xdp(struct net_device *dev, struct netdev_bpf *xdp)
+#else
+static int ngbe_xdp(struct net_device *dev, struct netdev_xdp *xdp)
+#endif
+{
+#ifdef HAVE_XDP_QUERY_PROG
+	struct ngbe_adapter *adapter = netdev_priv(dev);
+#endif
+
+	switch (xdp->command) {
+	case XDP_SETUP_PROG:
+		return ngbe_xdp_setup(dev, xdp->prog);
+#ifdef HAVE_XDP_QUERY_PROG
+	case XDP_QUERY_PROG:
+#ifndef NO_NETDEV_BPF_PROG_ATTACHED
+		xdp->prog_attached = !!(adapter->xdp_prog);
+#endif /* !NO_NETDEV_BPF_PROG_ATTACHED */
+		xdp->prog_id = adapter->xdp_prog ?
+			       adapter->xdp_prog->aux->id : 0;
+		return 0;
+#endif
+	default:
+		return -EINVAL;
+	}
+}
+#ifdef HAVE_NDO_XDP_XMIT_BULK_AND_FLAGS
+static int ngbe_xdp_xmit(struct net_device *dev, int n,
+			  struct xdp_frame **frames, u32 flags)
+#else
+static int ngbe_xdp_xmit(struct net_device *dev, struct xdp_buff *xdp)
+#endif
+{
+	struct ngbe_adapter *adapter = netdev_priv(dev);
+	struct ngbe_ring *ring;
+#ifdef HAVE_NDO_XDP_XMIT_BULK_AND_FLAGS
+	int drops = 0;
+	int i;
+#else
+	int err;
+#endif
+	if (unlikely(test_bit(__NGBE_DOWN, &adapter->state)))
+		return -ENETDOWN;
+
+#ifdef HAVE_NDO_XDP_XMIT_BULK_AND_FLAGS
+	if (unlikely(flags & ~XDP_XMIT_FLAGS_MASK))
+		return -EINVAL;
+#endif
+	/* During program transitions its possible adapter->xdp_prog is assigned
+	 * but ring has not been configured yet. In this case simply abort xmit.
+	 */
+	ring = adapter->xdp_prog ? adapter->xdp_ring[smp_processor_id() % adapter->num_xdp_queues] : NULL;
+	if (unlikely(!ring))
+		return -ENXIO;
+#ifdef HAVE_NDO_XDP_XMIT_BULK_AND_FLAGS
+	if (static_branch_unlikely(&ngbe_xdp_locking_key))
+		spin_lock(&ring->tx_lock);
+
+	for (i = 0; i < n; i++) {
+		struct xdp_frame *xdpf = frames[i];
+		int err;
+
+		err = ngbe_xmit_xdp_ring(ring, xdpf);
+		if (err != NGBE_XDP_TX) {
+			xdp_return_frame_rx_napi(xdpf);
+			drops++;
+		}
+	}
+
+	if (unlikely(flags & XDP_XMIT_FLUSH)){
+		wmb();
+		writel(ring->next_to_use, ring->tail);
+	}
+	if (static_branch_unlikely(&ngbe_xdp_locking_key))
+		spin_unlock(&ring->tx_lock);
+	return n - drops;
+#else /* HAVE_NDO_XDP_XMIT_BULK_AND_FLAGS */
+
+	if (static_branch_unlikely(&ngbe_xdp_locking_key))
+		spin_lock(&ring->tx_lock);
+	err = ngbe_xmit_xdp_ring(ring, xdp);
+	if (static_branch_unlikely(&ngbe_xdp_locking_key))
+		spin_unlock(&ring->tx_lock);
+	if (err != NGBE_XDP_TX)
+		return -ENOSPC;
+
+	return 0;
+#endif
+}
+
+#ifndef NO_NDO_XDP_FLUSH
+static void ngbe_xdp_flush(struct net_device *dev)
+{
+	struct ngbe_adapter *adapter = netdev_priv(dev);
+	struct ngbe_ring *ring;
+
+	/* Its possible the device went down between xdp xmit and flush so
+	 * we need to ensure device is still up.
+	 */
+	if (unlikely(test_bit(__NGBE_DOWN, &adapter->state)))
+		return;
+
+	ring = adapter->xdp_prog ? adapter->xdp_ring[smp_processor_id() % adapter->num_xdp_queues] : NULL;
+	if (unlikely(!ring))
+		return;
+
+	wmb();
+	writel(ring->next_to_use, ring->tail);
+
+	return;
+}
+#endif /* !NO_NDO_XDP_FLUSH */
+
+#endif /* HAVE_XDP_SUPPORT */
+
 #ifdef HAVE_VIRTUAL_STATION
 static inline int ngbe_inc_vmdqs(struct ngbe_fwd_adapter *accel)
 {
@@ -8357,7 +9127,7 @@ static void *ngbe_fwd_add(struct net_device *pdev, struct net_device *vdev)
 	adapter->ring_feature[RING_F_RSS].limit = vdev->num_tx_queues;
 
 	/* Force reinit of ring allocation with VMDQ enabled */
-	err = ngbe_setup_tc(pdev, netdev_get_num_tc(pdev));
+	err = ngbe_setup_tc(pdev, netdev_get_num_tc(pdev), 0);
 	if (err)
 		goto fwd_add_err;
 
@@ -8386,7 +9156,7 @@ static void ngbe_fwd_del(struct net_device *pdev, void *fwd_priv)
 
 	adapter->ring_feature[RING_F_VMDQ].limit = ngbe_dec_vmdqs(accel);
 	ngbe_fwd_ring_down(accel->vdev, accel);
-	ngbe_setup_tc(pdev, netdev_get_num_tc(pdev));
+	ngbe_setup_tc(pdev, netdev_get_num_tc(pdev), 0);
 	netdev_dbg(pdev, "pool %i:%i queues %i:%i VSI bitmask %lx\n",
 			accel->index, adapter->num_vmdqs,
 			accel->rx_base_queue,
@@ -8496,6 +9266,18 @@ static const struct net_device_ops ngbe_netdev_ops = {
 #ifdef HAVE_NDO_FEATURES_CHECK
 	.ndo_features_check     = ngbe_features_check,
 #endif /* HAVE_NDO_FEATURES_CHECK */
+
+#ifdef HAVE_XDP_SUPPORT
+#ifdef HAVE_NDO_BPF
+	.ndo_bpf                = ngbe_xdp,
+#else
+	.ndo_xdp                = ngbe_xdp,
+#endif
+	.ndo_xdp_xmit           = ngbe_xdp_xmit,
+#ifndef NO_NDO_XDP_FLUSH
+	.ndo_xdp_flush          = ngbe_xdp_flush,
+#endif /* !NO_NDO_XDP_FLUSH */
+#endif
 #ifdef HAVE_RHEL6_NET_DEVICE_OPS_EXT
 };
 
@@ -8578,7 +9360,7 @@ int ngbe_wol_supported(struct ngbe_adapter *adapter)
 	if ((hw->bus.func == 0) ||
 		(hw->bus.func == 1) ||
 		(hw->bus.func == 2) ||
-		(hw->bus.func == 3))
+		(hw->bus.func == 3) )
 		return true;
 	else
 		return false;
@@ -8610,6 +9392,7 @@ static int __devinit ngbe_probe(struct pci_dev *pdev,
 	u32 eeprom_cksum_devcap = 0;
 	u32 saved_version = 0;
 	u32 devcap;
+	u32 led_conf = 0;
 
 	bool disable_dev = false;
 #ifdef HAVE_NDO_SET_FEATURES
@@ -8619,6 +9402,7 @@ static int __devinit ngbe_probe(struct pci_dev *pdev,
 	u32 hw_features;
 #endif /* HAVE_RHEL6_NET_DEVICE_OPS_EXT */
 #endif /* HAVE_NDO_SET_FEATURES */
+	u16 pvalue = 0;
 
 	err = pci_enable_device_mem(pdev);
 	if (err)
@@ -8710,8 +9494,7 @@ static int __devinit ngbe_probe(struct pci_dev *pdev,
 	 */
 	ngbe_check_options(adapter);
 
-	TCALL(hw, mac.ops.set_lan_id);
-
+	hw->mac.ops.set_lan_id(hw);
 
 	/* check if flash load is done after hw power up */
 	err = ngbe_check_flash_load(hw, NGBE_SPI_ILDR_STATUS_PERST);
@@ -8721,39 +9504,21 @@ static int __devinit ngbe_probe(struct pci_dev *pdev,
 	if (err)
 		goto err_sw_init;
 
+	if(ngbe_is_lldp(hw))
+		e_dev_err("Can not get lldp flags from flash\n");
 	/* reset_hw fills in the perm_addr as well */
 
 	hw->phy.reset_if_overtemp = true;
-	err = TCALL(hw, mac.ops.reset_hw);
+	err = hw->mac.ops.reset_hw(hw);
 	hw->phy.reset_if_overtemp = false;
 	if (err) {
 		e_dev_err("HW reset failed: %d\n", err);
 		goto err_sw_init;
 	}
 
-
-
-#ifdef CONFIG_PCI_IOV
-#ifdef HAVE_SRIOV_CONFIGURE
-	if (adapter->num_vfs > 0) {
-		e_dev_warn("Enabling SR-IOV VFs using the max_vfs module "
-			   "parameter is deprecated.\n");
-		e_dev_warn("Please use the pci sysfs interface instead. Ex:\n");
-		e_dev_warn("echo '%d' > /sys/bus/pci/devices/%04x:%02x:%02x.%1x"
-				"/sriov_numvfs\n",
-				adapter->num_vfs,
-				pci_domain_nr(pdev->bus),
-				pdev->bus->number,
-				PCI_SLOT(pdev->devfn),
-				PCI_FUNC(pdev->devfn));
-	}
-
-#endif
-	if (adapter->flags & NGBE_FLAG_SRIOV_CAPABLE) {
-		pci_sriov_set_totalvfs(pdev, NGBE_MAX_VFS_DRV_LIMIT);
-		ngbe_enable_sriov(adapter);
-	}
-#endif /* CONFIG_PCI_IOV */
+	err = hw->phy.ops.init(hw);
+	if (err)
+		goto err_sw_init;
 
 	netdev->features |= NETIF_F_SG | NETIF_F_IP_CSUM;
 
@@ -8834,12 +9599,6 @@ static int __devinit ngbe_probe(struct pci_dev *pdev,
 				 NETIF_F_TSO6;
 
 #endif /* HAVE_NETDEV_VLAN_FEATURES */
-#ifdef HAVE_ENCAP_CSUM_OFFLOAD
-	netdev->hw_enc_features |= NETIF_F_SG | NETIF_F_IP_CSUM ;
-#endif /* HAVE_ENCAP_CSUM_OFFLOAD */
-#ifdef HAVE_VXLAN_RX_OFFLOAD
-	netdev->hw_enc_features |= NETIF_F_RXCSUM;
-#endif /* HAVE_VXLAN_RX_OFFLOAD */
 
 #ifdef IFF_UNICAST_FLT
 	netdev->priv_flags |= IFF_UNICAST_FLT;
@@ -8875,22 +9634,24 @@ static int __devinit ngbe_probe(struct pci_dev *pdev,
 		saved_version = rd32(hw, NGBE_EEPROM_VERSION_STORE_REG);
 	}
 
-	TCALL(hw, eeprom.ops.init_params);
-	TCALL(hw, mac.ops.release_swfw_sync, NGBE_MNG_SWFW_SYNC_SW_MB);
+	hw->eeprom.ops.init_params(hw);
+	hw->mac.ops.release_swfw_sync(hw, NGBE_MNG_SWFW_SYNC_SW_MB);
 	if(hw->bus.lan_id == 0 || eeprom_cksum_devcap == 0) {
 	/* make sure the EEPROM is good */
-		if (TCALL(hw, eeprom.ops.eeprom_chksum_cap_st, NGBE_CALSUM_COMMAND, &devcap)) {
+		if (hw->eeprom.ops.eeprom_chksum_cap_st(hw, NGBE_CALSUM_COMMAND, &devcap)) {
 			e_dev_err("The EEPROM Checksum Is Not Valid\n");
 			err = -EIO;
 			goto err_sw_init;
 		}
 	}
 
+	if (hw->eeprom.ops.phy_led_oem_chk(hw, &led_conf)) {
+		adapter->led_conf = -1;
+	} else {
+		adapter->led_conf = led_conf;
+	}
 
-	memcpy(netdev->dev_addr, hw->mac.perm_addr, netdev->addr_len);
-#ifdef ETHTOOL_GPERMADDR
-	memcpy(netdev->perm_addr, hw->mac.perm_addr, netdev->addr_len);
-#endif
+	eth_hw_addr_set(netdev, hw->mac.perm_addr);
 
 	if (!is_valid_ether_addr(netdev->dev_addr)) {
 		e_dev_err("invalid MAC address\n");
@@ -8901,9 +9662,9 @@ static int __devinit ngbe_probe(struct pci_dev *pdev,
 	ngbe_mac_set_default_filter(adapter, hw->mac.perm_addr);
 
 	timer_setup(&adapter->service_timer, ngbe_service_timer, 0);
-#ifdef POLL_LINK_STATUS
-	timer_setup(&adapter->link_check_timer, ngbe_link_check_timer, 0);
-#endif
+	if (NGBE_POLL_LINK_STATUS == 1)
+		timer_setup(&adapter->link_check_timer, ngbe_link_check_timer, 0);
+
 	if (NGBE_REMOVED(hw->hw_addr)) {
 		err = -EIO;
 		goto err_sw_init;
@@ -8916,10 +9677,32 @@ static int __devinit ngbe_probe(struct pci_dev *pdev,
 	if (err)
 		goto err_sw_init;
 
+#ifdef CONFIG_PCI_IOV
+#ifdef HAVE_SRIOV_CONFIGURE
+		if (adapter->num_vfs > 0) {
+			e_dev_warn("Enabling SR-IOV VFs using the max_vfs module "
+				   "parameter is deprecated.\n");
+			e_dev_warn("Please use the pci sysfs interface instead. Ex:\n");
+			e_dev_warn("echo '%d' > /sys/bus/pci/devices/%04x:%02x:%02x.%1x"
+					"/sriov_numvfs\n",
+					adapter->num_vfs,
+					pci_domain_nr(pdev->bus),
+					pdev->bus->number,
+					PCI_SLOT(pdev->devfn),
+					PCI_FUNC(pdev->devfn));
+		}
+
+#endif
+		if (adapter->flags & NGBE_FLAG_SRIOV_CAPABLE) {
+			pci_sriov_set_totalvfs(pdev, NGBE_MAX_VFS_DRV_LIMIT);
+			ngbe_enable_sriov(adapter);
+		}
+#endif /* CONFIG_PCI_IOV */
+
 	/* WOL not supported for all devices */
 	adapter->wol = 0;
 	if (hw->bus.lan_id == 0 || eeprom_cksum_devcap == 0) {
-		TCALL(hw, eeprom.ops.read,
+		hw->eeprom.ops.read(hw,
 				hw->eeprom.sw_region_offset + NGBE_DEVICE_CAPS,
 				&adapter->eeprom_cap);
 		/*only support in LAN0*/
@@ -8927,9 +9710,9 @@ static int __devinit ngbe_probe(struct pci_dev *pdev,
 	} else {
 		adapter->eeprom_cap = eeprom_cksum_devcap & 0xffff;
 	}
-	if (ngbe_wol_supported(adapter))
+	if ( ngbe_wol_supported(adapter) )
 		adapter->wol = NGBE_PSR_WKUP_CTL_MAG;
-	if ((hw->subsystem_device_id & WOL_SUP_MASK) == WOL_SUP) {
+	if ( (hw->subsystem_device_id & WOL_SUP_MASK) == WOL_SUP){
 		/*enable wol  first in shadow ram*/
 		ngbe_write_ee_hostif(hw, 0x7FE, 0xa50F);
 		ngbe_write_ee_hostif(hw, 0x7FF, 0x5a5a);
@@ -8943,8 +9726,8 @@ static int __devinit ngbe_probe(struct pci_dev *pdev,
 	 * Save off EEPROM version number and Option Rom version which
 	 * together make a unique identify for the eeprom
 	 */
-	if (hw->bus.lan_id == 0 || saved_version == 0) {
-		TCALL(hw, eeprom.ops.read32,
+	if(hw->bus.lan_id == 0 || saved_version == 0){
+		hw->eeprom.ops.read32(hw,
 				hw->eeprom.sw_region_offset + NGBE_EEPROM_VERSION_L,
 				&eeprom_verl);
 		etrack_id = eeprom_verl;
@@ -8953,7 +9736,7 @@ static int __devinit ngbe_probe(struct pci_dev *pdev,
 	}else if(eeprom_cksum_devcap) {
 		etrack_id = saved_version;
 	}else {
-		TCALL(hw, eeprom.ops.read32,
+		hw->eeprom.ops.read32(hw,
 			hw->eeprom.sw_region_offset + NGBE_EEPROM_VERSION_L,
 			&eeprom_verl);
 		etrack_id = eeprom_verl;
@@ -8965,7 +9748,7 @@ static int __devinit ngbe_probe(struct pci_dev *pdev,
 
 
 	/* reset the hardware with the new settings */
-	err = TCALL(hw, mac.ops.start_hw);
+	err = hw->mac.ops.start_hw(hw);
 	if (err == NGBE_ERR_EEPROM_VERSION) {
 		/* We are running on a pre-production device, log a warning */
 		e_dev_warn("This device is a pre-production adapter/LOM. "
@@ -8980,7 +9763,7 @@ static int __devinit ngbe_probe(struct pci_dev *pdev,
 	}
 
 	/* pick up the PCI bus settings for reporting later */
-	TCALL(hw, mac.ops.get_bus_info);
+	hw->mac.ops.get_bus_info(hw);
 
 	strcpy(netdev->name, "eth%d");
 	err = register_netdev(netdev);
@@ -9019,10 +9802,9 @@ static int __devinit ngbe_probe(struct pci_dev *pdev,
 	if (expected_gts > 0)
 		ngbe_check_minimum_link(adapter, expected_gts);
 
-	TCALL(hw, mac.ops.set_fw_drv_ver, 0xFF, 0xFF, 0xFF, 0xFF);
+	hw->mac.ops.set_fw_drv_ver(hw, 0xFF, 0xFF, 0xFF, 0xFF);
 
-	if (((hw->subsystem_device_id & NCSI_SUP_MASK) == NCSI_SUP) ||
-		((hw->subsystem_device_id & OEM_MASK) == OCP_CARD))
+	if (hw->ncsi_enabled)
 			e_info(probe, "NCSI : support");
 	else
 			e_info(probe, "NCSI : unsupported");
@@ -9084,6 +9866,12 @@ no_info_string:
 	ngbe_dbg_adapter_init(adapter);
 #endif /* HAVE_NGBE_DEBUG_FS */
 
+	if (NGBE_DIS_COMP_TIMEOUT == 1) {
+		pcie_capability_read_word(pdev, PCI_EXP_DEVCTL2, &pvalue);
+		pvalue = pvalue | 0x10;
+		pcie_capability_write_word(pdev, PCI_EXP_DEVCTL2, pvalue);
+	}
+
 	return 0;
 
 err_register:
@@ -9123,11 +9911,15 @@ static void __devexit ngbe_remove(struct pci_dev *pdev)
 {
 	struct ngbe_adapter *adapter = pci_get_drvdata(pdev);
 	struct net_device *netdev;
+	struct ngbe_hw *hw;
 	bool disable_dev;
 
 	/* if !adapter then we already cleaned up in probe */
 	if (!adapter)
 		return;
+
+	hw = &adapter->hw;
+	ngbe_mac_set_default_filter(adapter, hw->mac.perm_addr);
 
 	netdev = adapter->netdev;
 #ifdef HAVE_NGBE_DEBUG_FS

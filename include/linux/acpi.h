@@ -1284,7 +1284,7 @@ static inline int acpi_parse_spcr(bool enable_earlycon, bool enable_console)
 }
 #endif
 
-#if IS_ENABLED(CONFIG_ACPI_GENERIC_GSI)
+#if IS_ENABLED(CONFIG_ACPI_GENERIC_GSI) || IS_ENABLED(CONFIG_LOONGARCH)
 int acpi_irq_get(acpi_handle handle, unsigned int index, struct resource *res);
 #else
 static inline

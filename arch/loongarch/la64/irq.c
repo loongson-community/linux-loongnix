@@ -356,10 +356,10 @@ void __init arch_init_irq(void)
 	setup_IRQ();
 #ifdef CONFIG_PERF_EVENTS
 	/* override ipi vector for better performance */
-	set_vi_handler(EXCCODE_PC, pmu_handle_irq);
+	set_vi_handler(INT_PCOV, pmu_handle_irq);
 #endif
 #ifdef CONFIG_SMP
-	set_vi_handler(EXCCODE_IPI, loongson3_ipi_interrupt);
+	set_vi_handler(INT_IPI, loongson3_ipi_interrupt);
 #endif
 	set_csr_ecfg(ECFG0_IM);
 }

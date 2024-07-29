@@ -98,6 +98,7 @@ acpi_status acpi_ev_install_xrupt_handlers(void)
 		return_ACPI_STATUS(status);
 	}
 
+#if !defined(CONFIG_LOONGARCH)
 	/* Install the handler for the Global Lock */
 
 	status = acpi_ev_init_global_lock_handler();
@@ -106,6 +107,7 @@ acpi_status acpi_ev_install_xrupt_handlers(void)
 				"Unable to initialize Global Lock handler"));
 		return_ACPI_STATUS(status);
 	}
+#endif
 
 	acpi_gbl_events_initialized = TRUE;
 	return_ACPI_STATUS(status);

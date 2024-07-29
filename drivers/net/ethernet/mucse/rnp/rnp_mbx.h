@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: GPL-2.0 */
+/* Copyright(c) 2022 - 2023 Mucse Corporation. */
+
 #ifndef _RNP_MBX_H_
 #define _RNP_MBX_H_
 
@@ -54,6 +57,7 @@
 #define RNP_VF_GET_FW 0x0e /* vf get firmware version */
 #define RNP_VF_GET_LINK 0x10 /* get link status */
 #define RNP_VF_RESET_PF 0x11
+#define RNP_VF_GET_DMA_FRAG 0x12
 
 #define RNP_PF_SET_FCS 0x10 /* PF set fcs status */
 #define RNP_PF_SET_PAUSE 0x11 /* PF set pause status */
@@ -74,7 +78,6 @@
 #define RNP_VF_QUEUE_START 5 /* Default queue offset */
 #define RNP_VF_QUEUE_DEPTH 6 /* ring depth */
 
-
 /* length of permanent address message returned from PF */
 #define RNP_VF_PERMADDR_MSG_LEN 11
 /* word in permanent address message with the current multicast type */
@@ -86,6 +89,7 @@
 #define RNP_VF_LINK_STATUS_WORD 8
 #define RNP_VF_AXI_MHZ 9
 #define PF_FEATRURE_VLAN_FILTER BIT(0)
+#define PF_NCSI_EN BIT(1)
 #define RNP_VF_FEATURE 10
 
 #define RNP_PF_CONTROL_PRING_MSG 0x0100 /* PF control message */
@@ -185,7 +189,13 @@ s32 rnp_init_mbx_params_pf(struct rnp_hw *);
 
 extern struct rnp_mbx_operations mbx_ops_generic;
 
-int rnp_fw_get_macaddr(struct rnp_hw *hw, int pfvfnum, u8 *mac_addr, int lane);
+#define MBX_IFDOWN (0)
+#define MBX_IFUP (1)
+#define MBX_PROBE (2)
+#define MBX_REMOVE (3)
+void rnp_mbx_probe_stat_set(struct rnp_hw *hw, int stat);
+int rnp_fw_get_macaddr(struct rnp_hw *hw, int pfvfnum, u8 *mac_addr,
+		       int lane);
 int rnp_mbx_fw_reset_phy(struct rnp_hw *hw);
 unsigned int rnp_mbx_change_timeout(struct rnp_hw *hw, int timeout_ms);
 struct rnp_info;
@@ -194,23 +204,46 @@ int rnp_mbx_link_event_enable(struct rnp_hw *hw, int enable);
 int rnp_mbx_get_link_stat(struct rnp_hw *hw);
 int rnp_mbx_ifup_down(struct rnp_hw *hw, int up);
 int rnp_mbx_led_set(struct rnp_hw *hw, int value);
-int rnp_mbx_get_dump(struct rnp_hw *hw, int flags, u8 *data_out, int buflen);
+int rnp_mbx_get_dump(struct rnp_hw *hw, int flags, u8 *data_out,
+		     int buflen);
 int rnp_mbx_set_dump(struct rnp_hw *hw, int flag);
 int rnp_mbx_sfp_write(struct rnp_hw *hw, int sfp_addr, int reg, short v);
-int rnp_mbx_sfp_module_eeprom_info(
-	struct rnp_hw *hw, int sfp_addr, int reg, int data_len, u8 *buf);
+int rnp_mbx_sfp_module_eeprom_info(struct rnp_hw *hw, int sfp_addr,
+				   int reg, int data_len, u8 *buf);
 
 int rnp_mbx_get_temp(struct rnp_hw *hw, int *voltage);
+int rnp_mbx_phy_link_set(struct rnp_hw *hw, int adv, int autoneg,
+			 int speed, int duplex, int tp_mdix_ctrl);
+int rnp_mbx_phy_pause_set(struct rnp_hw *hw, int pause_mode);
+int rnp_mbx_phy_write(struct rnp_hw *hw, u32 reg, u32 val);
+int rnp_mbx_phy_read(struct rnp_hw *hw, u32 reg, u32 *val);
 
-int rnp_maintain_req(struct rnp_hw *hw,
-					 int cmd,
-					 int arg0,
-					 int req_data_bytes,
-					 int reply_bytes,
-					 dma_addr_t dma_phy_addr);
+int rnp_maintain_req(struct rnp_hw *hw, int cmd, int arg0,
+		     int req_data_bytes, int reply_bytes,
+		     dma_addr_t dma_phy_addr);
 int rnp_mbx_get_lane_stat(struct rnp_hw *hw);
-int rnp_set_lane_fun(
-	struct rnp_hw *hw, int fun, int value0, int value1, int value2, int value3);
+
+int rnp_mbx_wol_set(struct rnp_hw *hw, u32 mode);
+
+int rnp_mbx_ifsuspuse(struct rnp_hw *hw, int status);
+int rnp_mbx_ifinsmod(struct rnp_hw *hw, int status);
+int wait_mbx_init_done(struct rnp_hw *hw);
+int rnp_set_lane_fun(struct rnp_hw *hw, int fun, int value0, int value1,
+		     int value2, int value3);
 void rnp_link_stat_mark(struct rnp_hw *hw, int up);
+int rnp_mbx_reg_writev(struct rnp_hw *hw, int fw_reg, int value[4],
+		       int bytes);
+int rnp_mbx_reg_write(struct rnp_hw *hw, int fw_reg, int value);
+int rnp_mbx_fw_reg_read(struct rnp_hw *hw, int fw_reg);
+int rnp_mbx_force_speed(struct rnp_hw *hw, int speed);
+
+#define cm3_reg_write32(hw, cm3_rpu_reg, v) \
+	rnp_mbx_reg_write((hw), (cm3_rpu_reg), (v))
+
+#define cm3_reg_read32(hw, cm3_rpu_reg) \
+	rnp_mbx_fw_reg_read((hw), (cm3_rpu_reg))
+
+int rnp_mbx_lldp_status_get(struct rnp_hw *hw);
+int rnp_mbx_lldp_port_enable(struct rnp_hw *hw, bool enable);
 
 #endif /* _RNP_MBX_H_ */

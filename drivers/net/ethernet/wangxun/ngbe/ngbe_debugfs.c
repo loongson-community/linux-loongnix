@@ -40,7 +40,7 @@ enum ngbe_data_func {
 /**
  * data operation
  **/
-ssize_t
+static ssize_t
 ngbe_simple_read_from_pcibar(struct ngbe_adapter *adapter, int res,
 		void __user *buf, size_t size, loff_t *ppos)
 {
@@ -66,7 +66,7 @@ ngbe_simple_read_from_pcibar(struct ngbe_adapter *adapter, int res,
 	return size;
 }
 
-ssize_t
+static ssize_t
 ngbe_simple_read_from_flash(struct ngbe_adapter *adapter,
 		void __user *buf, size_t size, loff_t *ppos)
 {
@@ -92,7 +92,7 @@ ngbe_simple_read_from_flash(struct ngbe_adapter *adapter,
 	to += rpos - pos;
 	while (rpos <= rtail) {
 		u32 value = ngbe_rd32(adapter->io_addr + rpos);
-		if (TCALL(hw, flash.ops.write_buffer, rpos>>2, 1, &value)) {
+		if (hw->flash.ops.write_buffer(hw, rpos>>2, 1, &value)) {
 			ret = size;
 			break;
 		}
@@ -111,7 +111,7 @@ ngbe_simple_read_from_flash(struct ngbe_adapter *adapter,
 	return size;
 }
 
-ssize_t
+static ssize_t
 ngbe_simple_write_to_flash(struct ngbe_adapter *adapter,
 	const void __user *from, size_t size, loff_t *ppos, size_t available)
 {
@@ -133,11 +133,9 @@ ngbe_dbg_data_ops_read(struct file *filp, char __user *buffer,
 
 		return ngbe_simple_read_from_pcibar(adapter, bar, buffer, size,
 					       ppos);
-		break;
 	}
 	case NGBE_FUNC_FLASH_READ: {
 		return ngbe_simple_read_from_flash(adapter, buffer, size, ppos);
-		break;
 	}
 	case NGBE_FUNC_DUMP_RDESC: {
 		struct ngbe_ring *ring;
@@ -150,7 +148,6 @@ ngbe_dbg_data_ops_read(struct file *filp, char __user *buffer,
 
 		return simple_read_from_buffer(buffer, size, ppos,
 			ring->desc, ring->size);
-		break;
 	}
 	case NGBE_FUNC_DUMP_TDESC: {
 		struct ngbe_ring *ring;
@@ -163,7 +160,6 @@ ngbe_dbg_data_ops_read(struct file *filp, char __user *buffer,
 
 		return simple_read_from_buffer(buffer, size, ppos,
 			ring->desc, ring->size);
-		break;
 	}
 	default:
 		break;
@@ -190,7 +186,6 @@ ngbe_dbg_data_ops_write(struct file *filp,
 			size = adapter->hw.flash.dword_size << 2;
 
 		return ngbe_simple_write_to_flash(adapter, buffer, size, ppos, size);
-		break;
 	}
 	default:
 		break;
@@ -404,7 +399,7 @@ ngbe_dbg_netdev_ops_write(struct file *filp,
 	if (strncmp(ngbe_dbg_netdev_ops_buf, "tx_timeout", 10) == 0) {
 #if defined(HAVE_TX_TIMEOUT_TXQUEUE)
 		adapter->netdev->netdev_ops->ndo_tx_timeout(adapter->netdev, 0);
-#elif defined(HAVE_NET_DEVICE_OPS)
+#elif defined(HAVE_NET_DEVICE_OPS) 
 		adapter->netdev->netdev_ops->ndo_tx_timeout(adapter->netdev);
 #else
 		adapter->netdev->tx_timeout(adapter->netdev);
@@ -532,6 +527,7 @@ static struct ngbe_reg_info ngbe_reg_info_tbl[] = {
 static void
 ngbe_regdump(struct ngbe_hw *hw, struct ngbe_reg_info *reg_info)
 {
+#if 0
 	int i, n = 0;
 	u32 buffer[32*8];
 
@@ -552,15 +548,14 @@ ngbe_regdump(struct ngbe_hw *hw, struct ngbe_reg_info *reg_info)
 		}
 		break;
 	}
-#if 0
 	for (i = 0; n && i < 32; i++) {
 		pr_info("%-20s[%02x-%02x]", reg_info->name, i*8, i*8 + 7);
 		for (j = 0; n && j < 8; j++, n--)
 			pr_cont(" %08x", buffer[i*8 + j]);
 		pr_cont("\n");
 	}
-#endif
 	BUG_ON(n);
+#endif
 }
 
 /**
@@ -577,9 +572,11 @@ void ngbe_dump(struct ngbe_adapter *adapter)
 	union ngbe_tx_desc *tx_desc;
 	struct my_u0 { u64 a; u64 b; } *u0;
 	struct ngbe_ring *rx_ring;
+#ifndef CONFIG_NGBE_DISABLE_PACKET_SPLIT
 	union ngbe_rx_desc *rx_desc;
 	struct ngbe_rx_buffer *rx_buffer_info;
 	u32 staterr;
+#endif
 	int i = 0;
 
 	if (!netif_msg_hw(adapter))
@@ -722,6 +719,7 @@ rx_ring_summary:
 	 *   63       48 47    32 31          20 19                 0
 	 */
 
+#ifndef CONFIG_NGBE_DISABLE_PACKET_SPLIT
 	for (n = 0; n < adapter->num_rx_queues; n++) {
 		rx_ring = adapter->rx_ring[n];
 		pr_info("------------------------------------\n");
@@ -775,5 +773,6 @@ rx_ring_summary:
 
 		}
 	}
+#endif
 }
 

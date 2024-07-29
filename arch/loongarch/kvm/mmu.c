@@ -1149,7 +1149,7 @@ static int kvm_map_page(struct kvm_vcpu *vcpu, unsigned long gpa,
 
 	/* Try the fast path to handle old / clean pages */
 	srcu_idx = srcu_read_lock(&kvm->srcu);
-	if ((exccode != EXCCODE_TLBRI) && (exccode != EXCCODE_TLBXI)) {
+	if ((exccode != EXCCODE_TLBNR) && (exccode != EXCCODE_TLBNX)) {
 		err = kvm_map_page_fast(vcpu, gpa, write, out_entry,
 					      out_buddy);
 		if (!err)

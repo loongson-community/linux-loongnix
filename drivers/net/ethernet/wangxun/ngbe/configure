@@ -1,0 +1,63 @@
+################################################################################
+#
+# WangXun 10GbE PCI Express Linux Network Driver
+# Copyright(c) 2015 - 2017 Beijing WangXun Technology Co., Ltd.
+#
+# This program is free software; you can redistribute it and/or modify it
+# under the terms and conditions of the GNU General Public License,
+# version 2, as published by the Free Software Foundation.
+#
+# This program is distributed in the hope it will be useful, but WITHOUT
+# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+# FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+# more details.
+#
+# The full GNU General Public License is included in this distribution in
+# the file called "COPYING".
+#
+#
+################################################################################
+
+# common Makefile rules useful for out-of-tree Linux driver builds
+#
+# Usage: include configure
+#
+# After including, you probably want to add a minimum_kver_check call
+#
+# Required Variables:
+# DRIVER
+#   -- Set to the lowercase driver name
+
+#####################
+# Helpful functions #
+#####################
+CHNOS			:= 0	# default 0
+				# kylinos	KYLIN
+				# uosos 	UOS
+				# euleros	EULER
+
+NGBE_STATIC_ITR := 1   # Maximum interrupts per second, per vector, (0,1,980-500000), default 1
+NGBE_LINK_RETRY := 0   # link down/100m, restart an to retry, default 0 not open
+NGBE_POLL_LINK_STATUS:= 0
+NGBE_PCIE_RECOVER:= 1   # pcie recovery, defalut to open
+NGBE_RECOVER_CHECK := 1   # recover check log , default 1
+NGBE_DIS_COMP_TIMEOUT := 1   # dis completion timeout, default 1 to dis
+
+###########################################################################
+ifeq (${CHNOS}, UOS)
+EXTRA_CFLAGS += -DCONFIG_UOS_KERNEL=$(CONFIG_UOS_KERNEL)
+endif
+ifeq ($(CHNOS), EULER)
+EXTRA_CFLAGS += -DCONFIG_EULER_KERNEL=$(CONFIG_EULER_KERNEL)
+endif
+ifeq ($(CHNOS), KYLIN)
+EXTRA_CFLAGS += -DCONFIG_KYLIN_KERNEL=$(CONFIG_KYLIN_KERNEL)
+endif
+
+EXTRA_CFLAGS += -DNGBE_POLL_LINK_STATUS=$(NGBE_POLL_LINK_STATUS)
+EXTRA_CFLAGS += -DNGBE_STATIC_ITR=$(NGBE_STATIC_ITR)
+EXTRA_CFLAGS += -DNGBE_LINK_RETRY=$(NGBE_LINK_RETRY)
+
+EXTRA_CFLAGS += -DNGBE_PCIE_RECOVER=$(NGBE_PCIE_RECOVER)
+EXTRA_CFLAGS += -DNGBE_RECOVER_CHECK=$(NGBE_RECOVER_CHECK)
+EXTRA_CFLAGS += -DNGBE_DIS_COMP_TIMEOUT=$(NGBE_DIS_COMP_TIMEOUT)

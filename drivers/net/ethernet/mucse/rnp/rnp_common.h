@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: GPL-2.0 */
+/* Copyright(c) 2022 - 2023 Mucse Corporation. */
+
 #ifndef _RNP_COMMON_H_
 #define _RNP_COMMON_H_
 
@@ -15,7 +18,7 @@ struct rnp_adapter;
 #ifdef CONFIG_RNP_RX_DEBUG
 #define rx_debug_printk printk
 #define rx_buf_dump buf_dump
-#define rx_dbg(fmt, args...)                                                   \
+#define rx_dbg(fmt, args...) \
 	printk(KERN_DEBUG "[ %s:%d ] " fmt, __func__, __LINE__, ##args)
 #else
 #define rx_debug_printk(fmt, args...)
@@ -24,12 +27,12 @@ struct rnp_adapter;
 #endif //CONFIG_RNP_RX_DEBUG
 
 #ifdef CONFIG_RNP_TX_DEBUG
-#define desc_hex_dump(msg, buf, len)                                           \
-	print_hex_dump(KERN_WARNING, msg, DUMP_PREFIX_OFFSET, 16, 1, (buf),    \
-		       (len), false)
+#define desc_hex_dump(msg, buf, len)                                 \
+	print_hex_dump(KERN_WARNING, msg, DUMP_PREFIX_OFFSET, 16, 1, \
+		       (buf), (len), false)
 #define rnp_skb_dump _rnp_skb_dump
 
-#define tx_dbg(fmt, args...)                                                   \
+#define tx_dbg(fmt, args...) \
 	printk(KERN_DEBUG "[ %s:%d ] " fmt, __func__, __LINE__, ##args)
 #else
 #define desc_hex_dump(msg, buf, len)
@@ -38,14 +41,14 @@ struct rnp_adapter;
 #endif //CONFIG_RNP_TX_DEBUG
 
 #ifdef DEBUG
-#define dbg(fmt, args...)                                                      \
+#define dbg(fmt, args...) \
 	printk(KERN_DEBUG "[ %s:%d ] " fmt, __func__, __LINE__, ##args)
 #else
 #define dbg(fmt, args...)
 #endif
 
 #ifdef CONFIG_RNP_VF_DEBUG
-#define vf_dbg(fmt, args...)                                                   \
+#define vf_dbg(fmt, args...) \
 	printk(KERN_DEBUG "[ %s:%d ] " fmt, __func__, __LINE__, ##args)
 #else
 #define vf_dbg(fmt, args...)
@@ -88,11 +91,13 @@ s32 rnp_read_eerd_buffer_generic(struct rnp_hw *hw, u16 offset, u16 words,
 s32 rnp_write_eewr_generic(struct rnp_hw *hw, u16 offset, u16 data);
 s32 rnp_write_eewr_buffer_generic(struct rnp_hw *hw, u16 offset, u16 words,
 				  u16 *data);
-s32 rnp_read_eeprom_bit_bang_generic(struct rnp_hw *hw, u16 offset, u16 *data);
+s32 rnp_read_eeprom_bit_bang_generic(struct rnp_hw *hw, u16 offset,
+				     u16 *data);
 s32 rnp_read_eeprom_buffer_bit_bang_generic(struct rnp_hw *hw, u16 offset,
 					    u16 words, u16 *data);
 u16 rnp_calc_eeprom_checksum_generic(struct rnp_hw *hw);
-s32 rnp_validate_eeprom_checksum_generic(struct rnp_hw *hw, u16 *checksum_val);
+s32 rnp_validate_eeprom_checksum_generic(struct rnp_hw *hw,
+					 u16 *checksum_val);
 s32 rnp_update_eeprom_checksum_generic(struct rnp_hw *hw);
 
 s32 rnp_set_rar_generic(struct rnp_hw *hw, u32 index, u8 *addr, u32 vmdq,
@@ -107,7 +112,6 @@ s32 rnp_disable_rx_buff_generic(struct rnp_hw *hw);
 s32 rnp_enable_rx_buff_generic(struct rnp_hw *hw);
 s32 rnp_enable_rx_dma_generic(struct rnp_hw *hw, u32 regval);
 s32 rnp_fc_enable_generic(struct rnp_hw *hw);
-s32 rnp_device_supports_autoneg_fc(struct rnp_hw *hw);
 void rnp_fc_autoneg(struct rnp_hw *hw);
 
 s32 rnp_acquire_swfw_sync(struct rnp_hw *hw, u16 mask);
@@ -117,10 +121,12 @@ s32 rnp_set_vmdq_generic(struct rnp_hw *hw, u32 rar, u32 vmdq);
 s32 rnp_set_vmdq_san_mac_generic(struct rnp_hw *hw, u32 vmdq);
 s32 rnp_clear_vmdq_generic(struct rnp_hw *hw, u32 rar, u32 vmdq);
 s32 rnp_init_uta_tables_generic(struct rnp_hw *hw);
-s32 rnp_set_vfta_generic(struct rnp_hw *hw, u32 vlan, u32 vind, bool vlan_on);
+s32 rnp_set_vfta_generic(struct rnp_hw *hw, u32 vlan, u32 vind,
+			 bool vlan_on);
 s32 rnp_clear_vfta_generic(struct rnp_hw *hw);
 s32 rnp_check_mac_link_generic(struct rnp_hw *hw, rnp_link_speed *speed,
-			       bool *link_up, bool link_up_wait_to_complete);
+			       bool *link_up,
+			       bool link_up_wait_to_complete);
 s32 rnp_get_wwn_prefix_generic(struct rnp_hw *hw, u16 *wwnn_prefix,
 			       u16 *wwpn_prefix);
 s32 rnp_blink_led_start_generic(struct rnp_hw *hw, u32 index);
@@ -139,22 +145,19 @@ u8 *rnp_addr_list_itr(struct rnp_hw __maybe_unused *hw, u8 **mc_addr_ptr);
 s32 rnp_reset_pipeline_82599(struct rnp_hw *hw);
 
 //================= registers  read/write helper =====
-#define p_rnp_wr_reg(reg, val)                        \
-	do {                                              \
-		printk(" wr-reg: %p <== 0x%08x \t#%-4d %s\n", \
-			   (reg),                                 \
-			   (val),                                 \
-			   __LINE__,                              \
-			   __FILE__);                             \
-		iowrite32((val), (void *)(reg));              \
+#define p_rnp_wr_reg(reg, val)                                           \
+	do {                                                             \
+		printk(KERN_DEBUG " wr-reg: %p <== 0x%08x \t#%-4d %s\n", \
+		       (reg), (val), __LINE__, __FILE__);                \
+		iowrite32((val), (void *)(reg));                         \
 	} while (0)
 
 static inline unsigned int prnp_rd_reg(void *reg)
 {
-    unsigned int v = ioread32((void *)(reg));
+	unsigned int v = ioread32((void *)(reg));
 
-    printk("  %p => 0x%08x\n", reg, v);
-    return v;
+	printk(KERN_DEBUG "  %p => 0x%08x\n", reg, v);
+	return v;
 }
 
 #ifdef IO_PRINT
@@ -165,11 +168,11 @@ static inline unsigned int rnp_rd_reg(void *reg)
 	dbg(" rd-reg: %p <== 0x%08x\n", reg, v);
 	return v;
 }
-#define rnp_wr_reg(reg, val)                                                   \
-	do {                                                                   \
-		dbg(" wr-reg: %p <== 0x%08x \t#%-4d %s\n", (reg), (val),       \
-		    __LINE__, __FILE__);                                       \
-		iowrite32((val), (void *)(reg));                               \
+#define rnp_wr_reg(reg, val)                                             \
+	do {                                                             \
+		dbg(" wr-reg: %p <== 0x%08x \t#%-4d %s\n", (reg), (val), \
+		    __LINE__, __FILE__);                                 \
+		iowrite32((val), (void *)(reg));                         \
 	} while (0)
 #else
 #define rnp_rd_reg(reg) readl((void *)(reg))
@@ -180,16 +183,20 @@ static inline unsigned int rnp_rd_reg(void *reg)
 #define wr32(hw, off, val) rnp_wr_reg((hw)->hw_addr + (off), (val))
 
 #define nic_rd32(nic, off) rnp_rd_reg((nic)->nic_base_addr + (off))
-#define nic_wr32(nic, off, val) rnp_wr_reg((nic)->nic_base_addr + (off), (val))
+#define nic_wr32(nic, off, val) \
+	rnp_wr_reg((nic)->nic_base_addr + (off), (val))
 
 #define dma_rd32(dma, off) rnp_rd_reg((dma)->dma_base_addr + (off))
-#define dma_wr32(dma, off, val) rnp_wr_reg((dma)->dma_base_addr + (off), (val))
+#define dma_wr32(dma, off, val) \
+	rnp_wr_reg((dma)->dma_base_addr + (off), (val))
 
 #define dma_ring_rd32(dma, off) rnp_rd_reg((dma)->dma_ring_addr + (off))
-#define dma_ring_wr32(dma, off, val) rnp_wr_reg((dma)->dma_ring_addr + (off), (val))
+#define dma_ring_wr32(dma, off, val) \
+	rnp_wr_reg((dma)->dma_ring_addr + (off), (val))
 
 #define eth_rd32(eth, off) rnp_rd_reg((eth)->eth_base_addr + (off))
-#define eth_wr32(eth, off, val) rnp_wr_reg((eth)->eth_base_addr + (off), (val))
+#define eth_wr32(eth, off, val) \
+	rnp_wr_reg((eth)->eth_base_addr + (off), (val))
 
 #define mac_rd32(mac, off) rnp_rd_reg((mac)->mac_addr + (off))
 #define mac_wr32(mac, off, val) rnp_wr_reg((mac)->mac_addr + (off), (val))
@@ -198,21 +205,25 @@ static inline unsigned int rnp_rd_reg_1(int ring, u32 off, void *reg)
 {
 	unsigned int v = ioread32((void *)(reg));
 
-	printk("%d rd-reg: %x <== 0x%08x\n", ring, off, v);
+	printk(KERN_DEBUG "%d rd-reg: %x <== 0x%08x\n", ring, off, v);
 	return v;
 }
 
-#define ring_rd32(ring, off) rnp_rd_reg_1(ring->rnp_queue_idx, off, (ring)->ring_addr + (off))
-#define ring_wr32(ring, off, val) rnp_wr_reg((ring)->ring_addr + (off), (val))
+#define ring_rd32(ring, off) \
+	rnp_rd_reg_1(ring->rnp_queue_idx, off, (ring)->ring_addr + (off))
+#define ring_wr32(ring, off, val) \
+	rnp_wr_reg((ring)->ring_addr + (off), (val))
 #else
 #define ring_rd32(ring, off) rnp_rd_reg((ring)->ring_addr + (off))
-#define ring_wr32(ring, off, val) rnp_wr_reg((ring)->ring_addr + (off), (val))
+#define ring_wr32(ring, off, val) \
+	rnp_wr_reg((ring)->ring_addr + (off), (val))
 #endif
 
 #define pwr32(hw, off, val) p_rnp_wr_reg((hw)->hw_addr + (off), (val))
 
 #define rnp_mbx_rd(hw, off) rnp_rd_reg((hw)->ring_msix_base + (off))
-#define rnp_mbx_wr(hw, off, val) rnp_wr_reg((hw)->ring_msix_base + (off), val)
+#define rnp_mbx_wr(hw, off, val) \
+	rnp_wr_reg((hw)->ring_msix_base + (off), val)
 
 static inline void hw_queue_strip_rx_vlan(struct rnp_hw *hw, u8 ring_num,
 					  bool enable)
@@ -228,40 +239,42 @@ static inline void hw_queue_strip_rx_vlan(struct rnp_hw *hw, u8 ring_num,
 	wr32(hw, reg, data);
 }
 
-#define rnp_set_reg_bit(hw, reg_def, bit)                                      \
-	do {                                                                   \
-		u32 reg = reg_def;                                             \
-		u32 value = rd32(hw, reg);                                     \
-		dbg("before set  %x %x\n", reg, value);                        \
-		value |= (0x01 << bit);                                        \
-		dbg("after set %x %x\n", reg, value);                          \
-		wr32(hw, reg, value);                                          \
+#define rnp_set_reg_bit(hw, reg_def, bit)               \
+	do {                                            \
+		u32 reg = reg_def;                      \
+		u32 value = rd32(hw, reg);              \
+		dbg("before set  %x %x\n", reg, value); \
+		value |= (0x01 << bit);                 \
+		dbg("after set %x %x\n", reg, value);   \
+		wr32(hw, reg, value);                   \
 	} while (0)
 
-#define rnp_clr_reg_bit(hw, reg_def, bit)                                      \
-	do {                                                                   \
-		u32 reg = reg_def;                                             \
-		u32 value = rd32(hw, reg);                                     \
-		dbg("before clr %x %x\n", reg, value);                         \
-		value &= (~(0x01 << bit));                                     \
-		dbg("after clr %x %x\n", reg, value);                          \
-		wr32(hw, reg, value);                                          \
+#define rnp_clr_reg_bit(hw, reg_def, bit)              \
+	do {                                           \
+		u32 reg = reg_def;                     \
+		u32 value = rd32(hw, reg);             \
+		dbg("before clr %x %x\n", reg, value); \
+		value &= (~(0x01 << bit));             \
+		dbg("after clr %x %x\n", reg, value);  \
+		wr32(hw, reg, value);                  \
 	} while (0)
 
-#define rnp_vlan_filter_on(hw)                                                 \
+#define rnp_vlan_filter_on(hw) \
 	rnp_set_reg_bit(hw, RNP_ETH_VLAN_FILTER_ENABLE, 30)
-#define rnp_vlan_filter_off(hw)                                                \
+#define rnp_vlan_filter_off(hw) \
 	rnp_clr_reg_bit(hw, RNP_ETH_VLAN_FILTER_ENABLE, 30)
 
-#define DPRINTK(nlevel, klevel, fmt, args...) \
-	((NETIF_MSG_##nlevel & adapter->msg_enable) ? \
-	(void)(netdev_printk(KERN_##klevel, adapter->netdev, \
-	fmt, ## args)) : NULL)
+#define DPRINTK(nlevel, klevel, fmt, args...)                         \
+	((NETIF_MSG_##nlevel & adapter->msg_enable) ?                 \
+		 (void)(netdev_printk(KERN_##klevel, adapter->netdev, \
+				      fmt, ##args)) :                 \
+		 NULL)
 
 //==== log helper ===
 #ifdef HW_DEBUG
 #define hw_dbg(hw, fmt, args...) printk(KERN_DEBUG "hw-dbg : " fmt, ##args)
-#define eth_dbg(eth, fmt, args...) printk(KERN_DEBUG "hw-dbg : " fmt, ##args)
+#define eth_dbg(eth, fmt, args...) \
+	printk(KERN_DEBUG "hw-dbg : " fmt, ##args)
 #else
 #define hw_dbg(hw, fmt, args...)
 #define eth_dbg(hw, fmt, args...)
@@ -275,23 +288,27 @@ static inline void hw_queue_strip_rx_vlan(struct rnp_hw *hw, u8 ring_num,
 #endif
 #define rnp_info(fmt, args...) printk(KERN_DEBUG "rnp-info: " fmt, ##args)
 #define rnp_warn(fmt, args...) printk(KERN_DEBUG "rnp-warn: " fmt, ##args)
-#define rnp_err(fmt, args...)  printk(KERN_ERR "rnp-err : " fmt, ##args)
+#define rnp_err(fmt, args...) printk(KERN_ERR "rnp-err : " fmt, ##args)
 
-#define e_info(msglvl, format, arg...)                                         \
+#define e_info(msglvl, format, arg...) \
 	netif_info(adapter, msglvl, adapter->netdev, format, ##arg)
-#define e_err(msglvl, format, arg...)                                          \
+#define e_err(msglvl, format, arg...) \
 	netif_err(adapter, msglvl, adapter->netdev, format, ##arg)
-#define e_warn(msglvl, format, arg...)                                         \
+#define e_warn(msglvl, format, arg...) \
 	netif_warn(adapter, msglvl, adapter->netdev, format, ##arg)
-#define e_crit(msglvl, format, arg...)                                         \
+#define e_crit(msglvl, format, arg...) \
 	netif_crit(adapter, msglvl, adapter->netdev, format, ##arg)
 
-#define e_dev_info(format, arg...) dev_info(&adapter->pdev->dev, format, ##arg)
-#define e_dev_warn(format, arg...) dev_warn(&adapter->pdev->dev, format, ##arg)
-#define e_dev_err(format, arg...) dev_err(&adapter->pdev->dev, format, ##arg)
+#define e_dev_info(format, arg...) \
+	dev_info(&adapter->pdev->dev, format, ##arg)
+#define e_dev_warn(format, arg...) \
+	dev_warn(&adapter->pdev->dev, format, ##arg)
+#define e_dev_err(format, arg...) \
+	dev_err(&adapter->pdev->dev, format, ##arg)
 
 #ifdef CONFIG_RNP_TX_DEBUG
-static inline void buf_dump_line(const char *msg, int line, void *buf, int len)
+static inline void buf_dump_line(const char *msg, int line, void *buf,
+				 int len)
 {
 	int i, offset = 0;
 	int msg_len = 1024;
@@ -299,12 +316,13 @@ static inline void buf_dump_line(const char *msg, int line, void *buf, int len)
 	u8 *ptr = (u8 *)buf;
 
 	offset += snprintf(msg_buf + offset, msg_len,
-			   "=== %s #%d line:%d buf:%p==\n000: ", msg, len, line,
-			   buf);
+			   "=== %s #%d line:%d buf:%p==\n000: ", msg, len,
+			   line, buf);
 
 	for (i = 0; i < len; ++i) {
-		if ((i != 0) && (i % 16) == 0 && (offset >= (1024 - 10 * 16))) {
-			printk("%s\n", msg_buf);
+		if ((i != 0) && (i % 16) == 0 &&
+		    (offset >= (1024 - 10 * 16))) {
+			printk(KERN_DEBUG "%s\n", msg_buf);
 			offset = 0;
 		}
 
@@ -312,11 +330,12 @@ static inline void buf_dump_line(const char *msg, int line, void *buf, int len)
 			offset += snprintf(msg_buf + offset, msg_len,
 					   "\n%03x: ", i);
 		}
-		offset += snprintf(msg_buf + offset, msg_len, "%02x ", ptr[i]);
+		offset += snprintf(msg_buf + offset, msg_len, "%02x ",
+				   ptr[i]);
 	}
 
 	offset += snprintf(msg_buf + offset, msg_len, "\n");
-	printk("%s\n", msg_buf);
+	printk(KERN_DEBUG "%s\n", msg_buf);
 }
 #else
 #define buf_dump_line(msg, line, buf, len)
@@ -324,10 +343,8 @@ static inline void buf_dump_line(const char *msg, int line, void *buf, int len)
 
 static inline __le64 build_ctob(u32 vlan_cmd, u32 mac_ip_len, u32 size)
 {
-
 	return cpu_to_le64(((u64)vlan_cmd << 32) |
-			((u64)mac_ip_len << 16) |
-			((u64)size));
+			   ((u64)mac_ip_len << 16) | ((u64)size));
 }
 
 static inline void buf_dump(const char *msg, void *buf, int len)
@@ -341,8 +358,9 @@ static inline void buf_dump(const char *msg, void *buf, int len)
 			   "=== %s #%d ==\n000: ", msg, len);
 
 	for (i = 0; i < len; ++i) {
-		if ((i != 0) && (i % 16) == 0 && (offset >= (1024 - 10 * 16))) {
-			printk("%s\n", msg_buf);
+		if ((i != 0) && (i % 16) == 0 &&
+		    (offset >= (1024 - 10 * 16))) {
+			printk(KERN_DEBUG "%s\n", msg_buf);
 			offset = 0;
 		}
 
@@ -350,11 +368,12 @@ static inline void buf_dump(const char *msg, void *buf, int len)
 			offset += snprintf(msg_buf + offset, msg_len,
 					   "\n%03x: ", i);
 		}
-		offset += snprintf(msg_buf + offset, msg_len, "%02x ", ptr[i]);
+		offset += snprintf(msg_buf + offset, msg_len, "%02x ",
+				   ptr[i]);
 	}
 
 	offset += snprintf(msg_buf + offset, msg_len, "\n=== done ==\n");
-	printk("%s\n", msg_buf);
+	printk(KERN_DEBUG "%s\n", msg_buf);
 }
 
 #ifndef NO_SKB_DUMP
@@ -394,11 +413,13 @@ static inline void _rnp_skb_dump(const struct sk_buff *skb, bool full_pkt)
 	    level, skb->len, headroom, skb_headlen(skb), tailroom,
 	    has_mac ? skb->mac_header : -1,
 	    has_mac ? (skb->network_header - skb->mac_header) : -1,
-	    skb->network_header, has_trans ? skb_network_header_len(skb) : -1,
-	    has_trans ? skb->transport_header : -1, sh->tx_flags, sh->nr_frags,
-	    sh->gso_size, sh->gso_type, sh->gso_segs, skb->csum, skb->ip_summed,
-	    skb->csum_complete_sw, skb->csum_valid, skb->csum_level, skb->hash,
-	    skb->sw_hash, skb->l4_hash, ntohs(skb->protocol), skb->pkt_type,
+	    skb->network_header,
+	    has_trans ? skb_network_header_len(skb) : -1,
+	    has_trans ? skb->transport_header : -1, sh->tx_flags,
+	    sh->nr_frags, sh->gso_size, sh->gso_type, sh->gso_segs,
+	    skb->csum, skb->ip_summed, skb->csum_complete_sw,
+	    skb->csum_valid, skb->csum_level, skb->hash, skb->sw_hash,
+	    skb->l4_hash, ntohs(skb->protocol), skb->pkt_type,
 	    skb->skb_iif);
 
 	if (dev)
@@ -412,8 +433,8 @@ static inline void _rnp_skb_dump(const struct sk_buff *skb, bool full_pkt)
 
 	seg_len = min_t(int, skb_headlen(skb), len);
 	if (seg_len)
-		print_hex_dump(level, "skb linear:   ", DUMP_PREFIX_OFFSET, 16,
-			       1, skb->data, seg_len, false);
+		print_hex_dump(level, "skb linear:   ", DUMP_PREFIX_OFFSET,
+			       16, 1, skb->data, seg_len, false);
 	len -= seg_len;
 
 	//	if (full_pkt && tailroom)
@@ -432,8 +453,8 @@ static inline void _rnp_skb_dump(const struct sk_buff *skb, bool full_pkt)
 		p_len = skb_frag_size(frag);
 		seg_len = min_t(int, p_len, len);
 		vaddr = kmap_atomic(p);
-		print_hex_dump(level, "skb frag:     ", DUMP_PREFIX_OFFSET, 16,
-			       1, vaddr, seg_len, false);
+		print_hex_dump(level, "skb frag:     ", DUMP_PREFIX_OFFSET,
+			       16, 1, vaddr, seg_len, false);
 		kunmap_atomic(vaddr);
 		len -= seg_len;
 		if (!len)
@@ -442,7 +463,8 @@ static inline void _rnp_skb_dump(const struct sk_buff *skb, bool full_pkt)
 
 	if (full_pkt && skb_has_frag_list(skb)) {
 		dbg("skb fraglist:\n");
-		skb_walk_frags(skb, list_skb) _rnp_skb_dump(list_skb, true);
+		skb_walk_frags(skb, list_skb)
+			_rnp_skb_dump(list_skb, true);
 	}
 }
 #endif
@@ -457,15 +479,23 @@ enum RNP_LOG_EVT {
 	LOG_MBX_ABLI,
 	LOG_MBX_LINK_STAT,
 	LOG_MBX_IFUP_DOWN,
+	LOG_MBX_LOCK,
+	LOG_ETHTOOL,
+	LOG_PHY,
+
 };
+
+#define MII_BUSY 0x00000001
+#define MII_WRITE 0x00000002
+#define MII_DATA_MASK GENMASK(15, 0)
 
 extern unsigned int rnp_loglevel;
 
-#define rnp_logd(evt, fmt, args...)         \
-	do {                                    \
-		if (BIT(evt) & rnp_loglevel) {      \
+#define rnp_logd(evt, fmt, args...)                     \
+	do {                                            \
+		if (BIT(evt) & rnp_loglevel) {          \
 			printk(KERN_DEBUG fmt, ##args); \
-		}                                   \
+		}                                       \
 	} while (0)
 
 #endif /* RNP_COMMON */

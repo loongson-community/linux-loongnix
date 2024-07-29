@@ -150,7 +150,7 @@ enum reg2csr_op {
 };
 
 enum reg3_op {
-	asrtled_op = 0x2, asrtgtd_op,
+	asrtle_op = 0x2, asrtgt_op,
 	addw_op = 0x20, addd_op, subw_op, subd_op,
 	slt_op, sltu_op, maskeqz_op, masknez_op,
 	nor_op, and_op, or_op, xor_op, orn_op,

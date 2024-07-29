@@ -988,10 +988,10 @@ int gsgpu_bo_init(struct gsgpu_device *adev)
 	/* Add an MTRR for the VRAM */
 	adev->gmc.vram_mtrr = arch_phys_wc_add(adev->gmc.aper_base,
 					      adev->gmc.aper_size);
-	DRM_INFO("Detected VRAM RAM=%lluM, BAR=%lluM\n",
+	DRM_DEBUG("Detected VRAM RAM=%lluM, BAR=%lluM\n",
 		 adev->gmc.mc_vram_size >> 20,
 		 (unsigned long long)adev->gmc.aper_size >> 20);
-	DRM_INFO("RAM width %dbits %s\n",
+	DRM_DEBUG("RAM width %dbits %s\n",
 		 adev->gmc.vram_width, gsgpu_vram_names[adev->gmc.vram_type]);
 	return gsgpu_ttm_init(adev);
 }

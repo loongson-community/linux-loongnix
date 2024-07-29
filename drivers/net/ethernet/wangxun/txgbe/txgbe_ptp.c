@@ -143,6 +143,7 @@ static void txgbe_ptp_convert_to_hwtstamp(struct txgbe_adapter *adapter,
  * adjust the frequency of the ptp cycle counter by the
  * indicated ppb from the base frequency.
  */
+#ifndef HAVE_NOT_PTT_ADJFREQ
 static int txgbe_ptp_adjfreq(struct ptp_clock_info *ptp, s32 ppb)
 {
 	struct txgbe_adapter *adapter =
@@ -173,7 +174,7 @@ static int txgbe_ptp_adjfreq(struct ptp_clock_info *ptp, s32 ppb)
 
 	return 0;
 }
-
+#endif
 
 /**
  * txgbe_ptp_adjtime
@@ -695,8 +696,8 @@ static void txgbe_ptp_link_speed_adjust(struct txgbe_adapter *adapter,
 		*incval = TXGBE_INCVAL_100;
 		break;
 	case TXGBE_LINK_SPEED_1GB_FULL:
-		*shift = TXGBE_INCVAL_SHIFT_FPGA;
-		*incval = TXGBE_INCVAL_FPGA;
+		*shift = TXGBE_INCVAL_SHIFT_1GB;
+		*incval = TXGBE_INCVAL_1GB;
 		break;
 	case TXGBE_LINK_SPEED_10GB_FULL:
 	default: /* TXGBE_LINK_SPEED_10GB_FULL */
@@ -811,7 +812,9 @@ static long txgbe_ptp_create_clock(struct txgbe_adapter *adapter)
 	adapter->ptp_caps.n_ext_ts = 0;
 	adapter->ptp_caps.n_per_out = 0;
 	adapter->ptp_caps.pps = 0;
+#ifndef HAVE_NOT_PTT_ADJFREQ
 	adapter->ptp_caps.adjfreq = txgbe_ptp_adjfreq;
+#endif
 	adapter->ptp_caps.adjtime = txgbe_ptp_adjtime;
 #ifdef HAVE_PTP_CLOCK_INFO_GETTIME64
 	adapter->ptp_caps.gettime64 = txgbe_ptp_gettime64;

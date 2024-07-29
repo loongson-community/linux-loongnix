@@ -39,7 +39,7 @@ int ngbe_read_mbx(struct ngbe_hw *hw, u32 *msg, u16 size, u16 mbx_id)
 	if (size > mbx->size)
 		size = mbx->size;
 
-	err = TCALL(hw, mbx.ops.read, msg, size, mbx_id);
+	err = hw->mbx.ops.read(hw, msg, size, mbx_id);
 
 	return err;
 }
@@ -63,7 +63,7 @@ int ngbe_write_mbx(struct ngbe_hw *hw, u32 *msg, u16 size, u16 mbx_id)
 		ERROR_REPORT2(NGBE_ERROR_ARGUMENT,
 			     "Invalid mailbox message size %d", size);
 	} else
-		err = TCALL(hw, mbx.ops.write, msg, size, mbx_id);
+		err = hw->mbx.ops.write(hw, msg, size, mbx_id);
 
 	return err;
 }
@@ -79,7 +79,7 @@ int ngbe_check_for_msg(struct ngbe_hw *hw, u16 mbx_id)
 {
 	int err = NGBE_ERR_MBX;
 
-	err = TCALL(hw, mbx.ops.check_for_msg, mbx_id);
+	err = hw->mbx.ops.check_for_msg(hw, mbx_id);
 
 	return err;
 }
@@ -95,7 +95,7 @@ int ngbe_check_for_ack(struct ngbe_hw *hw, u16 mbx_id)
 {
 	int err = NGBE_ERR_MBX;
 
-	err = TCALL(hw, mbx.ops.check_for_ack, mbx_id);
+	err = hw->mbx.ops.check_for_ack(hw, mbx_id);
 
 	return err;
 }
@@ -125,7 +125,7 @@ int ngbe_check_for_rst(struct ngbe_hw *hw, u16 mbx_id)
  *
  *  returns SUCCESS if it successfully received a message notification
  **/
-int ngbe_poll_for_msg(struct ngbe_hw *hw, u16 mbx_id)
+static int ngbe_poll_for_msg(struct ngbe_hw *hw, u16 mbx_id)
 {
 	struct ngbe_mbx_info *mbx = &hw->mbx;
 	int countdown = mbx->timeout;
@@ -133,7 +133,7 @@ int ngbe_poll_for_msg(struct ngbe_hw *hw, u16 mbx_id)
 	if (!countdown || !mbx->ops.check_for_msg)
 		goto out;
 
-	while (countdown && TCALL(hw, mbx.ops.check_for_msg, mbx_id)) {
+	while (countdown && hw->mbx.ops.check_for_msg(hw, mbx_id)) {
 		countdown--;
 		if (!countdown)
 			break;
@@ -155,7 +155,7 @@ out:
  *
  *  returns SUCCESS if it successfully received a message acknowledngbeent
  **/
-int ngbe_poll_for_ack(struct ngbe_hw *hw, u16 mbx_id)
+static int ngbe_poll_for_ack(struct ngbe_hw *hw, u16 mbx_id)
 {
 	struct ngbe_mbx_info *mbx = &hw->mbx;
 	int countdown = mbx->timeout;
@@ -163,7 +163,7 @@ int ngbe_poll_for_ack(struct ngbe_hw *hw, u16 mbx_id)
 	if (!countdown || !mbx->ops.check_for_ack)
 		goto out;
 
-	while (countdown && TCALL(hw, mbx.ops.check_for_ack, mbx_id)) {
+	while (countdown && hw->mbx.ops.check_for_ack(hw, mbx_id)) {
 		countdown--;
 		if (!countdown)
 			break;
@@ -200,7 +200,7 @@ int ngbe_read_posted_mbx(struct ngbe_hw *hw, u32 *msg, u16 size, u16 mbx_id)
 
 	/* if ack received read message, otherwise we timed out */
 	if (!err)
-		err = TCALL(hw, mbx.ops.read, msg, size, mbx_id);
+		err = hw->mbx.ops.read(hw, msg, size, mbx_id);
 out:
 	return err;
 }
@@ -226,7 +226,7 @@ int ngbe_write_posted_mbx(struct ngbe_hw *hw, u32 *msg, u16 size,
 		return NGBE_ERR_MBX;
 
 	/* send msg */
-	err = TCALL(hw, mbx.ops.write, msg, size, mbx_id);
+	err = hw->mbx.ops.write(hw, msg, size, mbx_id);
 
 	/* if msg sent wait until we receive an ack */
 	if (!err)
@@ -259,7 +259,7 @@ void ngbe_init_mbx_ops(struct ngbe_hw *hw)
  *  This function is used to read the v2p mailbox without losing the read to
  *  clear status bits.
  **/
-u32 ngbe_read_v2p_mailbox(struct ngbe_hw *hw)
+static u32 ngbe_read_v2p_mailbox(struct ngbe_hw *hw)
 {
 	u32 v2p_mailbox = rd32(hw, NGBE_VXMAILBOX);
 
@@ -277,7 +277,7 @@ u32 ngbe_read_v2p_mailbox(struct ngbe_hw *hw)
  *  This function is used to check for the read to clear bits within
  *  the V2P mailbox.
  **/
-int ngbe_check_for_bit_vf(struct ngbe_hw *hw, u32 mask)
+static int ngbe_check_for_bit_vf(struct ngbe_hw *hw, u32 mask)
 {
 	u32 mailbox = ngbe_read_v2p_mailbox(hw);
 
@@ -293,7 +293,7 @@ int ngbe_check_for_bit_vf(struct ngbe_hw *hw, u32 mask)
  *
  *  returns SUCCESS if the PF has set the Status bit or else ERR_MBX
  **/
-int ngbe_check_for_msg_vf(struct ngbe_hw *hw, u16 mbx_id)
+static int ngbe_check_for_msg_vf(struct ngbe_hw *hw, u16 mbx_id)
 {
 	int err = NGBE_ERR_MBX;
 
@@ -315,7 +315,7 @@ int ngbe_check_for_msg_vf(struct ngbe_hw *hw, u16 mbx_id)
  *
  *  returns SUCCESS if the PF has set the ACK bit or else ERR_MBX
  **/
-int ngbe_check_for_ack_vf(struct ngbe_hw *hw, u16 mbx_id)
+static int ngbe_check_for_ack_vf(struct ngbe_hw *hw, u16 mbx_id)
 {
 	int err = NGBE_ERR_MBX;
 
@@ -337,7 +337,7 @@ int ngbe_check_for_ack_vf(struct ngbe_hw *hw, u16 mbx_id)
  *
  *  returns true if the PF has set the reset done bit or else false
  **/
-int ngbe_check_for_rst_vf(struct ngbe_hw *hw, u16 mbx_id)
+static int ngbe_check_for_rst_vf(struct ngbe_hw *hw, u16 mbx_id)
 {
 	int err = NGBE_ERR_MBX;
 
@@ -357,7 +357,7 @@ int ngbe_check_for_rst_vf(struct ngbe_hw *hw, u16 mbx_id)
  *
  *  return SUCCESS if we obtained the mailbox lock
  **/
-int ngbe_obtain_mbx_lock_vf(struct ngbe_hw *hw)
+static int ngbe_obtain_mbx_lock_vf(struct ngbe_hw *hw)
 {
 	int err = NGBE_ERR_MBX;
 	u32 mailbox;
@@ -385,7 +385,7 @@ int ngbe_obtain_mbx_lock_vf(struct ngbe_hw *hw)
  *
  *  returns SUCCESS if it successfully copied message into the buffer
  **/
-int ngbe_write_mbx_vf(struct ngbe_hw *hw, u32 *msg, u16 size,
+static int ngbe_write_mbx_vf(struct ngbe_hw *hw, u32 *msg, u16 size,
 			      u16 mbx_id)
 {
 	int err;
@@ -425,7 +425,7 @@ out_no_write:
  *
  *  returns SUCCESS if it successfuly read message from buffer
  **/
-int ngbe_read_mbx_vf(struct ngbe_hw *hw, u32 *msg, u16 size,
+static int ngbe_read_mbx_vf(struct ngbe_hw *hw, u32 *msg, u16 size,
 			     u16 mbx_id)
 {
 	int err = 0;
@@ -484,7 +484,7 @@ void ngbe_init_mbx_params_vf(struct ngbe_hw *hw)
 	mbx->stats.rsts = 0;
 }
 
-int ngbe_check_for_bit_pf(struct ngbe_hw *hw, u32 mask)
+static int ngbe_check_for_bit_pf(struct ngbe_hw *hw, u32 mask)
 {
 	u32 mbvficr = rd32(hw, NGBE_MBVFICR);
 	int err = NGBE_ERR_MBX;
@@ -504,7 +504,7 @@ int ngbe_check_for_bit_pf(struct ngbe_hw *hw, u32 mask)
  *
  *  returns SUCCESS if the VF has set the Status bit or else ERR_MBX
  **/
-int ngbe_check_for_msg_pf(struct ngbe_hw *hw, u16 vf)
+static int ngbe_check_for_msg_pf(struct ngbe_hw *hw, u16 vf)
 {
 	int err = NGBE_ERR_MBX;
 	u32 vf_bit = vf;
@@ -524,7 +524,7 @@ int ngbe_check_for_msg_pf(struct ngbe_hw *hw, u16 vf)
  *
  *  returns SUCCESS if the VF has set the Status bit or else ERR_MBX
  **/
-int ngbe_check_for_ack_pf(struct ngbe_hw *hw, u16 vf)
+static int ngbe_check_for_ack_pf(struct ngbe_hw *hw, u16 vf)
 {
 	int err = NGBE_ERR_MBX;
 	u32 vf_bit = vf;
@@ -544,7 +544,7 @@ int ngbe_check_for_ack_pf(struct ngbe_hw *hw, u16 vf)
  *
  *  returns SUCCESS if the VF has set the Status bit or else ERR_MBX
  **/
-int ngbe_check_for_rst_pf(struct ngbe_hw *hw, u16 vf)
+static int ngbe_check_for_rst_pf(struct ngbe_hw *hw, u16 vf)
 {
 	u32 vflre = 0;
 	int err = NGBE_ERR_MBX;
@@ -567,7 +567,7 @@ int ngbe_check_for_rst_pf(struct ngbe_hw *hw, u16 vf)
  *
  *  return SUCCESS if we obtained the mailbox lock
  **/
-int ngbe_obtain_mbx_lock_pf(struct ngbe_hw *hw, u16 vf)
+static int ngbe_obtain_mbx_lock_pf(struct ngbe_hw *hw, u16 vf)
 {
 	int err = NGBE_ERR_MBX;
 	u32 mailbox;
@@ -595,7 +595,7 @@ int ngbe_obtain_mbx_lock_pf(struct ngbe_hw *hw, u16 vf)
  *
  *  returns SUCCESS if it successfully copied message into the buffer
  **/
-int ngbe_write_mbx_pf(struct ngbe_hw *hw, u32 *msg, u16 size,
+static int ngbe_write_mbx_pf(struct ngbe_hw *hw, u32 *msg, u16 size,
 			      u16 vf)
 {
 	int err;
@@ -636,7 +636,7 @@ out_no_write:
  *  memory buffer.  The presumption is that the caller knows that there was
  *  a message due to a VF request so no polling for message is needed.
  **/
-int ngbe_read_mbx_pf(struct ngbe_hw *hw, u32 *msg, u16 size,
+static int ngbe_read_mbx_pf(struct ngbe_hw *hw, u32 *msg, u16 size,
 			     u16 vf)
 {
 	int err;

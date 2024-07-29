@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-2.0
+/* Copyright(c) 2022 - 2023 Mucse Corporation. */
 #ifndef _RNPM_PHY_H_
 #define _RNPM_PHY_H_
 
@@ -5,9 +7,18 @@
 #define RNPM_I2C_EEPROM_DEV_ADDR    0xA0
 #define RNPM_I2C_EEPROM_DEV_ADDR2   0xA2
 
+
+/* PHY YT8531S*/
+#define RNPM_YT8531_PHY_ID             0x4f51e91a
+#define RNPM_YT8531_PHY_SPEC_CTRL      0x10
+#define RNPM_YT8531_PHY_SPEC_CTRL_FORCE_MDIX		0x0020
+#define RNPM_YT8531_PHY_SPEC_CTRL_AUTO_MDI_MDIX		0x0060
+#define RNPM_YT8531_PHY_SPEC_CTRL_MDIX_CFG_MASK		0x0060
+
 /* EEPROM byte offsets */
 #define SFF_MODULE_ID_OFFSET	0x00
 #define SFF_DIAG_SUPPORT_OFFSET 0x5c
+#define SFF_MODULE_ID_SFF       0x2
 #define SFF_MODULE_ID_SFP		0x3
 #define SFF_MODULE_ID_QSFP		0xc
 #define SFF_MODULE_ID_QSFP_PLUS 0xd

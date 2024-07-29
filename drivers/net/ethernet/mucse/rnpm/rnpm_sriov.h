@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-2.0
+/* Copyright(c) 2022 - 2023 Mucse Corporation. */
 #ifndef _RNPM_SRIOV_H_
 #define _RNPM_SRIOV_H_
 
@@ -10,7 +12,7 @@ int rnpm_ndo_set_vf_mac(struct net_device *netdev, int queue, u8 *mac);
 void rnpm_msg_post_status(struct rnpm_adapter *adapter, enum PF_STATUS status);
 #ifdef HAVE_NDO_SET_VF_MIN_MAX_TX_RATE
 int rnpm_ndo_set_vf_bw(struct net_device *netdev, int vf,
-			int __always_unused min_tx_rate, int max_tx_rate);
+		       int __always_unused min_tx_rate, int max_tx_rate);
 #else
 int rnpm_ndo_set_vf_bw(struct net_device *netdev, int vf, int max_tx_rate);
 #endif /* HAVE_NDO_SET_VF_MIN_MAX_TX_RATE */

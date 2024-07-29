@@ -37,12 +37,8 @@ s32 txgbe_check_reset_blocked(struct txgbe_hw *hw)
 {
 	u32 mmngc;
 
-	DEBUGFUNC("\n");
-
 	mmngc = rd32(hw, TXGBE_MIS_ST);
 	if (mmngc & TXGBE_MIS_ST_MNG_VETO) {
-		ERROR_REPORT1(TXGBE_ERROR_SOFTWARE,
-			      "MNG_VETO bit detected.\n");
 		return true;
 	}
 
@@ -61,7 +57,6 @@ s32 txgbe_get_phy_id(struct txgbe_hw *hw)
 	u16 phy_id_high = 0;
 	u16 phy_id_low = 0;
 	u8 numport, thisport;
-	DEBUGFUNC("\n");
 
 	status = mtdHwXmdioRead(&hw->phy_dev, hw->phy.addr,
 				TXGBE_MDIO_PMA_PMD_DEV_TYPE,
@@ -95,8 +90,6 @@ enum txgbe_phy_type txgbe_get_phy_type_from_id(struct txgbe_hw *hw)
 {
 	enum txgbe_phy_type phy_type;
 	u16 ext_ability = 0;
-
-	DEBUGFUNC("\n");
 
 	switch (hw->phy.id) {
 	case TN1010_PHY_ID:
@@ -134,9 +127,6 @@ s32 txgbe_reset_phy(struct txgbe_hw *hw)
 {
 	s32 status = 0;
 
-	DEBUGFUNC("\n");
-
-
 	if (status != 0 || hw->phy.type == txgbe_phy_none)
 		goto out;
 
@@ -147,7 +137,7 @@ s32 txgbe_reset_phy(struct txgbe_hw *hw)
 
 	/* Blocked by MNG FW so bail */
 	txgbe_check_reset_blocked(hw);
-	if (((hw->subsystem_device_id & TXGBE_NCSI_MASK) == TXGBE_NCSI_SUP) ||
+	if(((hw->subsystem_device_id & TXGBE_NCSI_MASK) == TXGBE_NCSI_SUP)||
 		((hw->subsystem_device_id & TXGBE_WOL_MASK) == TXGBE_WOL_SUP))
 		goto out;
 
@@ -207,8 +197,6 @@ s32 txgbe_read_phy_reg(struct txgbe_hw *hw, u32 reg_addr,
 {
 	s32 status;
 	u32 gssr = hw->phy.phy_semaphore_mask;
-
-	DEBUGFUNC("\n");
 
 	if (0 == TCALL(hw, mac.ops.acquire_swfw_sync, gssr)) {
 		status = txgbe_read_phy_reg_mdi(hw, reg_addr, device_type,
@@ -271,8 +259,6 @@ s32 txgbe_write_phy_reg(struct txgbe_hw *hw, u32 reg_addr,
 {
 	s32 status;
 	u32 gssr = hw->phy.phy_semaphore_mask;
-
-	DEBUGFUNC("\n");
 
 	if (TCALL(hw, mac.ops.acquire_swfw_sync, gssr) == 0) {
 		status = txgbe_write_phy_reg_mdi(hw, reg_addr, device_type,
@@ -337,10 +323,6 @@ u32 txgbe_setup_phy_link(struct txgbe_hw *hw, u32 speed_set, bool autoneg_wait_t
 	MTD_BOOL linkUp = MTD_FALSE;
 	u16 linkSpeed = MTD_ADV_NONE;
 
-
-	UNREFERENCED_PARAMETER(speed_set);
-	DEBUGFUNC("\n");
-
 	if (hw->phy.autoneg_advertised & TXGBE_LINK_SPEED_10GB_FULL)
 		speed |= MTD_SPEED_10GIG_FD;
 	if (hw->phy.autoneg_advertised & TXGBE_LINK_SPEED_1GB_FULL)
@@ -358,10 +340,10 @@ u32 txgbe_setup_phy_link(struct txgbe_hw *hw, u32 speed_set, bool autoneg_wait_t
 	}
 
 	mtdEnableSpeeds(devptr, port, speed, MTD_TRUE);
-	msleep(10);
+	msleep(10); 
 	speed = MTD_ADV_NONE;
 	for (i = 0; i < 300; i++) {
-		mtdIsBaseTUp(devptr, port, &speed, &linkUp);
+		mtdIsBaseTUp(devptr, port ,&speed, &linkUp);
 		if (linkUp) {
 			break;
 		}
@@ -393,9 +375,6 @@ u32 txgbe_setup_phy_link_speed(struct txgbe_hw *hw,
 				       u32 speed,
 				       bool autoneg_wait_to_complete)
 {
-
-	DEBUGFUNC("\n");
-
 	/*
 	 * Clear autoneg_advertised and set new values based on input link
 	 * speed.
@@ -433,9 +412,6 @@ s32 txgbe_get_copper_link_capabilities(struct txgbe_hw *hw,
 {
 	s32 status;
 	u16 speed_ability;
-
-	DEBUGFUNC("\n");
-
 	*speed = 0;
 	*autoneg = true;
 
@@ -469,8 +445,6 @@ s32 txgbe_get_phy_firmware_version(struct txgbe_hw *hw,
 	s32 status;
 	u8 major, minor, inc, test;
 
-	DEBUGFUNC("\n");
-
 	status = mtdGetFirmwareVersion(&hw->phy_dev, hw->phy.addr,
 		&major, &minor, &inc, &test);
 	if (status == 0)
@@ -487,8 +461,6 @@ s32 txgbe_get_phy_firmware_version(struct txgbe_hw *hw,
 s32 txgbe_identify_module(struct txgbe_hw *hw)
 {
 	s32 status = TXGBE_ERR_SFP_NOT_PRESENT;
-
-	DEBUGFUNC("\n");
 
 	switch (TCALL(hw, mac.ops.get_media_type)) {
 	case txgbe_media_type_fiber:
@@ -521,8 +493,12 @@ s32 txgbe_identify_sfp_module(struct txgbe_hw *hw)
 	u8 oui_bytes[3] = {0, 0, 0};
 	u8 cable_tech = 0;
 	u8 cable_spec = 0;
+	u8 vendor_name[3] = {0, 0, 0};
+	u16 phy_data = 0;
+	u32 swfw_mask = hw->phy.phy_semaphore_mask;
 
-	DEBUGFUNC("\n");
+	if (0 != TCALL(hw, mac.ops.acquire_swfw_sync, swfw_mask))
+	   return TXGBE_ERR_SWFW_SYNC;
 
 	if (TCALL(hw, mac.ops.get_media_type) != txgbe_media_type_fiber) {
 		hw->phy.sfp_type = txgbe_sfp_type_not_present;
@@ -546,20 +522,18 @@ s32 txgbe_identify_sfp_module(struct txgbe_hw *hw)
 		status = TCALL(hw, phy.ops.read_i2c_eeprom,
 						     TXGBE_SFF_1GBE_COMP_CODES,
 						     &comp_codes_1g);
-
 		if (status != 0)
 			goto err_read_i2c_eeprom;
 
 		status = TCALL(hw, phy.ops.read_i2c_eeprom,
 						     TXGBE_SFF_10GBE_COMP_CODES,
 						     &comp_codes_10g);
-
 		if (status != 0)
 			goto err_read_i2c_eeprom;
+
 		status = TCALL(hw, phy.ops.read_i2c_eeprom,
 						     TXGBE_SFF_CABLE_TECHNOLOGY,
 						     &cable_tech);
-
 		if (status != 0)
 			goto err_read_i2c_eeprom;
 
@@ -709,6 +683,40 @@ s32 txgbe_identify_sfp_module(struct txgbe_hw *hw)
 			}
 		}
 
+		/* vendor name match QAX and can access sfp internal phy */
+		status = TCALL(hw, phy.ops.read_i2c_eeprom,
+						     TXGBE_SFF_CABLE_VENDOR_NAME1,
+						     &vendor_name[0]);
+		if (status != 0)
+			goto err_read_i2c_eeprom;
+		status = TCALL(hw, phy.ops.read_i2c_eeprom,
+						     TXGBE_SFF_CABLE_VENDOR_NAME2,
+						     &vendor_name[1]);
+		if (status != 0)
+			goto err_read_i2c_eeprom;
+		status = TCALL(hw, phy.ops.read_i2c_eeprom,
+						     TXGBE_SFF_CABLE_VENDOR_NAME3,
+						     &vendor_name[2]);
+		if (status != 0)
+			goto err_read_i2c_eeprom;
+
+		if (vendor_name[0] == 0x51 &&
+			vendor_name[1] == 0x41 &&
+			vendor_name[2] == 0x58) {
+			status = TCALL(hw, phy.ops.read_i2c_sfp_phy,
+							    0x8008,
+							    &phy_data);
+			if (status == 0 || phy_data != 0xffff) {
+				hw->phy.multispeed_fiber = false;
+				if (hw->bus.lan_id == 0)
+					hw->phy.sfp_type =
+						     txgbe_sfp_type_10g_cu_core0;
+				else
+					hw->phy.sfp_type =
+						     txgbe_sfp_type_10g_cu_core1;
+			}
+		}
+
 		/* Allow any DA cable vendor */
 		if (cable_tech & (TXGBE_SFF_DA_PASSIVE_CABLE |
 		    TXGBE_SFF_DA_ACTIVE_CABLE)) {
@@ -731,9 +739,13 @@ s32 txgbe_identify_sfp_module(struct txgbe_hw *hw)
 	}
 
 out:
+	TCALL(hw, mac.ops.release_swfw_sync, swfw_mask);
+
 	return status;
 
 err_read_i2c_eeprom:
+	TCALL(hw, mac.ops.release_swfw_sync, swfw_mask);
+
 	hw->phy.sfp_type = txgbe_sfp_type_not_present;
 	if (hw->phy.type != txgbe_phy_nl) {
 		hw->phy.id = 0;
@@ -744,7 +756,38 @@ err_read_i2c_eeprom:
 
 s32 txgbe_init_i2c(struct txgbe_hw *hw)
 {
+	wr32(hw, TXGBE_I2C_ENABLE, 0);
 
+	wr32(hw, TXGBE_I2C_CON,
+		(TXGBE_I2C_CON_MASTER_MODE |
+		TXGBE_I2C_CON_SPEED(1) |
+		TXGBE_I2C_CON_RESTART_EN |
+		TXGBE_I2C_CON_SLAVE_DISABLE));
+	/* Default addr is 0xA0 ,bit 0 is configure for read/write! */
+	wr32(hw, TXGBE_I2C_TAR, TXGBE_I2C_SLAVE_ADDR);
+
+	/* ic_clk = 1/156.25MHz
+	 * SCL_High_time = [(HCNT + IC_*_SPKLEN + 7) * ic_clk] + SCL_Fall_time
+	 * SCL_Low_time = [(LCNT + 1) * ic_clk] - SCL_Fall_time + SCL_Rise_time
+	 * set I2C Frequency to Standard Speed Mode 100KHz
+	 */
+	wr32(hw, TXGBE_I2C_SS_SCL_HCNT, 780);      
+	wr32(hw, TXGBE_I2C_SS_SCL_LCNT, 780);
+	
+	wr32(hw, TXGBE_I2C_RX_TL, 0); /* 1byte for rx full signal */
+	wr32(hw, TXGBE_I2C_TX_TL, 4);
+	
+	wr32(hw, TXGBE_I2C_SCL_STUCK_TIMEOUT, 0xFFFFFF);
+	wr32(hw, TXGBE_I2C_SDA_STUCK_TIMEOUT, 0xFFFFFF);
+
+	wr32(hw, TXGBE_I2C_INTR_MASK, 0);
+	wr32(hw, TXGBE_I2C_ENABLE, 1);
+
+	return 0;
+}
+
+STATIC s32 txgbe_init_i2c_sfp_phy(struct txgbe_hw *hw)
+{
 	wr32(hw, TXGBE_I2C_ENABLE, 0);
 
 	wr32(hw, TXGBE_I2C_CON,
@@ -756,15 +799,19 @@ s32 txgbe_init_i2c(struct txgbe_hw *hw)
 	wr32(hw, TXGBE_I2C_TAR, TXGBE_I2C_SLAVE_ADDR);
 	wr32(hw, TXGBE_I2C_SS_SCL_HCNT, 600);
 	wr32(hw, TXGBE_I2C_SS_SCL_LCNT, 600);
-	wr32(hw, TXGBE_I2C_RX_TL, 0); /* 1byte for rx full signal */
+
+	wr32(hw, TXGBE_I2C_RX_TL, 1); /* 2bytes for rx full signal */
 	wr32(hw, TXGBE_I2C_TX_TL, 4);
+	
 	wr32(hw, TXGBE_I2C_SCL_STUCK_TIMEOUT, 0xFFFFFF);
 	wr32(hw, TXGBE_I2C_SDA_STUCK_TIMEOUT, 0xFFFFFF);
 
 	wr32(hw, TXGBE_I2C_INTR_MASK, 0);
 	wr32(hw, TXGBE_I2C_ENABLE, 1);
+
 	return 0;
 }
+
 
 s32 txgbe_clear_i2c(struct txgbe_hw *hw)
 {
@@ -794,8 +841,7 @@ out:
 s32 txgbe_read_i2c_eeprom(struct txgbe_hw *hw, u8 byte_offset,
 				  u8 *eeprom_data)
 {
-	DEBUGFUNC("\n");
-
+	txgbe_init_i2c(hw);
 	return TCALL(hw, phy.ops.read_i2c_byte, byte_offset,
 					 TXGBE_I2C_EEPROM_DEV_ADDR,
 					 eeprom_data);
@@ -812,9 +858,29 @@ s32 txgbe_read_i2c_eeprom(struct txgbe_hw *hw, u8 byte_offset,
 s32 txgbe_read_i2c_sff8472(struct txgbe_hw *hw, u8 byte_offset,
 					  u8 *sff8472_data)
 {
+	txgbe_init_i2c(hw);
 	return TCALL(hw, phy.ops.read_i2c_byte, byte_offset,
 					 TXGBE_I2C_EEPROM_DEV_ADDR2,
 					 sff8472_data);
+}
+					  
+/**
+ *  txgbe_read_i2c_sfp_phy - Reads 16 bit word over I2C interface
+ *  @hw: pointer to hardware structure
+ *  @byte_offset: byte offset at address 0xAC
+ *  @eeprom_data: value read
+ *
+ *  Performs byte read operation to Fiber to Copper SFP module 
+ *  internal phy over I2C
+ **/
+s32 txgbe_read_i2c_sfp_phy(struct txgbe_hw *hw, u16 byte_offset,
+					  u16 *data)
+{
+	txgbe_init_i2c_sfp_phy(hw);
+	
+	return txgbe_read_i2c_word(hw, byte_offset,
+					 TXGBE_I2C_EEPROM_DEV_ADDR3,
+					 data);
 }
 
 /**
@@ -828,8 +894,7 @@ s32 txgbe_read_i2c_sff8472(struct txgbe_hw *hw, u8 byte_offset,
 s32 txgbe_write_i2c_eeprom(struct txgbe_hw *hw, u8 byte_offset,
 				   u8 eeprom_data)
 {
-	DEBUGFUNC("\n");
-
+	txgbe_init_i2c(hw);
 	return TCALL(hw, phy.ops.write_i2c_byte, byte_offset,
 					  TXGBE_I2C_EEPROM_DEV_ADDR,
 					  eeprom_data);
@@ -849,12 +914,9 @@ STATIC s32 txgbe_read_i2c_byte_int(struct txgbe_hw *hw, u8 byte_offset,
 					   u8 dev_addr, u8 *data, bool lock)
 {
 	s32 status = 0;
-	u32 swfw_mask = hw->phy.phy_semaphore_mask;
 
 	UNREFERENCED_PARAMETER(dev_addr);
-
-	if (lock && 0 != TCALL(hw, mac.ops.acquire_swfw_sync, swfw_mask))
-		return TXGBE_ERR_SWFW_SYNC;
+	UNREFERENCED_PARAMETER(lock);
 
 	/* wait tx empty */
 	status = po32m(hw, TXGBE_I2C_RAW_INTR_STAT,
@@ -871,17 +933,118 @@ STATIC s32 txgbe_read_i2c_byte_int(struct txgbe_hw *hw, u8 byte_offset,
 	/* wait for read complete */
 	status = po32m(hw, TXGBE_I2C_RAW_INTR_STAT,
 		TXGBE_I2C_INTR_STAT_RX_FULL, TXGBE_I2C_INTR_STAT_RX_FULL,
-		TXGBE_I2C_TIMEOUT, 10);
+		TXGBE_I2C_TIMEOUT, 100);
 	if (status != 0)
 		goto out;
 
 	*data = 0xFF & rd32(hw, TXGBE_I2C_DATA_CMD);
 
 out:
-	if (lock)
-		TCALL(hw, mac.ops.release_swfw_sync, swfw_mask);
 	return status;
 }
+
+/**
+*  txgbe_read_i2c_word_int - Reads 16 bit word over I2C
+*  @hw: pointer to hardware structure
+*  @byte_offset: byte offset to read
+*  @data: value read
+*  @lock: true if to take and release semaphore
+*
+*  Performs byte read operation to SFP module's EEPROM over I2C interface at
+*  a specified device address.
+**/
+STATIC s32 txgbe_read_i2c_word_int(struct txgbe_hw *hw, u16 byte_offset,
+					  u8 dev_addr, u16 *data, bool lock)
+{
+	s32 status = 0;
+
+	UNREFERENCED_PARAMETER(dev_addr);
+	UNREFERENCED_PARAMETER(lock);
+
+	if ((hw->phy.sfp_type == txgbe_sfp_type_1g_cu_core0) ||
+		(hw->phy.sfp_type == txgbe_sfp_type_1g_cu_core1)) {
+		/* reg offset format 0x000yyyyy */
+		byte_offset &= 0x1f;  
+		
+		/* wait tx empty */
+		status = po32m(hw, TXGBE_I2C_RAW_INTR_STAT,
+		   TXGBE_I2C_INTR_STAT_TX_EMPTY, TXGBE_I2C_INTR_STAT_TX_EMPTY,
+		   TXGBE_I2C_TIMEOUT, 10);
+		if (status != 0)
+		   goto out;
+
+		/* write reg_offset */		
+		wr32(hw, TXGBE_I2C_DATA_CMD, (u8)byte_offset | TXGBE_I2C_DATA_CMD_STOP);
+
+		usec_delay(TXGBE_I2C_TIMEOUT);
+		/* wait tx empty */
+		status = po32m(hw, TXGBE_I2C_RAW_INTR_STAT,
+		   TXGBE_I2C_INTR_STAT_TX_EMPTY, TXGBE_I2C_INTR_STAT_TX_EMPTY,
+		   TXGBE_I2C_TIMEOUT, 10);
+		if (status != 0)
+		   goto out;	
+
+		/* read data */
+		wr32(hw, TXGBE_I2C_DATA_CMD, TXGBE_I2C_DATA_CMD_READ);
+		wr32(hw, TXGBE_I2C_DATA_CMD, TXGBE_I2C_DATA_CMD_READ | TXGBE_I2C_DATA_CMD_STOP);
+
+		/* wait for read complete */
+		status = po32m(hw, TXGBE_I2C_RAW_INTR_STAT,
+		   TXGBE_I2C_INTR_STAT_RX_FULL, TXGBE_I2C_INTR_STAT_RX_FULL,
+		   TXGBE_I2C_TIMEOUT, 10);
+		if (status != 0)
+		   goto out;
+
+		*data = 0xFF & rd32(hw, TXGBE_I2C_DATA_CMD);
+		*data <<= 8;
+		*data += 0xFF & rd32(hw, TXGBE_I2C_DATA_CMD);
+	} else if ((hw->phy.sfp_type == txgbe_sfp_type_10g_cu_core0) ||
+		(hw->phy.sfp_type == txgbe_sfp_type_10g_cu_core1)) {
+		/* wait tx empty */
+		status = po32m(hw, TXGBE_I2C_RAW_INTR_STAT,
+							TXGBE_I2C_INTR_STAT_TX_EMPTY, TXGBE_I2C_INTR_STAT_TX_EMPTY,
+							TXGBE_I2C_TIMEOUT, 10);
+		if (status != 0)
+			goto out;
+
+		/* write reg_offset */
+		wr32(hw, TXGBE_I2C_DATA_CMD, 0x23);
+		wr32(hw, TXGBE_I2C_DATA_CMD, byte_offset >> 8);
+		wr32(hw, TXGBE_I2C_DATA_CMD, (u8)byte_offset | TXGBE_I2C_DATA_CMD_STOP);
+
+		/* wait tx empty */
+		status = po32m(hw, TXGBE_I2C_RAW_INTR_STAT,
+							TXGBE_I2C_INTR_STAT_TX_EMPTY, TXGBE_I2C_INTR_STAT_TX_EMPTY,
+							TXGBE_I2C_TIMEOUT, 10);
+		if (status != 0)
+		 goto out;
+
+		/* delay for mcu access sfp internal phy through MDIO
+		 * delay time need larger than 1ms
+		 */
+		mdelay(5);
+
+		/* read data */
+		wr32(hw, TXGBE_I2C_DATA_CMD, TXGBE_I2C_DATA_CMD_READ);
+		wr32(hw, TXGBE_I2C_DATA_CMD, TXGBE_I2C_DATA_CMD_READ | TXGBE_I2C_DATA_CMD_STOP);
+
+		/* wait for read complete */
+		status = po32m(hw, TXGBE_I2C_RAW_INTR_STAT,
+						TXGBE_I2C_INTR_STAT_RX_FULL, TXGBE_I2C_INTR_STAT_RX_FULL,
+						TXGBE_I2C_TIMEOUT, 100);
+		if (status != 0)
+			goto out;
+
+		/* fixme LSB data is the data of the duplicate MSB */
+		*data = 0xFF & rd32(hw, TXGBE_I2C_DATA_CMD);
+		*data <<= 8;
+		*data += 0xFF & rd32(hw, TXGBE_I2C_DATA_CMD);
+	}
+
+out:
+	return status;
+}
+
 
 /**
  *  txgbe_switch_i2c_slave_addr - Switch I2C slave address
@@ -912,15 +1075,27 @@ s32 txgbe_read_i2c_byte(struct txgbe_hw *hw, u8 byte_offset,
 {
 	txgbe_switch_i2c_slave_addr(hw, dev_addr);
 
-#ifndef SIMULATION_DEBUG
 	return txgbe_read_i2c_byte_int(hw, byte_offset, dev_addr,
 					       data, true);
-#else
-	return txgbe_read_i2c_byte_int(hw, byte_offset, dev_addr,
-					       data, false);
-#endif
 }
 
+/**
+ *	txgbe_read_i2c_word - Reads 16 bit word over I2C
+ *	@hw: pointer to hardware structure
+ *	@byte_offset: byte offset to read
+ *	@data: value read
+ *
+ *	Performs byte read operation to SFP module's EEPROM over I2C interface at
+ *	a specified device address.
+ **/
+s32 txgbe_read_i2c_word(struct txgbe_hw *hw, u16 byte_offset,
+				u8 dev_addr, u16 *data)
+{
+	txgbe_switch_i2c_slave_addr(hw, dev_addr);
+
+	return txgbe_read_i2c_word_int(hw, byte_offset, dev_addr,
+						   data, true);
+}
 
 
 /**
@@ -996,8 +1171,6 @@ s32 txgbe_tn_check_overtemp(struct txgbe_hw *hw)
 {
 	s32 status = 0;
 	u32 ts_state;
-
-	DEBUGFUNC("\n");
 
 	/* Check that the LASI temp alarm status was triggered */
 	ts_state = rd32(hw, TXGBE_TS_ALARM_ST);

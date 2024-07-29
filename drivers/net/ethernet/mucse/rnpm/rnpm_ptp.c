@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-2.0
+/* Copyright(c) 2022 - 2023 Mucse Corporation. */
 #include <linux/netdevice.h>
 #include <linux/ptp_classify.h>
 #include <linux/io.h>
@@ -201,7 +203,11 @@ const struct rnpm_hwtimestamp mac_ptp = {
 	.get_systime = get_systime,
 };
 
+#ifdef HAVE_PTP_CLOCK_INFO_ADJFINE
+static int rnpm_ptp_adjfine(struct ptp_clock_info *ptp, long scaled_ppm)
+#else
 static int rnpm_ptp_adjfreq(struct ptp_clock_info *ptp, s32 ppb)
+#endif
 {
 	struct rnpm_adapter  *pf =
 		container_of(ptp, struct rnpm_adapter, ptp_clock_ops);
@@ -215,16 +221,28 @@ static int rnpm_ptp_adjfreq(struct ptp_clock_info *ptp, s32 ppb)
 		ptp_dbg("adapter_of contail is null\n");
 		return 0;
 	}
+
+#ifdef HAVE_PTP_CLOCK_INFO_ADJFINE
+	if (scaled_ppm < 0) {
+		neg_adj = 1;
+		scaled_ppm = -scaled_ppm;
+	}
+#else
 	if (ppb < 0) {
 		neg_adj = 1;
 		ppb = -ppb;
 	}
-
+#endif
 	addend = pf->default_addend;
 	adj = addend;
-	adj *= ppb;
 
+#ifdef HAVE_PTP_CLOCK_INFO_ADJFINE
+	adj *= (u64)scaled_ppm;
+	diff = div64_u64(adj, 1000000ULL << 16);
+#else
+	adj *= ppb;
 	diff = div_u64(adj, 1000000000ULL);
+#endif
 	addend = neg_adj ? (addend - diff) : (addend + diff);
 	spin_lock_irqsave(&pf->ptp_lock, flags);
 
@@ -263,7 +281,6 @@ static int rnpm_ptp_adjtime(struct ptp_clock_info *ptp, s64 delta)
 	return 0;
 }
 
-#ifdef HAVE_PTP_CLOCK_INFO_GETTIME64
 static int rnpm_ptp_gettime(struct ptp_clock_info *ptp, struct timespec64 *ts)
 {
 	struct rnpm_adapter *pf =
@@ -278,8 +295,11 @@ static int rnpm_ptp_gettime(struct ptp_clock_info *ptp, struct timespec64 *ts)
 
 	spin_unlock_irqrestore(&pf->ptp_lock, flags);
 
+#ifdef HAVE_PTP_CLOCK_INFO_GETTIME64
 	*ts = ns_to_timespec64(ns);
-
+#else
+	*ts = ns_to_timespec(ns);
+#endif
 	return 0;
 }
 
@@ -298,7 +318,6 @@ static int rnpm_ptp_settime(struct ptp_clock_info *ptp,
 
 	return 0;
 }
-#endif
 
 static int rnpm_ptp_feature_enable(struct ptp_clock_info *ptp,
 		struct ptp_clock_request *rq, int on)
@@ -500,7 +519,7 @@ int rnpm_ptp_set_ts_config(struct rnpm_adapter *pf, struct ifreq *ifr)
 		config.rx_filter = HWTSTAMP_FILTER_PTP_V2_EVENT;
 		ptp_v2 = RNPM_PTP_TCR_TSVER2ENA;
 		snap_type_sel = RNPM_PTP_TCR_SNAPTYPSEL_1;
-		ts_event_en = RNPM_PTP_TCR_TSEVNTENA;
+		// ts_event_en = RNPM_PTP_TCR_TSEVNTENA;
 		ptp_over_ipv4_udp = RNPM_PTP_TCR_TSIPV4ENA;
 		ptp_over_ipv6_udp = RNPM_PTP_TCR_TSIPV6ENA;
 		ptp_over_ethernet = RNPM_PTP_TCR_TSIPENA;
@@ -582,18 +601,24 @@ static struct ptp_clock_info rnpm_ptp_clock_ops = {
 #ifndef COMPAT_PTP_NO_PINS
 	.n_pins = 0, /*should be 0 if not set*/
 #endif
+
+#ifdef HAVE_PTP_CLOCK_INFO_ADJFINE
+	.adjfine = rnpm_ptp_adjfine,
+#else
 	.adjfreq = rnpm_ptp_adjfreq,
+#endif
 	.adjtime = rnpm_ptp_adjtime,
 #ifdef HAVE_PTP_CLOCK_INFO_GETTIME64
 
-//#ifdef HAVE_PTP_SYS_OFFSET_EXTENDED_IOCTL
+	// #ifdef HAVE_PTP_SYS_OFFSET_EXTENDED_IOCTL
 	//.gettimex64 = rnpm_ptp_gettime,
-//#else
+	// #else
 	.gettime64 = rnpm_ptp_gettime,
-//#endif /* HAVE_PTP_SYS_OFFSET_EXTENDED_IOCTL */
+	// #endif /* HAVE_PTP_SYS_OFFSET_EXTENDED_IOCTL */
 	.settime64 = rnpm_ptp_settime,
 #else /* HAVE_PTP_CLOCK_INFO_GETTIME64 */
-
+	.gettime = rnpm_ptp_gettime,
+	.settime = rnpm_ptp_settime,
 #endif /* HAVE_PTP_CLOCK_INFO_GETTIME64 */
 	.enable = rnpm_ptp_feature_enable,
 };

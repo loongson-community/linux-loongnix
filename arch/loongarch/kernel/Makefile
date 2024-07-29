@@ -29,13 +29,17 @@ ifdef CONFIG_FUNCTION_TRACER
   CFLAGS_REMOVE_inst.o = $(CC_FLAGS_FTRACE)
 endif
 
+KASAN_SANITIZE_cpu-probe.o := n
+KASAN_SANITIZE_module-sections.o := n
+KASAN_SANITIZE_smp.o := n
 KASAN_SANITIZE_vdso.o := n
+KASAN_SANITIZE_watch.o := n
 
 obj-$(CONFIG_STACKTRACE)	+= stacktrace.o
 obj-$(CONFIG_MODULES)		+= module.o module-sections.o
 obj-$(CONFIG_JUMP_LABEL)	+= jump_label.o
 
-obj-$(CONFIG_CPU_HAS_FPU)	+= fpu.o
+obj-$(CONFIG_CPU_HAS_FPU)	+= fpu.o kfpu.o
 
 obj-$(CONFIG_SMP)		+= smp.o
 obj-$(CONFIG_SMP_UP)		+= smp-up.o

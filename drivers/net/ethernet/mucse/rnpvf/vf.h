@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: GPL-2.0 */
+/* Copyright(c) 1999 - 2022 Intel Corporation. */
+
 #ifndef __RNP_VF_H__
 #define __RNP_VF_H__
 
@@ -35,7 +38,8 @@ struct rnp_mac_operations {
 
 	/* Link */
 	s32 (*setup_link)(struct rnpvf_hw *, rnp_link_speed, bool, bool);
-	s32 (*check_link)(struct rnpvf_hw *, rnp_link_speed *, bool *, bool);
+	s32 (*check_link)(struct rnpvf_hw *, rnp_link_speed *, bool *,
+			  bool);
 	s32 (*get_link_capabilities)(struct rnpvf_hw *, rnp_link_speed *,
 				     bool *);
 
@@ -58,6 +62,10 @@ enum rnp_mac_type {
 	rnp_mac_4port_10G,
 	rnp_mac_8port_10G,
 	rnp_num_macs
+};
+
+enum rnp_board_type {
+	rnp_board_n10,
 };
 
 struct rnp_mac_info {
@@ -108,6 +116,11 @@ struct rnp_mbx_operations {
 	s32 (*configure)(struct rnpvf_hw *hw, int nr_vec, bool enable);
 };
 
+struct rnpvf_hw_operations {
+	void (*set_veb_mac)(struct rnpvf_hw *hw, u8 *, u32, u32);
+	void (*set_veb_vlan)(struct rnpvf_hw *hw, u16, u32);
+};
+
 struct rnp_mbx_stats {
 	u32 msgs_tx;
 	u32 msgs_rx;
@@ -129,6 +142,33 @@ struct rnp_mbx_info {
 	u16 pf_ack;
 	u16 cpu_req;
 	u16 cpu_ack;
+
+	u32 vf_num_mask;
+	// add reg define
+	int mbx_size;
+
+	int mbx_mem_size;
+	// cm3 <-> pf mbx
+	u32 cpu_pf_shm_base;
+	u32 pf2cpu_mbox_ctrl;
+	u32 pf2cpu_mbox_mask;
+	u32 cpu_pf_mbox_mask;
+	u32 cpu2pf_mbox_vec;
+	// cm3 <-> vf mbx
+	u32 cpu_vf_shm_base;
+	u32 cpu2vf_mbox_vec_base;
+	u32 cpu_vf_mbox_mask_lo_base;
+	u32 cpu_vf_mbox_mask_hi_base;
+
+	// pf <--> vf mbx
+	u32 pf_vf_shm_base;
+	u32 vf2cpu_mbox_ctrl_base;
+	u32 pf2vf_mbox_ctrl_base;
+	u32 pf_vf_mbox_mask_lo;
+	u32 pf_vf_mbox_mask_hi;
+	u32 pf2vf_mbox_vec_base;
+	u32 vf2pf_mbox_vec_base;
+	u32 vf2pf_mbox_ctrl_base;
 };
 
 struct rnpvf_hw_stats_own {
@@ -166,6 +206,7 @@ struct rnpvf_hw_stats {
 
 struct rnpvf_info {
 	enum rnp_mac_type mac;
+	enum rnp_board_type board_type;
 	const struct rnp_mac_operations *mac_ops;
 	s32 (*get_invariants)(struct rnpvf_hw *);
 };
@@ -174,4 +215,3 @@ void rnpvf_rlpml_set_vf(struct rnpvf_hw *hw, u16 max_size);
 //int rnpvf_negotiate_api_version(struct rnpvf_hw *hw, int api);
 //int rnpvf_get_queues(struct rnpvf_hw *hw, unsigned int *num_tcs, unsigned int *default_tc);
 #endif /* __RNP_VF_H__ */
-

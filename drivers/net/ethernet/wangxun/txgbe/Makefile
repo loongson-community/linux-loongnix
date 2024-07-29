@@ -19,13 +19,18 @@
 #
 # Makefile for the WangXun(R) 10GbE PCI Express ethernet driver
 #
+path := $(abspath $(lastword $(MAKEFILE_LIST)))
+dir := $(dir ${path})
+
+include ${dir}/configure
+
 obj-$(CONFIG_TXGBE) += txgbe.o
 
 txgbe-objs := txgbe_main.o txgbe_dcb.o txgbe_ethtool.o \
               txgbe_lib.o txgbe_mbx.o txgbe_sriov.o \
               txgbe_param.o txgbe_phy.o txgbe_procfs.o \
 	      txgbe_hw.o txgbe_ptp.o txgbe_mtd.o kcompat.o \
-	      txgbe_pcierr.o txgbe_bp.o
+	      txgbe_pcierr.o txgbe_bp.o txgbe_xsk.o
 
 txgbe-$(CONFIG_DCB) += txgbe_dcb_nl.o
 txgbe-$(CONFIG_SYSFS) += txgbe_sysfs.o

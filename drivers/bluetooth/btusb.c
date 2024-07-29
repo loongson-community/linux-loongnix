@@ -413,6 +413,12 @@ static const struct usb_device_id blacklist_table[] = {
 	/* Silicon Wave based devices */
 	{ USB_DEVICE(0x0c10, 0x0000), .driver_info = BTUSB_SWAVE },
 
+	/* Realtek 8852BE Bluetooth devices */
+	{ USB_DEVICE(0x0cb8, 0xc559), .driver_info = BTUSB_REALTEK },
+	{ USB_DEVICE(0x0bda, 0x887b), .driver_info = BTUSB_REALTEK },
+	{ USB_DEVICE(0x0bda, 0xb85b), .driver_info = BTUSB_REALTEK },
+	{ USB_DEVICE(0x13d3, 0x3570), .driver_info = BTUSB_REALTEK },
+	{ USB_DEVICE(0x13d3, 0x3571), .driver_info = BTUSB_REALTEK },
 	{ }	/* Terminating entry */
 };
 

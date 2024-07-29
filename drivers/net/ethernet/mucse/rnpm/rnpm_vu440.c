@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-2.0
+/* Copyright(c) 2022 - 2023 Mucse Corporation. */
 #include <linux/pci.h>
 #include <linux/delay.h>
 #include <linux/sched.h>
@@ -8,15 +10,16 @@
 
 #define RNPM_vu440_MAX_TX_QUEUES 128
 #define RNPM_vu440_MAX_RX_QUEUES 128
-#define RNPM_vu440_RAR_ENTRIES   128
-#define RNPM_vu440_MC_TBL_SIZE   128
+#define RNPM_vu440_RAR_ENTRIES 128
+#define RNPM_vu440_MC_TBL_SIZE 128
 #define RNPM_vu440_MC_TBL_SIZE_MAC 8
-#define RNPM_vu440_VFT_TBL_SIZE  128
-#define RNPM_vu440_VFT_TBL_SIZE_MAC  1
-#define RNPM_vu440_RX_PB_SIZE	512
+#define RNPM_vu440_VFT_TBL_SIZE 128
+#define RNPM_vu440_VFT_TBL_SIZE_MAC 1
+#define RNPM_vu440_RX_PB_SIZE 512
 #define RNPM_vu440_MAX_MSIX_COUNT 16
+#define RNPM_vu440_DEFAULT_TXD 1024
 
-#define  NET_FEATURE_TCAM 1
+#define NET_FEATURE_TCAM 1
 static bool rnpm_mng_enabled(struct rnpm_hw *hw)
 {
 	return false;
@@ -58,16 +61,12 @@ static s32 rnpm_get_invariants_vu440(struct rnpm_hw *hw)
 	//mac->max_msix_vectors = rnpm_get_pcie_msix_count_generic(hw);
 	mac->max_msix_vectors = RNPM_vu440_MAX_MSIX_COUNT;
 	//mac->max_msix_vectors = 8;
-	hw->feature_flags |= RNPM_NET_FEATURE_SG
-				| RNPM_NET_FEATURE_TX_CHECKSUM
-				| RNPM_NET_FEATURE_RX_CHECKSUM
-				| RNPM_NET_FEATURE_TSO
-				| RNPM_NET_FEATURE_TX_UDP_TUNNEL
-				| RNPM_NET_FEATURE_VLAN_FILTER
-				| RNPM_NET_FEATURE_VLAN_OFFLOAD
-				| RNPM_NET_FEATURE_TCAM
-				| RNPM_NET_FEATURE_RX_HASH
-				| RNPM_NET_FEATURE_RX_FCS;
+	hw->feature_flags |=
+		RNPM_NET_FEATURE_SG | RNPM_NET_FEATURE_TX_CHECKSUM |
+		RNPM_NET_FEATURE_RX_CHECKSUM | RNPM_NET_FEATURE_TSO |
+		RNPM_NET_FEATURE_TX_UDP_TUNNEL | RNPM_NET_FEATURE_VLAN_FILTER |
+		RNPM_NET_FEATURE_VLAN_OFFLOAD | RNPM_NET_FEATURE_TCAM |
+		RNPM_NET_FEATURE_RX_HASH | RNPM_NET_FEATURE_RX_FCS;
 
 	return 0;
 }
@@ -96,14 +95,12 @@ static s32 rnpm_setup_sfp_modules_440(struct rnpm_hw *hw)
 	return 0;
 }
 
-
 /**
  *  rnpm_reinit_fdir_tables_vu440 - Reinitialize Flow Director tables.
  *  @hw: pointer to hardware structure
  **/
 s32 rnpm_reinit_fdir_tables_vu440(struct rnpm_hw *hw)
 {
-
 	return 0;
 }
 
@@ -113,7 +110,7 @@ s32 rnpm_reinit_fdir_tables_vu440(struct rnpm_hw *hw)
  *  @fdirctrl: value to write to flow director control register
  **/
 __maybe_unused static void rnpm_fdir_enable_vu440(struct rnpm_hw *hw,
-												  u32 fdirctrl)
+						  u32 fdirctrl)
 {
 }
 
@@ -180,11 +177,11 @@ s32 rnpm_init_fdir_perfect_vu440(struct rnpm_hw *hw, u32 fdirctrl)
  * in the function below by simply calling out RNPM_COMPUTE_SIG_HASH_ITERATION
  * for values 0 through 15
  */
-#define RNPM_ATR_COMMON_HASH_KEY \
-		(RNPM_ATR_BUCKET_HASH_KEY & RNPM_ATR_SIGNATURE_HASH_KEY)
-#define RNPM_COMPUTE_SIG_HASH_ITERATION(_n) \
-do { \
-} while (0)
+#define RNPM_ATR_COMMON_HASH_KEY                                               \
+	(RNPM_ATR_BUCKET_HASH_KEY & RNPM_ATR_SIGNATURE_HASH_KEY)
+#define RNPM_COMPUTE_SIG_HASH_ITERATION(_n)                                    \
+	do {                                                                   \
+	} while (0)
 
 /**
  *  rnpm_atr_compute_sig_hash_vu440 - Compute the signature hash
@@ -264,9 +261,9 @@ static u32 __maybe_unused rnpm_atr_compute_sig_hash_vu440(
  *  @queue: queue index to direct traffic to
  **/
 s32 rnpm_fdir_add_signature_filter_vu440(struct rnpm_hw *hw,
-		union rnpm_atr_hash_dword input,
-		union rnpm_atr_hash_dword common,
-		u8 queue)
+					 union rnpm_atr_hash_dword input,
+					 union rnpm_atr_hash_dword common,
+					 u8 queue)
 {
 #if 0
 	u64  fdirhashcmd;
@@ -307,14 +304,14 @@ s32 rnpm_fdir_add_signature_filter_vu440(struct rnpm_hw *hw,
 	return 0;
 }
 
-#define RNPM_COMPUTE_BKT_HASH_ITERATION(_n) \
-do { \
-	u32 n = (_n); \
-	if (RNPM_ATR_BUCKET_HASH_KEY & (0x01 << n)) \
-		bucket_hash ^= lo_hash_dword >> n; \
-	if (RNPM_ATR_BUCKET_HASH_KEY & (0x01 << (n + 16))) \
-		bucket_hash ^= hi_hash_dword >> n; \
-} while (0)
+#define RNPM_COMPUTE_BKT_HASH_ITERATION(_n)                                    \
+	do {                                                                   \
+		u32 n = (_n);                                                  \
+		if (RNPM_ATR_BUCKET_HASH_KEY & (0x01 << n))                    \
+			bucket_hash ^= lo_hash_dword >> n;                     \
+		if (RNPM_ATR_BUCKET_HASH_KEY & (0x01 << (n + 16)))             \
+			bucket_hash ^= hi_hash_dword >> n;                     \
+	} while (0)
 
 /**
  *  rnpm_atr_compute_perfect_hash_vu440 - Compute the perfect filter hash
@@ -328,9 +325,8 @@ do { \
  *  future use without needing to recompute the hash.
  **/
 void rnpm_atr_compute_perfect_hash_vu440(union rnpm_atr_input *input,
-					  union rnpm_atr_input *input_mask)
+					 union rnpm_atr_input *input_mask)
 {
-
 #if 0
 	u32 hi_hash_dword, lo_hash_dword, flow_vm_vlan;
 	u32 bucket_hash = 0;
@@ -437,18 +433,18 @@ rnpm_get_fdirtcpm_vu440(union rnpm_atr_input *input_mask)
  * it is byte swapped again and written to the hardware in the original
  * big-endian format.
  */
-#define RNPM_STORE_AS_BE32(_value) \
-	(((u32)(_value) >> 24) | (((u32)(_value) & 0x00FF0000) >> 8) | \
-	 (((u32)(_value) & 0x0000FF00) << 8) | ((u32)(_value) << 24))
+#define RNPM_STORE_AS_BE32(_value)                                             \
+	(((u32)(_value) >> 24) | (((u32)(_value)&0x00FF0000) >> 8) |           \
+	 (((u32)(_value)&0x0000FF00) << 8) | ((u32)(_value) << 24))
 
-#define RNPM_WRITE_REG_BE32(a, reg, value) \
+#define RNPM_WRITE_REG_BE32(a, reg, value)                                     \
 	RNPM_WRITE_REG((a), (reg), RNPM_STORE_AS_BE32(ntohl(value)))
 
-#define RNPM_STORE_AS_BE16(_value) \
+#define RNPM_STORE_AS_BE16(_value)                                             \
 	ntohs(((u16)(_value) >> 8) | ((u16)(_value) << 8))
 
 s32 rnpm_fdir_set_input_mask_vu440(struct rnpm_hw *hw,
-				    union rnpm_atr_input *input_mask)
+				   union rnpm_atr_input *input_mask)
 {
 #if 0
 	/* mask IPv6 since it is currently not supported */
@@ -546,8 +542,8 @@ s32 rnpm_fdir_set_input_mask_vu440(struct rnpm_hw *hw,
 }
 
 s32 rnpm_fdir_write_perfect_filter_vu440(struct rnpm_hw *hw,
-					  union rnpm_atr_input *input,
-					  u16 soft_id, u8 queue)
+					 union rnpm_atr_input *input,
+					 u16 soft_id, u8 queue)
 {
 #if 0
 	u32 fdirport, fdirvlan, fdirhash, fdircmd;
@@ -604,8 +600,8 @@ s32 rnpm_fdir_write_perfect_filter_vu440(struct rnpm_hw *hw,
 }
 
 s32 rnpm_fdir_erase_perfect_filter_vu440(struct rnpm_hw *hw,
-					  union rnpm_atr_input *input,
-					  u16 soft_id)
+					 union rnpm_atr_input *input,
+					 u16 soft_id)
 {
 	s32 err = 0;
 #if 0
@@ -647,7 +643,6 @@ s32 rnpm_fdir_erase_perfect_filter_vu440(struct rnpm_hw *hw,
 	return err;
 }
 
-
 /**
  *  rnpm_identify_phy_vu440 - Get physical layer module
  *  @hw: pointer to hardware structure
@@ -671,7 +666,6 @@ static s32 rnpm_identify_sfp_module_vu440(struct rnpm_hw *hw)
 
 	return 0;
 }
-
 
 /**
  *  rnpm_enable_rx_dma_vu440 - Enable the Rx DMA unit on vu440
@@ -742,9 +736,8 @@ bool rnpm_verify_lesm_fw_enabled_vu440(struct rnpm_hw *hw)
  *  Retrieves 16 bit word(s) read from EEPROM
  **/
 static s32 __maybe_unused rnpm_read_eeprom_buffer_vu440(struct rnpm_hw *hw,
-														u16 offset,
-														u16 words,
-														u16 *data)
+							u16 offset, u16 words,
+							u16 *data)
 {
 	s32 ret_val = RNPM_ERR_CONFIG;
 #if 0
@@ -777,9 +770,8 @@ static s32 __maybe_unused rnpm_read_eeprom_buffer_vu440(struct rnpm_hw *hw,
  *
  *  Reads a 16 bit word from the EEPROM
  **/
-static s32 __maybe_unused rnpm_read_eeprom_vu440(struct rnpm_hw *hw,
-												 u16 offset,
-												 u16 *data)
+static s32 __maybe_unused rnpm_read_eeprom_vu440(struct rnpm_hw *hw, u16 offset,
+						 u16 *data)
 {
 	s32 ret_val = RNPM_ERR_CONFIG;
 
@@ -819,7 +811,7 @@ s32 rnpm_reset_pipeline_vu440(struct rnpm_hw *hw)
 	/* Wait for AN to leave state 0 */
 	for (i = 0; i < 10; i++) {
 		usleep_range(4000, 8000);
-			break;
+		break;
 	}
 
 	ret_val = 0;
@@ -838,16 +830,19 @@ static void __maybe_unused upl_init(u8 __iomem *bar2)
 #define SOFT_COMMON12 (0x0007000 + 0xf30)
 	// config ulh pll
 	data = ioread32((void *)(bar2 + SOFT_COMMON11));
-	iowrite32(((0x3 << 29) | data), (void *)(bar2 + SOFT_COMMON11)); // ulh pd is 1, bypass is 1
+	iowrite32(((0x3 << 29) | data),
+		  (void *)(bar2 + SOFT_COMMON11)); // ulh pd is 1, bypass is 1
 	data = ioread32((void *)(bar2 + SOFT_COMMON11));
-	iowrite32(((0x1 << 31) | data), (void *)(bar2 + SOFT_COMMON11)); // ulh reset is 1
+	iowrite32(((0x1 << 31) | data),
+		  (void *)(bar2 + SOFT_COMMON11)); // ulh reset is 1
 
 	data = ioread32((void *)(bar2 + SOFT_COMMON12));
-	iowrite32(((0x3 << 29) | data), (void *) (bar2 + SOFT_COMMON12)); // ulh pd is 1, bypass is 1
+	iowrite32(((0x3 << 29) | data),
+		  (void *)(bar2 + SOFT_COMMON12)); // ulh pd is 1, bypass is 1
 	data = ioread32((void *)(bar2 + SOFT_COMMON12));
-	iowrite32(((0x1 << 31) | data), (void *) (bar2 + SOFT_COMMON12)); // ulh reset is 1
+	iowrite32(((0x1 << 31) | data),
+		  (void *)(bar2 + SOFT_COMMON12)); // ulh reset is 1
 }
-
 
 /**
  *  rnpm_reset_hw_vu440 - Perform hardware reset
@@ -926,7 +921,7 @@ static s32 rnpm_start_hw_vu440(struct rnpm_hw *hw)
 	wr32(hw, RNPM_ETH_BYPASS, 0);
 	wr32(hw, RNPM_ETH_DEFAULT_RX_RING, 0);
 
-/*
+	/*
 	wr32(hw, RNPM_TOP_NIC_CONFIG, hw->mode
 #ifdef CONFIG_RNPM_FPGA
 			| hw->default_rx_queue << 24
@@ -938,7 +933,6 @@ static s32 rnpm_start_hw_vu440(struct rnpm_hw *hw)
 
 	// enable-dma-axi
 	wr32(hw, RNPM_DMA_AXI_EN, (RX_AXI_RW_EN | TX_AXI_RW_EN));
-
 
 	if (ret_val == 0)
 		ret_val = rnpm_verify_fw_version_vu440(hw);
@@ -972,9 +966,8 @@ static u32 rnpm_get_supported_physical_layer_vu440(struct rnpm_hw *hw)
 }
 
 static s32 rnpm_get_link_capabilities_vu440(struct rnpm_hw *hw,
-		rnpm_link_speed *speed,
-		bool *autoneg,
-		u32 *media_type)
+					    rnpm_link_speed *speed,
+					    bool *autoneg, u32 *media_type)
 {
 	/* fix setup */
 	*speed = RNPM_LINK_SPEED_10GB_FULL;
@@ -985,143 +978,180 @@ static s32 rnpm_get_link_capabilities_vu440(struct rnpm_hw *hw,
 }
 
 static struct rnpm_phy_operations phy_ops_vu440 = {
-	.identify		= &rnpm_identify_phy_vu440,
-	.identify_sfp		= &rnpm_identify_sfp_module_vu440,
-	.init			= &rnpm_init_phy_ops_vu440,
-	.reset			= &rnpm_reset_phy_generic,
-	.read_reg		= &rnpm_read_phy_reg_generic,
-	.write_reg		= &rnpm_write_phy_reg_generic,
-	.setup_link		= &rnpm_setup_phy_link_generic,
-	.setup_link_speed	= &rnpm_setup_phy_link_speed_generic,
-	.read_i2c_byte		= &rnpm_read_i2c_byte_generic,
-	.write_i2c_byte		= &rnpm_write_i2c_byte_generic,
-	.read_i2c_sff8472	= &rnpm_read_i2c_sff8472_generic,
-	.read_i2c_eeprom	= &rnpm_read_i2c_eeprom_generic,
-	.write_i2c_eeprom	= &rnpm_write_i2c_eeprom_generic,
-	.check_overtemp		= &rnpm_tn_check_overtemp,
+	.identify = &rnpm_identify_phy_vu440,
+	.identify_sfp = &rnpm_identify_sfp_module_vu440,
+	.init = &rnpm_init_phy_ops_vu440,
+	.reset = &rnpm_reset_phy_generic,
+	.read_reg = &rnpm_read_phy_reg_generic,
+	.write_reg = &rnpm_write_phy_reg_generic,
+	.setup_link = &rnpm_setup_phy_link_generic,
+	.setup_link_speed = &rnpm_setup_phy_link_speed_generic,
+	.read_i2c_byte = &rnpm_read_i2c_byte_generic,
+	.write_i2c_byte = &rnpm_write_i2c_byte_generic,
+	.read_i2c_sff8472 = &rnpm_read_i2c_sff8472_generic,
+	.read_i2c_eeprom = &rnpm_read_i2c_eeprom_generic,
+	.write_i2c_eeprom = &rnpm_write_i2c_eeprom_generic,
+	.check_overtemp = &rnpm_tn_check_overtemp,
 };
 
 static struct rnpm_mac_operations mac_ops_vu440 = {
-	.init_hw                = &rnpm_init_hw_generic,
-	.reset_hw               = &rnpm_reset_hw_vu440,
-	.start_hw               = &rnpm_start_hw_vu440,
-	.clear_hw_cntrs         = &rnpm_clear_hw_cntrs_generic,
-	.get_media_type         = &rnpm_get_media_type_vu440,
-	.get_supported_physical_layer = &rnpm_get_supported_physical_layer_vu440,
-	.enable_rx_dma          = &rnpm_enable_rx_dma_vu440,
-	.disable_rx_buff	= &rnpm_disable_rx_buff_generic,
-	.enable_rx_buff		= &rnpm_enable_rx_buff_generic,
-	.get_mac_addr           = &rnpm_get_mac_addr_generic,
-	.get_device_caps        = &rnpm_get_device_caps_generic,
-	//.setup_link             = &ixgbe_setup_mac_link_82599,
-	.get_wwn_prefix         = &rnpm_get_wwn_prefix_generic,
-	.stop_adapter           = &rnpm_stop_adapter_generic,
+	.init_hw = &rnpm_init_hw_generic,
+	.reset_hw = &rnpm_reset_hw_vu440,
+	.start_hw = &rnpm_start_hw_vu440,
+	.clear_hw_cntrs = &rnpm_clear_hw_cntrs_generic,
+	.get_media_type = &rnpm_get_media_type_vu440,
+	.get_supported_physical_layer =
+		&rnpm_get_supported_physical_layer_vu440,
+	.enable_rx_dma = &rnpm_enable_rx_dma_vu440,
+	.disable_rx_buff = &rnpm_disable_rx_buff_generic,
+	.enable_rx_buff = &rnpm_enable_rx_buff_generic,
+	.get_mac_addr = &rnpm_get_mac_addr_generic,
+	.get_device_caps = &rnpm_get_device_caps_generic,
+	//.setup_link             = &rnpm_setup_mac_link_82599,
+	.get_wwn_prefix = &rnpm_get_wwn_prefix_generic,
+	.stop_adapter = &rnpm_stop_adapter_generic,
 	//.set_rxpba		        = &rnpm_set_rxpba_generic,
-	.check_link             = &rnpm_check_mac_link_generic,
-	.get_link_capabilities  = &rnpm_get_link_capabilities_vu440,
-	.led_on                 = &rnpm_led_on_generic,
-	.led_off                = &rnpm_led_off_generic,
-	.blink_led_start        = &rnpm_blink_led_start_generic,
-	.blink_led_stop         = &rnpm_blink_led_stop_generic,
+	.check_link = &rnpm_check_mac_link_generic,
+	.get_link_capabilities = &rnpm_get_link_capabilities_vu440,
+	.led_on = &rnpm_led_on_generic,
+	.led_off = &rnpm_led_off_generic,
+	.blink_led_start = &rnpm_blink_led_start_generic,
+	.blink_led_stop = &rnpm_blink_led_stop_generic,
 	//.get_bus_info           = &rnpm_get_bus_info_generic,
-	.set_rar                = &rnpm_set_rar_generic,
-	.set_rar_mac            = &rnpm_set_rar_mac,
-	.clear_rar              = &rnpm_clear_rar_generic,
-	.clear_rar_mac          = &rnpm_clear_rar_mac,
-	.set_vmdq               = &rnpm_set_vmdq_generic,
+	.set_rar = &rnpm_set_rar_generic,
+	.set_rar_mac = &rnpm_set_rar_mac,
+	.clear_rar = &rnpm_clear_rar_generic,
+	.clear_rar_mac = &rnpm_clear_rar_mac,
+	.set_vmdq = &rnpm_set_vmdq_generic,
 	//.set_vmdq_san_mac	= &rnpm_set_vmdq_san_mac_generic,
-	.clear_vmdq             = &rnpm_clear_vmdq_generic,
-	.init_rx_addrs          = &rnpm_init_rx_addrs_generic,
+	.clear_vmdq = &rnpm_clear_vmdq_generic,
+	.init_rx_addrs = &rnpm_init_rx_addrs_generic,
 	//.update_mc_addr_list    = &rnpm_update_mc_addr_list_generic,
-	.update_mc_addr_list    = &rnpm_update_mutiport_mc_addr_list_generic,
-	.enable_mc              = &rnpm_enable_mc_generic,
-	.disable_mc             = &rnpm_disable_mc_generic,
-	.clear_vfta             = &rnpm_clear_vfta_generic,
-	.set_vfta               = &rnpm_set_vfta_generic,
-	.set_vfta_mac           = &rnpm_set_vfta_mac_generic,
-	.fc_enable              = &rnpm_fc_enable_generic,
-	.set_fw_drv_ver         = &rnpm_set_fw_drv_ver_generic,
-	.init_uta_tables        = &rnpm_init_uta_tables_generic,
-	.setup_sfp              = &rnpm_setup_sfp_modules_440,
-	.mng_fw_enabled		= &rnpm_mng_enabled,
+	.update_mc_addr_list = &rnpm_update_mutiport_mc_addr_list_generic,
+	.enable_mc = &rnpm_enable_mc_generic,
+	.disable_mc = &rnpm_disable_mc_generic,
+	.clear_vfta = &rnpm_clear_vfta_generic,
+	.set_vfta = &rnpm_set_vfta_generic,
+	.set_vfta_mac = &rnpm_set_vfta_mac_generic,
+	.fc_enable = &rnpm_fc_enable_generic,
+	.set_fw_drv_ver = &rnpm_set_fw_drv_ver_generic,
+	.init_uta_tables = &rnpm_init_uta_tables_generic,
+	.setup_sfp = &rnpm_setup_sfp_modules_440,
+	.mng_fw_enabled = &rnpm_mng_enabled,
 };
 
 //==========   vu440 ===============
 struct rnpm_info rnpm_vu440_2x10G_info = {
-    .one_pf_with_two_dma   = false,
-    .total_queue_pair_cnts = RNPM_vu440_MAX_TX_QUEUES,
-    .total_msix_table      = 16,
-    .total_layer2_count    = RNPM_MAX_LAYER2_FILTERS,
+	.one_pf_with_two_dma = false,
+	.total_queue_pair_cnts = RNPM_vu440_MAX_TX_QUEUES,
+	.queue_depth = RNPM_vu440_DEFAULT_TXD,
+	.total_msix_table = 16,
+	.coalesce.tx_work_limit = RNPM_DEFAULT_TX_WORK,
+	.coalesce.rx_usecs = RNPM_PKT_TIMEOUT,
+	.coalesce.rx_frames = RNPM_RX_PKT_POLL_BUDGET,
+	.coalesce.tx_usecs = RNPM_PKT_TIMEOUT_TX,
+	.coalesce.tx_frames = RNPM_TX_PKT_POLL_BUDGET,
+	.total_layer2_count = RNPM_MAX_LAYER2_FILTERS,
 #if NET_FEATURE_TCAM
-    .total_tuple5_count = RNPM_MAX_TCAM_FILTERS,
+	.total_tuple5_count = RNPM_MAX_TCAM_FILTERS,
 #else
-    .total_tuple5_count = RNPM_MAX_TUPLE5_FILTERS,
+	.total_tuple5_count = RNPM_MAX_TUPLE5_FILTERS,
 #endif
-    .adapter_cnt = 1,
-    .rss_type    = rnpm_rss_uv440,
-    // .mac                    = rnpm_mac_2port_10G,
-    .get_invariants = &rnpm_get_invariants_vu440,
-    .mac_ops        = &mac_ops_vu440,
-    .eeprom_ops     = NULL,
-    .phy_ops        = &phy_ops_vu440,
-    .mbx_ops        = &mbx_ops_generic,
+#ifdef RNPM_FIX_MAC_PADDING
+	.mac_padding = false,
+#endif
+	.adapter_cnt = 1,
+	.rss_type = rnpm_rss_uv440,
+	// .mac                    = rnpm_mac_2port_10G,
+	.get_invariants = &rnpm_get_invariants_vu440,
+	.mac_ops = &mac_ops_vu440,
+	.eeprom_ops = NULL,
+	.phy_ops = &phy_ops_vu440,
+	.mbx_ops = &mbx_ops_generic,
 };
 struct rnpm_info rnpm_vu440_2x40G_info = {
-    .one_pf_with_two_dma   = false,
-    .total_queue_pair_cnts = RNPM_vu440_MAX_TX_QUEUES,
-    .total_msix_table      = 16,
-    .total_layer2_count    = RNPM_MAX_LAYER2_FILTERS,
+	.one_pf_with_two_dma = false,
+	.total_queue_pair_cnts = RNPM_vu440_MAX_TX_QUEUES,
+	.queue_depth = RNPM_vu440_DEFAULT_TXD,
+	.total_msix_table = 16,
+	.coalesce.tx_work_limit = RNPM_DEFAULT_TX_WORK,
+	.coalesce.rx_usecs = RNPM_PKT_TIMEOUT,
+	.coalesce.rx_frames = RNPM_RX_PKT_POLL_BUDGET,
+	.coalesce.tx_usecs = RNPM_PKT_TIMEOUT_TX,
+	.coalesce.tx_frames = RNPM_TX_PKT_POLL_BUDGET,
+	.total_layer2_count = RNPM_MAX_LAYER2_FILTERS,
 #if NET_FEATURE_TCAM
-    .total_tuple5_count = RNPM_MAX_TCAM_FILTERS,
+	.total_tuple5_count = RNPM_MAX_TCAM_FILTERS,
 #else
-    .total_tuple5_count = RNPM_MAX_TUPLE5_FILTERS,
+	.total_tuple5_count = RNPM_MAX_TUPLE5_FILTERS,
 #endif
-    .adapter_cnt = 1,
-    .rss_type    = rnpm_rss_uv440,
-    // .mac                    = rnpm_mac_2port_40G,
-    .get_invariants = &rnpm_get_invariants_vu440,
-    .mac_ops        = &mac_ops_vu440,
-    .eeprom_ops     = NULL,
-    .phy_ops        = &phy_ops_vu440,
-    .mbx_ops        = &mbx_ops_generic,
+#ifdef RNPM_FIX_MAC_PADDING
+	.mac_padding = false,
+#endif
+	.adapter_cnt = 1,
+	.rss_type = rnpm_rss_uv440,
+	// .mac                    = rnpm_mac_2port_40G,
+	.get_invariants = &rnpm_get_invariants_vu440,
+	.mac_ops = &mac_ops_vu440,
+	.eeprom_ops = NULL,
+	.phy_ops = &phy_ops_vu440,
+	.mbx_ops = &mbx_ops_generic,
 };
 
 struct rnpm_info rnpm_vu440_4x10G_info = {
-    .one_pf_with_two_dma   = false,
-    .total_queue_pair_cnts = RNPM_vu440_MAX_TX_QUEUES,
-    .total_msix_table      = 64,
-    .total_layer2_count    = RNPM_MAX_LAYER2_FILTERS,
+	.one_pf_with_two_dma = false,
+	.total_queue_pair_cnts = RNPM_vu440_MAX_TX_QUEUES,
+	.queue_depth = RNPM_vu440_DEFAULT_TXD,
+	.total_msix_table = 64,
+	.coalesce.tx_work_limit = RNPM_DEFAULT_TX_WORK,
+	.coalesce.rx_usecs = RNPM_PKT_TIMEOUT,
+	.coalesce.rx_frames = RNPM_RX_PKT_POLL_BUDGET,
+	.coalesce.tx_usecs = RNPM_PKT_TIMEOUT_TX,
+	.coalesce.tx_frames = RNPM_TX_PKT_POLL_BUDGET,
+	.total_layer2_count = RNPM_MAX_LAYER2_FILTERS,
 #if NET_FEATURE_TCAM
-    .total_tuple5_count = RNPM_MAX_TCAM_FILTERS,
+	.total_tuple5_count = RNPM_MAX_TCAM_FILTERS,
 #else
-    .total_tuple5_count = RNPM_MAX_TUPLE5_FILTERS,
+	.total_tuple5_count = RNPM_MAX_TUPLE5_FILTERS,
 #endif
-    .adapter_cnt = 2,
-    .rss_type    = rnpm_rss_uv440,
-    // .mac                    = rnpm_mac_4port_10G,
-    .get_invariants = &rnpm_get_invariants_vu440,
-    .mac_ops        = &mac_ops_vu440,
-    .eeprom_ops     = NULL,
-    .phy_ops        = &phy_ops_vu440,
-    .mbx_ops        = &mbx_ops_generic,
+#ifdef RNPM_FIX_MAC_PADDING
+	.mac_padding = false,
+#endif
+	.adapter_cnt = 2,
+	.rss_type = rnpm_rss_uv440,
+	// .mac                    = rnpm_mac_4port_10G,
+	.get_invariants = &rnpm_get_invariants_vu440,
+	.mac_ops = &mac_ops_vu440,
+	.eeprom_ops = NULL,
+	.phy_ops = &phy_ops_vu440,
+	.mbx_ops = &mbx_ops_generic,
 };
 
 struct rnpm_info rnpm_vu440_8x10G_info = {
-    .one_pf_with_two_dma   = false,
-    .total_queue_pair_cnts = RNPM_vu440_MAX_TX_QUEUES,
-    .total_msix_table      = 64,
-    .total_layer2_count    = RNPM_MAX_LAYER2_FILTERS,
+	.one_pf_with_two_dma = false,
+	.total_queue_pair_cnts = RNPM_vu440_MAX_TX_QUEUES,
+	.queue_depth = RNPM_vu440_DEFAULT_TXD,
+	.total_msix_table = 64,
+	.coalesce.tx_work_limit = RNPM_DEFAULT_TX_WORK,
+	.coalesce.rx_usecs = RNPM_PKT_TIMEOUT,
+	.coalesce.rx_frames = RNPM_RX_PKT_POLL_BUDGET,
+	.coalesce.tx_usecs = RNPM_PKT_TIMEOUT_TX,
+	.coalesce.tx_frames = RNPM_TX_PKT_POLL_BUDGET,
+	.total_layer2_count = RNPM_MAX_LAYER2_FILTERS,
 #if NET_FEATURE_TCAM
-    .total_tuple5_count = RNPM_MAX_TCAM_FILTERS,
+	.total_tuple5_count = RNPM_MAX_TCAM_FILTERS,
 #else
-    .total_tuple5_count = RNPM_MAX_TUPLE5_FILTERS,
+	.total_tuple5_count = RNPM_MAX_TUPLE5_FILTERS,
 #endif
-    .adapter_cnt = 4,
-    .rss_type    = rnpm_rss_uv440,
-    // .mac                    = rnpm_mac_8port_10G,
-    .get_invariants = &rnpm_get_invariants_vu440,
-    .mac_ops        = &mac_ops_vu440,
-    .eeprom_ops     = NULL,
-    .phy_ops        = &phy_ops_vu440,
-    .mbx_ops        = &mbx_ops_generic,
+#ifdef RNPM_FIX_MAC_PADDING
+	.mac_padding = false,
+#endif
+	.adapter_cnt = 4,
+	.rss_type = rnpm_rss_uv440,
+	// .mac                    = rnpm_mac_8port_10G,
+	.get_invariants = &rnpm_get_invariants_vu440,
+	.mac_ops = &mac_ops_vu440,
+	.eeprom_ops = NULL,
+	.phy_ops = &phy_ops_vu440,
+	.mbx_ops = &mbx_ops_generic,
 };

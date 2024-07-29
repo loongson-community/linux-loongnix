@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0
+/* Copyright(c) 2022 - 2023 Mucse Corporation. */
+
 #include <linux/pci.h>
 #include <linux/errno.h>
 #include <linux/delay.h>
@@ -10,27 +13,45 @@
 //#define TSRN10_MSIX_BASE 0xa0000
 
 //== VEC ==
-#define VF2PF_MBOX_VEC(VF) (0xa5100 + 4 * (VF))
-#define CPU2PF_MBOX_VEC (0xa5300)
+//#define VF2PF_MBOX_VEC(VF) (0xa5100 + 4 * (VF))
+#define VF2PF_MBOX_VEC(mbx, vf) (mbx->vf2pf_mbox_vec_base + 4 * (vf))
+//#define CPU2PF_MBOX_VEC (0xa5300)
+#define CPU2PF_MBOX_VEC(mbx) (mbx->cpu2pf_mbox_vec)
 
 //== PF <--> VF mailbox ====
 #define SHARE_MEM_BYTES 64 //64bytes
-#define PF_VF_SHM(vf)                                                          \
-	((0xa6000) + (64 * (vf))) //for PF1 rtl will remap 6000 to 0xb000
-#define PF2VF_COUNTER(vf) (PF_VF_SHM(vf) + 0)
-#define VF2PF_COUNTER(vf) (PF_VF_SHM(vf) + 4)
-#define PF_VF_SHM_DATA(vf) (PF_VF_SHM(vf) + 8)
-#define PF2VF_MBOX_CTRL(vf) ((0xa7100) + (4 * (vf)))
-#define PF_VF_MBOX_MASK_LO ((0xa7200))
-#define PF_VF_MBOX_MASK_HI ((0xa7300))
+//#define PF_VF_SHM(vf)
+//	((0xa6000) + (64 * (vf))) //for PF1 rtl will remap 6000 to 0xb000
+#define PF_VF_SHM(mbx, vf)     \
+	(mbx->pf_vf_shm_base + \
+	 mbx->mbx_mem_size * vf) //for PF1 rtl will remap 6000 to 0xb000
+//#define PF2VF_COUNTER(vf) (PF_VF_SHM(vf) + 0)
+#define PF2VF_COUNTER(mbx, vf) (PF_VF_SHM(mbx, vf) + 0)
+//#define VF2PF_COUNTER(vf) (PF_VF_SHM(vf) + 4)
+#define VF2PF_COUNTER(mbx, vf) (PF_VF_SHM(mbx, vf) + 4)
+//#define PF_VF_SHM_DATA(vf) (PF_VF_SHM(vf) + 8)
+#define PF_VF_SHM_DATA(mbx, vf) (PF_VF_SHM(mbx, vf) + 8)
+//#define PF2VF_MBOX_CTRL(vf) ((0xa7100) + (4 * (vf)))
+#define PF2VF_MBOX_CTRL(mbx, vf) (mbx->pf2vf_mbox_ctrl_base + 4 * vf)
+#define PF_VF_MBOX_MASK_LO(mbx) (mbx->pf_vf_mbox_mask_lo)
+#define PF_VF_MBOX_MASK_HI(mbx) (mbx->pf_vf_mbox_mask_hi)
+//#define PF_VF_MBOX_MASK_LO ((0xa7200))
+//#define PF_VF_MBOX_MASK_HI ((0xa7300))
 
 //=== CPU <--> PF ===
-#define CPU_PF_SHM (0xaa000)
-#define CPU2PF_COUNTER (CPU_PF_SHM + 0)
-#define PF2CPU_COUNTER (CPU_PF_SHM + 4)
-#define CPU_PF_SHM_DATA (CPU_PF_SHM + 8)
-#define PF2CPU_MBOX_CTRL (0xaa100)
-#define CPU_PF_MBOX_MASK (0xaa300)
+//#define CPU_PF_SHM (0xaa000)
+#define CPU_PF_SHM(mbx) (mbx->cpu_pf_shm_base)
+//#define CPU2PF_COUNTER (CPU_PF_SHM + 0)
+//#define PF2CPU_COUNTER (CPU_PF_SHM + 4)
+//#define CPU_PF_SHM_DATA (CPU_PF_SHM + 8)
+#define CPU2PF_COUNTER(mbx) (CPU_PF_SHM(mbx) + 0)
+#define PF2CPU_COUNTER(mbx) (CPU_PF_SHM(mbx) + 4)
+#define CPU_PF_SHM_DATA(mbx) (CPU_PF_SHM(mbx) + 8)
+
+#define PF2CPU_MBOX_CTRL(mbx) (mbx->pf2cpu_mbox_ctrl)
+#define CPU_PF_MBOX_MASK(mbx) (mbx->cpu_pf_mbox_mask)
+//#define PF2CPU_MBOX_CTRL (0xaa100)
+//#define CPU_PF_MBOX_MASK (0xaa300)
 
 #define MBOX_CTRL_REQ (1 << 0) // WO
 //#define MBOX_CTRL_VF_HOLD_SHM       (1<<2) // VF:WR, PF:RO
@@ -43,8 +64,8 @@
 //#define MBX_RD_DEBUG
 //#define MBX_WR_DEBUG
 
-#define mbx_prd32(hw, reg)      prnp_rd_reg((hw)->hw_addr + (reg))
-#define mbx_rd32(hw, reg)		rnp_rd_reg((hw)->hw_addr + (reg))
+#define mbx_prd32(hw, reg) prnp_rd_reg((hw)->hw_addr + (reg))
+#define mbx_rd32(hw, reg) rnp_rd_reg((hw)->hw_addr + (reg))
 #define mbx_pwr32(hw, reg, val) p_rnp_wr_reg((hw)->hw_addr + (reg), (val))
 #define mbx_wr32(hw, reg, val) rnp_wr_reg((hw)->hw_addr + (reg), (val))
 
@@ -81,7 +102,8 @@ s32 rnp_read_mbx(struct rnp_hw *hw, u32 *msg, u16 size, enum MBX_ID mbx_id)
  *
  *  returns SUCCESS if it successfully copied message into the buffer
  **/
-s32 rnp_write_mbx(struct rnp_hw *hw, u32 *msg, u16 size, enum MBX_ID mbx_id)
+s32 rnp_write_mbx(struct rnp_hw *hw, u32 *msg, u16 size,
+		  enum MBX_ID mbx_id)
 {
 	struct rnp_mbx_info *mbx = &hw->mbx;
 	s32 ret_val = 0;
@@ -96,31 +118,27 @@ s32 rnp_write_mbx(struct rnp_hw *hw, u32 *msg, u16 size, enum MBX_ID mbx_id)
 
 static inline u16 rnp_mbx_get_req(struct rnp_hw *hw, int reg)
 {
-#ifndef NO_MBX_VERSION
 	mb();
 	return ioread32(hw->hw_addr + reg) & 0xffff;
-#else
-	return 0;
-#endif
 }
 
 static inline u16 rnp_mbx_get_ack(struct rnp_hw *hw, int reg)
 {
-#ifndef NO_MBX_VERSION
 	mb();
 	return (mbx_rd32(hw, reg) >> 16);
-#else
-	return 0;
-#endif
 }
 
-static inline void rnp_mbx_inc_pf_req(struct rnp_hw *hw, enum MBX_ID mbx_id)
+static inline void rnp_mbx_inc_pf_req(struct rnp_hw *hw,
+				      enum MBX_ID mbx_id)
 {
-#ifndef NO_MBX_VERSION
 	u16 req;
-	int reg =
-		(mbx_id == MBX_CM3CPU) ? PF2CPU_COUNTER : PF2VF_COUNTER(mbx_id);
-	u32 v = mbx_rd32(hw, reg);
+	int reg;
+	struct rnp_mbx_info *mbx = &hw->mbx;
+	u32 v;
+
+	reg = (mbx_id == MBX_CM3CPU) ? PF2CPU_COUNTER(mbx) :
+				       PF2VF_COUNTER(mbx, mbx_id);
+	v = mbx_rd32(hw, reg);
 
 	req = (v & 0xffff);
 	req++;
@@ -131,15 +149,15 @@ static inline void rnp_mbx_inc_pf_req(struct rnp_hw *hw, enum MBX_ID mbx_id)
 
 	/* update stats */
 	hw->mbx.stats.msgs_tx++;
-#endif
 }
 
-static inline void rnp_mbx_inc_pf_ack(struct rnp_hw *hw, enum MBX_ID mbx_id)
+static inline void rnp_mbx_inc_pf_ack(struct rnp_hw *hw,
+				      enum MBX_ID mbx_id)
 {
-#ifndef NO_MBX_VERSION
 	u16 ack;
-	int reg =
-		(mbx_id == MBX_CM3CPU) ? PF2CPU_COUNTER : PF2VF_COUNTER(mbx_id);
+	struct rnp_mbx_info *mbx = &hw->mbx;
+	int reg = (mbx_id == MBX_CM3CPU) ? PF2CPU_COUNTER(mbx) :
+					   PF2VF_COUNTER(mbx, mbx_id);
 	u32 v = mbx_rd32(hw, reg);
 
 	ack = (v >> 16) & 0xffff;
@@ -151,7 +169,6 @@ static inline void rnp_mbx_inc_pf_ack(struct rnp_hw *hw, enum MBX_ID mbx_id)
 
 	/* update stats */
 	hw->mbx.stats.msgs_rx++;
-#endif
 }
 
 /**
@@ -213,17 +230,15 @@ static s32 rnp_poll_for_msg(struct rnp_hw *hw, enum MBX_ID mbx_id)
 	}
 
 out:
-    return countdown ? 0 : -ETIME;
+	return countdown ? 0 : -ETIME;
 }
 
-
-
 /**
- *  rnp_poll_for_ack - Wait for message acknowledgement
+ *  rnp_poll_for_ack - Wait for message acknowledgment
  *  @hw: pointer to the HW structure
  *  @mbx_id: id of mailbox to write
  *
- *  returns SUCCESS if it successfully received a message acknowledgement
+ *  returns SUCCESS if it successfully received a message acknowledgment
  **/
 static s32 rnp_poll_for_ack(struct rnp_hw *hw, enum MBX_ID mbx_id)
 {
@@ -235,8 +250,10 @@ static s32 rnp_poll_for_ack(struct rnp_hw *hw, enum MBX_ID mbx_id)
 
 	while (countdown && mbx->ops.check_for_ack(hw, mbx_id)) {
 		countdown--;
-		if (!countdown)
+		if (!countdown) {
+			printk("mbx poll for ack ack timeout\n");
 			break;
+		}
 		udelay(mbx->usec_delay);
 	}
 
@@ -313,14 +330,26 @@ out:
 static s32 rnp_check_for_msg_pf(struct rnp_hw *hw, enum MBX_ID mbx_id)
 {
 	s32 ret_val = RNP_ERR_MBX;
+	u16 hw_req_count = 0;
+	struct rnp_mbx_info *mbx = &hw->mbx;
 
 	if (mbx_id == MBX_CM3CPU) {
-		if (rnp_mbx_get_req(hw, CPU2PF_COUNTER) != hw->mbx.cpu_req) {
-			ret_val = 0;
-			hw->mbx.stats.reqs++;
+		hw_req_count = rnp_mbx_get_req(hw, CPU2PF_COUNTER(mbx));
+		if (mbx->mbx_feature & MBX_FEATURE_NO_ZERO) {
+			if ((hw_req_count != 0) &&
+			    (hw_req_count != hw->mbx.cpu_req)) {
+				ret_val = 0;
+				hw->mbx.stats.reqs++;
+			}
+
+		} else {
+			if (hw_req_count != hw->mbx.cpu_req) {
+				ret_val = 0;
+				hw->mbx.stats.reqs++;
+			}
 		}
 	} else {
-		if (rnp_mbx_get_req(hw, VF2PF_COUNTER(mbx_id)) !=
+		if (rnp_mbx_get_req(hw, VF2PF_COUNTER(mbx, mbx_id)) !=
 		    hw->mbx.vf_req[mbx_id]) {
 			ret_val = 0;
 			hw->mbx.stats.reqs++;
@@ -340,14 +369,16 @@ static s32 rnp_check_for_msg_pf(struct rnp_hw *hw, enum MBX_ID mbx_id)
 static s32 rnp_check_for_ack_pf(struct rnp_hw *hw, enum MBX_ID mbx_id)
 {
 	s32 ret_val = RNP_ERR_MBX;
+	struct rnp_mbx_info *mbx = &hw->mbx;
 
 	if (mbx_id == MBX_CM3CPU) {
-		if (rnp_mbx_get_ack(hw, CPU2PF_COUNTER) != hw->mbx.cpu_ack) {
+		if (rnp_mbx_get_ack(hw, CPU2PF_COUNTER(mbx)) !=
+		    hw->mbx.cpu_ack) {
 			ret_val = 0;
 			hw->mbx.stats.acks++;
 		}
 	} else {
-		if (rnp_mbx_get_ack(hw, VF2PF_COUNTER(mbx_id)) !=
+		if (rnp_mbx_get_ack(hw, VF2PF_COUNTER(mbx, mbx_id)) !=
 		    hw->mbx.vf_ack[mbx_id]) {
 			ret_val = 0;
 			hw->mbx.stats.acks++;
@@ -366,27 +397,24 @@ static s32 rnp_check_for_ack_pf(struct rnp_hw *hw, enum MBX_ID mbx_id)
  **/
 static s32 rnp_obtain_mbx_lock_pf(struct rnp_hw *hw, enum MBX_ID mbx_id)
 {
-#ifndef NO_MBX_VERSION
 	int try_cnt = 5000; // wait 500ms
-	s32 ret_val = RNP_ERR_MBX;
-	u32 CTRL_REG = (mbx_id == MBX_CM3CPU) ? PF2CPU_MBOX_CTRL :
-						PF2VF_MBOX_CTRL(mbx_id);
+	struct rnp_mbx_info *mbx = &hw->mbx;
+	u32 CTRL_REG = (mbx_id == MBX_CM3CPU) ?
+			       PF2CPU_MBOX_CTRL(mbx) :
+			       PF2VF_MBOX_CTRL(mbx, mbx_id);
 
 	while (try_cnt-- > 0) {
 		/* Take ownership of the buffer */
 		mbx_wr32(hw, CTRL_REG, MBOX_CTRL_PF_HOLD_SHM);
-		mb();
+		wmb();
 		/* reserve mailbox for cm3 use */
 		if (mbx_rd32(hw, CTRL_REG) & MBOX_CTRL_PF_HOLD_SHM)
 			return 0;
 		udelay(100);
 	}
 
-	rnp_err("%s: faild to get:%d lock \n", __func__, mbx_id);
+	rnp_err("%s: failed to get:%d lock \n", __func__, mbx_id);
 	return EPERM;
-#else
-	return 0;
-#endif
 }
 
 /**
@@ -401,17 +429,19 @@ static s32 rnp_obtain_mbx_lock_pf(struct rnp_hw *hw, enum MBX_ID mbx_id)
 static s32 rnp_write_mbx_pf(struct rnp_hw *hw, u32 *msg, u16 size,
 			    enum MBX_ID mbx_id)
 {
-#ifndef NO_MBX_VERSION
 	s32 ret_val = 0;
 	u16 i;
-	u32 stat;
-	u32 DATA_REG = (mbx_id == MBX_CM3CPU) ? CPU_PF_SHM_DATA :
-						PF_VF_SHM_DATA(mbx_id);
-	u32 CTRL_REG = (mbx_id == MBX_CM3CPU) ? PF2CPU_MBOX_CTRL :
-						PF2VF_MBOX_CTRL(mbx_id);
+	struct rnp_mbx_info *mbx = &hw->mbx;
+	u32 DATA_REG = (mbx_id == MBX_CM3CPU) ?
+			       CPU_PF_SHM_DATA(mbx) :
+			       PF_VF_SHM_DATA(mbx, mbx_id);
+	u32 CTRL_REG = (mbx_id == MBX_CM3CPU) ?
+			       PF2CPU_MBOX_CTRL(mbx) :
+			       PF2VF_MBOX_CTRL(mbx, mbx_id);
 
 	if (size > RNP_VFMAILBOX_SIZE) {
-		printk("%s: size:%d should <%d\n", __func__, size, RNP_VFMAILBOX_SIZE);
+		printk("%s: size:%d should <%d\n", __func__, size,
+		       RNP_VFMAILBOX_SIZE);
 		return -EINVAL;
 	}
 
@@ -419,34 +449,32 @@ static s32 rnp_write_mbx_pf(struct rnp_hw *hw, u32 *msg, u16 size,
 	ret_val = rnp_obtain_mbx_lock_pf(hw, mbx_id);
 	if (ret_val) {
 		printk("%s: get mbx:%d wlock failed. ret:%d. req:0x%08x-0x%08x\n",
-			   __func__,
-			   mbx_id,
-			   ret_val,
-			   msg[0],
-			   msg[1]);
+		       __func__, mbx_id, ret_val, msg[0], msg[1]);
 		goto out_no_write;
 	}
 
 	/* copy the caller specified message to the mailbox memory buffer */
 	for (i = 0; i < size; i++) {
 		mbx_wr32(hw, DATA_REG + i * 4, msg[i]);
-		rnp_logd(
-			LOG_MBX_OUT, "  w-mbx:0x%x <= 0x%x\n", DATA_REG + i * 4, msg[i]);
+		rnp_logd(LOG_MBX_OUT, "  w-mbx:0x%x <= 0x%x\n",
+			 DATA_REG + i * 4, msg[i]);
 	}
 
 	/* flush msg and acks as we are overwriting the message buffer */
 	if (mbx_id == MBX_CM3CPU) {
-		hw->mbx.cpu_ack = rnp_mbx_get_ack(hw, CPU2PF_COUNTER);
+		hw->mbx.cpu_ack = rnp_mbx_get_ack(hw, CPU2PF_COUNTER(mbx));
 	} else {
 		hw->mbx.vf_ack[mbx_id] =
-			rnp_mbx_get_ack(hw, VF2PF_COUNTER(mbx_id));
+			rnp_mbx_get_ack(hw, VF2PF_COUNTER(mbx, mbx_id));
 	}
 	rnp_mbx_inc_pf_req(hw, mbx_id);
 
 	/* Interrupt VF/CM3 to tell it a message
 	 * has been sent and release buffer
 	 */
-	udelay(300);
+	// n10 need this
+	if (mbx->mbx_feature & MBX_FEATURE_WRITE_DELAY)
+		udelay(300);
 	mbx_wr32(hw, CTRL_REG, MBOX_CTRL_REQ);
 
 out_no_write:
@@ -454,9 +482,6 @@ out_no_write:
 	//printk("cannot get lock\n");
 
 	return ret_val;
-#else
-	return 0;
-#endif
 }
 
 /**
@@ -473,17 +498,19 @@ out_no_write:
 static s32 rnp_read_mbx_pf(struct rnp_hw *hw, u32 *msg, u16 size,
 			   enum MBX_ID mbx_id)
 {
-#ifndef NO_MBX_VERSION
 	s32 ret_val = -EIO;
-	u32 stat, i;
-	u32 BUF_REG = (mbx_id == MBX_CM3CPU) ? CPU_PF_SHM_DATA :
-					       PF_VF_SHM_DATA(mbx_id);
-	u32 CTRL_REG = (mbx_id == MBX_CM3CPU) ? PF2CPU_MBOX_CTRL :
-						PF2VF_MBOX_CTRL(mbx_id);
+	u32 i;
+	struct rnp_mbx_info *mbx = &hw->mbx;
+	u32 BUF_REG = (mbx_id == MBX_CM3CPU) ? CPU_PF_SHM_DATA(mbx) :
+					       PF_VF_SHM_DATA(mbx, mbx_id);
+	u32 CTRL_REG = (mbx_id == MBX_CM3CPU) ?
+			       PF2CPU_MBOX_CTRL(mbx) :
+			       PF2VF_MBOX_CTRL(mbx, mbx_id);
 	if (size > RNP_VFMAILBOX_SIZE) {
-		printk("%s: size:%d should <%d\n", __func__, size, RNP_VFMAILBOX_SIZE);
+		printk("%s: size:%d should <%d\n", __func__, size,
+		       RNP_VFMAILBOX_SIZE);
 		return -EINVAL;
-		}
+	}
 	/* lock the mailbox to prevent pf/vf race condition */
 	ret_val = rnp_obtain_mbx_lock_pf(hw, mbx_id);
 	if (ret_val)
@@ -493,15 +520,17 @@ static s32 rnp_read_mbx_pf(struct rnp_hw *hw, u32 *msg, u16 size,
 	/* copy the message from the mailbox memory buffer */
 	for (i = 0; i < size; i++) {
 		msg[i] = mbx_rd32(hw, BUF_REG + 4 * i);
-		rnp_logd(LOG_MBX_IN, "  r-mbx:0x%x => 0x%x\n", BUF_REG + 4 * i, msg[i]);
+		rnp_logd(LOG_MBX_IN, "  r-mbx:0x%x => 0x%x\n",
+			 BUF_REG + 4 * i, msg[i]);
 	}
+	mbx_wr32(hw, BUF_REG, 0);
 
 	/* update req. used by rnpvf_check_for_msg_vf  */
 	if (mbx_id == MBX_CM3CPU) {
-		hw->mbx.cpu_req = rnp_mbx_get_req(hw, CPU2PF_COUNTER);
+		hw->mbx.cpu_req = rnp_mbx_get_req(hw, CPU2PF_COUNTER(mbx));
 	} else {
 		hw->mbx.vf_req[mbx_id] =
-			rnp_mbx_get_req(hw, VF2PF_COUNTER(mbx_id));
+			rnp_mbx_get_req(hw, VF2PF_COUNTER(mbx, mbx_id));
 	}
 	/* this ack maybe too earier? */
 	/* Acknowledge receipt and release mailbox, then we're done */
@@ -513,117 +542,124 @@ static s32 rnp_read_mbx_pf(struct rnp_hw *hw, u32 *msg, u16 size,
 out_no_read:
 
 	return ret_val;
-#else
-	return 0;
-#endif
 }
 
 static void rnp_mbx_reset(struct rnp_hw *hw)
 {
-#ifndef NO_MBX_VERSION
-    int idx, v, i;
-    // u32 BUF_REG = (mbx_id == MBX_CM3CPU) ? CPU_PF_SHM_DATA : PF_VF_SHM_DATA(mbx_id);
+	int idx, v;
+	struct rnp_mbx_info *mbx = &hw->mbx;
 
-#if 1
-    for (idx = 0; idx < RNP_MAX_VF_FUNCTIONS; idx++) {
-	v                   = mbx_rd32(hw, VF2PF_COUNTER(idx));
-	hw->mbx.vf_req[idx] = v & 0xffff;
-	hw->mbx.vf_ack[idx] = (v >> 16) & 0xffff;
+	for (idx = 0; idx < hw->max_vfs; idx++) {
+		v = mbx_rd32(hw, VF2PF_COUNTER(mbx, idx));
+		hw->mbx.vf_req[idx] = v & 0xffff;
+		hw->mbx.vf_ack[idx] = (v >> 16) & 0xffff;
 
-	// release pf<->vf pfu buffer lock
-	mbx_wr32(hw, PF2VF_MBOX_CTRL(idx), 0);
-    }
-#endif
-    // reset pf->cm3 status
-    v               = mbx_rd32(hw, CPU2PF_COUNTER);
-    hw->mbx.cpu_req = v & 0xffff;
-    hw->mbx.cpu_ack = (v >> 16) & 0xffff;
-    // release   pf->cm3 buffer lock
-    mbx_wr32(hw, PF2CPU_MBOX_CTRL, 0);
+		// release pf<->vf pfu buffer lock
+		mbx_wr32(hw, PF2VF_MBOX_CTRL(mbx, idx), 0);
+	}
 
-    // allow VF to PF MBX IRQ
-    // for (idx = 0; idx < RNP_MAX_VF_FUNCTIONS; idx++) {
-    // mbx_wr32(hw, VF2PF_MBOX_VEC(idx), nr_vec); // vf to pf req interrupt
-    // }
+	// reset pf->cm3 status
+	v = mbx_rd32(hw, CPU2PF_COUNTER(mbx));
+	hw->mbx.cpu_req = v & 0xffff;
+	hw->mbx.cpu_ack = (v >> 16) & 0xffff;
 
-    wr32(hw, PF_VF_MBOX_MASK_LO, 0);  // allow vf to vectors
-    wr32(hw, PF_VF_MBOX_MASK_HI, 0);  // enable irq
+	printk("now mbx.cpu_req %d mbx.cpu_ack %d\n", hw->mbx.cpu_req,
+	       hw->mbx.cpu_ack);
+	// release   pf->cm3 buffer lock
+	mbx_wr32(hw, PF2CPU_MBOX_CTRL(mbx), 0);
 
-    // bind cm3cpu mbx to irq
-    // wr32(hw, CPU2PF_MBOX_VEC, nr_vec); // cm3 and VF63 share #63 irq
-    // allow CM3CPU to PF MBX IRQ
-    wr32(hw, CPU_PF_MBOX_MASK, 0);
-#endif
+	// allow VF to PF MBX IRQ
+	// for (idx = 0; idx < RNP_MAX_VF_FUNCTIONS; idx++) {
+	// mbx_wr32(hw, VF2PF_MBOX_VEC(idx), nr_vec); // vf to pf req interrupt
+	// }
+	if (PF_VF_MBOX_MASK_LO(mbx))
+		wr32(hw, PF_VF_MBOX_MASK_LO(mbx),
+		     0); // allow vf to vectors
+	if (PF_VF_MBOX_MASK_HI(mbx))
+		wr32(hw, PF_VF_MBOX_MASK_HI(mbx), 0); // enable irq
+
+	// bind cm3cpu mbx to irq
+	// wr32(hw, CPU2PF_MBOX_VEC, nr_vec); // cm3 and VF63 share #63 irq
+	// allow CM3CPU to PF MBX IRQ
+	wr32(hw, CPU_PF_MBOX_MASK(mbx), 0);
 }
 
 static int rnp_mbx_configure_pf(struct rnp_hw *hw, int nr_vec, bool enable)
 {
-#ifndef NO_MBX_VERSION
 	int idx = 0;
 	u32 v;
+	struct rnp_mbx_info *mbx = &hw->mbx;
 
 	// TRACE();
 
 	if (enable) {
-	//hw->mbx.irq_enabled = true;
-	for (idx = 0; idx < RNP_MAX_VF_FUNCTIONS; idx++) {
-		v = mbx_rd32(hw, VF2PF_COUNTER(idx));
+		//hw->mbx.other_irq_enabled = true;
+		for (idx = 0; idx < hw->max_vfs; idx++) {
+			v = mbx_rd32(hw, VF2PF_COUNTER(mbx, idx));
 			hw->mbx.vf_req[idx] = v & 0xffff;
 			hw->mbx.vf_ack[idx] = (v >> 16) & 0xffff;
 
-			// release pf<->vf pfu buffer lock
-			mbx_wr32(hw, PF2VF_MBOX_CTRL(idx), 0);
-	}
-	// reset pf->cm3 status
-		v = mbx_rd32(hw, CPU2PF_COUNTER);
+			mbx_wr32(hw, PF2VF_MBOX_CTRL(mbx, idx), 0);
+		}
+		// reset pf->cm3 status
+		v = mbx_rd32(hw, CPU2PF_COUNTER(mbx));
 		hw->mbx.cpu_req = v & 0xffff;
 		hw->mbx.cpu_ack = (v >> 16) & 0xffff;
 		// release   pf->cm3 buffer lock
-		mbx_wr32(hw, PF2CPU_MBOX_CTRL, 0);
+		mbx_wr32(hw, PF2CPU_MBOX_CTRL(mbx), 0);
 
 		// allow VF to PF MBX IRQ
-		for (idx = 0; idx < RNP_MAX_VF_FUNCTIONS; idx++) {
-			mbx_wr32(hw, VF2PF_MBOX_VEC(idx),
+		for (idx = 0; idx < hw->max_vfs; idx++) {
+			mbx_wr32(hw, VF2PF_MBOX_VEC(mbx, idx),
 				 nr_vec); //vf to pf req interrupt
 		}
 
-		wr32(hw, PF_VF_MBOX_MASK_LO, 0); // allow vf to vectors
-		wr32(hw, PF_VF_MBOX_MASK_HI, 0); // enable irq
+		if (PF_VF_MBOX_MASK_LO(mbx))
+			wr32(hw, PF_VF_MBOX_MASK_LO(mbx),
+			     0); // allow vf to vectors
+
+		if (PF_VF_MBOX_MASK_HI(mbx))
+			wr32(hw, PF_VF_MBOX_MASK_HI(mbx), 0); // enable irq
 
 		// bind cm3cpu mbx to irq
-		wr32(hw, CPU2PF_MBOX_VEC, nr_vec); // cm3 and VF63 share #63 irq
+		wr32(hw, CPU2PF_MBOX_VEC(mbx),
+		     nr_vec); // cm3 and VF63 share #63 irq
 		// allow CM3CPU to PF MBX IRQ
-		wr32(hw, CPU_PF_MBOX_MASK, 0);
+		wr32(hw, CPU_PF_MBOX_MASK(mbx), 0);
 
 		rnp_dbg("[%s] mbx-vector:%d\n", __func__, nr_vec);
+
 	} else {
-	//hw->mbx.irq_enabled = false;
-	wr32(hw, PF_VF_MBOX_MASK_LO, 0xffffffff); // disable irq
-		wr32(hw, PF_VF_MBOX_MASK_HI, 0xffffffff); // disable irq
+		//hw->mbx.other_irq_enabled = false;
+		if (PF_VF_MBOX_MASK_LO(mbx))
+			wr32(hw, PF_VF_MBOX_MASK_LO(mbx),
+			     0xffffffff); // disable irq
+		if (PF_VF_MBOX_MASK_HI(mbx))
+			wr32(hw, PF_VF_MBOX_MASK_HI(mbx),
+			     0xffffffff); // disable irq
 
 		// disable CM3CPU to PF MBX IRQ
-		wr32(hw, CPU_PF_MBOX_MASK, 0xffffffff);
+		wr32(hw, CPU_PF_MBOX_MASK(mbx), 0xffffffff);
 
 		// reset vf->pf status/ctrl
-		for (idx = 0; idx < RNP_MAX_VF_FUNCTIONS; idx++)
-			mbx_wr32(hw, PF2VF_MBOX_CTRL(idx), 0);
+		for (idx = 0; idx < hw->max_vfs; idx++)
+			mbx_wr32(hw, PF2VF_MBOX_CTRL(mbx, idx), 0);
 		// reset pf->cm3 ctrl
-		mbx_wr32(hw, PF2CPU_MBOX_CTRL, 0);
+		mbx_wr32(hw, PF2CPU_MBOX_CTRL(mbx), 0);
+		// used to sync link status
 		wr32(hw, RNP_DMA_DUMY, 0);
 	}
-#endif
 	return 0;
 }
 
 unsigned int rnp_mbx_change_timeout(struct rnp_hw *hw, int timeout_ms)
 {
-    unsigned int old_timeout = hw->mbx.timeout;
+	unsigned int old_timeout = hw->mbx.timeout;
 
-    hw->mbx.timeout = timeout_ms*1000 / hw->mbx.usec_delay;
+	hw->mbx.timeout = timeout_ms * 1000 / hw->mbx.usec_delay;
 
-    return old_timeout;
+	return old_timeout;
 }
-
 
 /**
  *  rnp_init_mbx_params_pf - set initial values for pf mailbox

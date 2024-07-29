@@ -183,13 +183,14 @@ out:
 
 static inline int set_cs(struct ls_spi *ls_spi, struct spi_device  *spi, int val)
 {
-	if (spi->mode  & SPI_CS_HIGH)
+	if (spi->mode & SPI_CS_HIGH)
 		val = !val;
+
 	if (ls_spi->mode & SPI_NO_CS) {
 		ls_spi_write_reg(ls_spi, SPCS, val);
 	} else {
-		int cs = ls_spi_read_reg(ls_spi, SFCS) & ~(0x11 << spi->chip_select);
-		ls_spi_write_reg(ls_spi, SFCS, (val ? (0x11 << spi->chip_select):(0x1 << spi->chip_select)) | cs);
+		ls_spi_write_reg(ls_spi, SFCS,
+				(val ? (0x11 << spi->chip_select) : (0x1 << spi->chip_select)));
 	}
 	return 0;
 }
@@ -205,6 +206,7 @@ static void ls_spi_work(struct work_struct *work)
 	ls_spi_write_reg(ls_spi, PARA, param&~1);
 	while (!list_empty(&ls_spi->msg_queue)) {
 
+		bool keep_cs = false;
 		struct spi_message *m;
 		struct spi_device  *spi;
 		struct spi_transfer *t = NULL;
@@ -227,11 +229,22 @@ static void ls_spi_work(struct work_struct *work)
 			if (t->len)
 				m->actual_length +=
 					ls_spi_write_read(spi, t);
+
+			if (t->cs_change) {
+				if (list_is_last(&t->transfer_list, &m->transfers)) {
+					keep_cs = true;
+				} else {
+					set_cs(ls_spi, spi, 1);
+					udelay(10);
+					set_cs(ls_spi, spi, 0);
+				}
+			}
 		}
 
-		set_cs(ls_spi, spi, 1);
-		m->complete(m->context);
+		if (!keep_cs)
+			set_cs(ls_spi, spi, 1);
 
+		m->complete(m->context);
 
 		spin_lock(&ls_spi->lock);
 	}
@@ -347,7 +360,6 @@ static int ls_spi_init_master(struct device *dev, struct resource *res)
 
 unmap_io:
 	iounmap(spi->base);
-	kfree(master);
 	spi_master_put(master);
 	return ret;
 }

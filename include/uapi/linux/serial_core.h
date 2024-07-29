@@ -57,7 +57,8 @@
 #define PORT_ALTR_16550_F128 28 /* Altera 16550 UART with 128 FIFOs */
 #define PORT_RT2880	29	/* Ralink RT2880 internal UART */
 #define PORT_16550A_FSL64 30	/* Freescale 16550 UART with 64 FIFOs */
-#define PORT_LOONGSON	130
+#define PORT_LOONGSON_NODE	130
+#define PORT_LOONGSON_MISC	131
 
 /*
  * ARM specific type numbers.  These are not currently guaranteed

@@ -232,6 +232,8 @@ done:
 			break;
 		}
 
+		radeon_uvd_resume_handles(rdev);
+
 		DRM_INFO("UVD initialized successfully.\n");
 	}
 

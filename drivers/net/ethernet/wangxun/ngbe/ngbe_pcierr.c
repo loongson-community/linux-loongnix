@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: GPL-2.0 */
+/* Copyright(c) 1999 - 2022  Beijing WangXun Technology Co., Ltd. */
 #include <linux/delay.h>
 #include <linux/pci.h>
 #include "ngbe_pcierr.h"
@@ -11,7 +13,7 @@
 #define PCI_ERS_RESULT_NO_AER_DRIVER ((__force pci_ers_result_t) 6)
 #endif
 
-#if (RHEL_RELEASE_CODE && (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7, 0)))
+#if (RHEL_RELEASE_CODE && (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,0)))
 /* redefinition because centos 6 can't use pci_walk_bus in pci.h*/
 
 struct rw_semaphore pci_bus_sem;
@@ -235,7 +237,7 @@ void ngbe_pcie_do_recovery(struct pci_dev *dev)
 		if (delay > 60000) {
 			pci_warn(dev, "not ready %dms after %s; giving up\n",
 				 delay - 1, "bus_reset");
-					return;
+				return;
 		}
 
 		if (delay > 1000)
@@ -263,7 +265,7 @@ void ngbe_pcie_do_recovery(struct pci_dev *dev)
 	reg32 |= NGBE_ROOT_PORT_INTR_ON_MESG_MASK;
 	pci_write_config_dword(dev, pos + PCI_ERR_ROOT_COMMAND, reg32);
 	}
-
+	
 	if (status == PCI_ERS_RESULT_CAN_RECOVER) {
 		status = PCI_ERS_RESULT_RECOVERED;
 		pci_dbg(dev, "broadcast mmio_enabled message\n");

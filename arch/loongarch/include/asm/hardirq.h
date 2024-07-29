@@ -19,7 +19,7 @@
 extern void ack_bad_irq(unsigned int irq);
 #define ack_bad_irq ack_bad_irq
 
-#define NR_IPI	2
+#define NR_IPI	3
 
 typedef struct {
 	unsigned int __softirq_pending;

@@ -28,6 +28,7 @@ struct loongson_system_configuration loongson_sysconf;
 
 void *loongson_fdt_blob;
 EXPORT_SYMBOL(loongson_sysconf);
+bool is_kexec;
 
 static u8 ext_listhdr_checksum(u8 *buffer, u32 length)
 {
@@ -169,6 +170,8 @@ void __init fw_init_env(void)
 		goto parse_fdt;
 
 	cmdline = early_memremap_ro(fw_arg1, COMMAND_LINE_SIZE);
+	if (!strncmp(cmdline, "kexec", 5))
+		is_kexec = 1;
 	strscpy(boot_command_line, cmdline, COMMAND_LINE_SIZE);
 	early_memunmap(cmdline, COMMAND_LINE_SIZE);
 

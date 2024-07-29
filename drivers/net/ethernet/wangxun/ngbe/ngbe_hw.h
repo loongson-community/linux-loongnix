@@ -34,10 +34,10 @@
 #define SPI_CMD_WRITE_DWORD                0  // SPI write a dword command
 #define SPI_CMD_READ_DWORD                 1  // SPI read a dword command
 #define SPI_CMD_USER_CMD                   5  // SPI user command
-
+				
 #define SPI_CLK_CMD_OFFSET                28  // SPI command field offset in Command register
 #define SPI_CLK_DIV_OFFSET                25  // SPI clock divide field offset in Command register
-
+				
 #define SPI_TIME_OUT_VALUE             10000
 #define SPI_SECTOR_SIZE          (4 * 1024)  // FLASH sector size is 64KB
 #define SPI_H_CMD_REG_ADDR           0x10104  // SPI Command register address
@@ -131,67 +131,67 @@ typedef struct ngbe_dec_ptype ngbe_dptype;
 
 
 u16 ngbe_get_pcie_msix_count(struct ngbe_hw *hw);
-s32 ngbe_init_hw(struct ngbe_hw *hw);
-s32 ngbe_start_hw(struct ngbe_hw *hw);
-s32 ngbe_clear_hw_cntrs(struct ngbe_hw *hw);
-s32 ngbe_read_pba_string(struct ngbe_hw *hw, u8 *pba_num,
+int ngbe_init_hw(struct ngbe_hw *hw);
+int ngbe_start_hw(struct ngbe_hw *hw);
+int ngbe_clear_hw_cntrs(struct ngbe_hw *hw);
+int ngbe_read_pba_string(struct ngbe_hw *hw, u8 *pba_num,
 				  u32 pba_num_size);
-s32 ngbe_get_mac_addr(struct ngbe_hw *hw, u8 *mac_addr);
-s32 ngbe_get_bus_info(struct ngbe_hw *hw);
+int ngbe_get_mac_addr(struct ngbe_hw *hw, u8 *mac_addr);
+int ngbe_get_bus_info(struct ngbe_hw *hw);
 void ngbe_set_pci_config_data(struct ngbe_hw *hw, u16 link_status);
 void ngbe_set_lan_id_multi_port_pcie(struct ngbe_hw *hw);
-s32 ngbe_stop_adapter(struct ngbe_hw *hw);
+int ngbe_stop_adapter(struct ngbe_hw *hw);
 
-s32 ngbe_led_on(struct ngbe_hw *hw, u32 index);
-s32 ngbe_led_off(struct ngbe_hw *hw, u32 index);
+int ngbe_led_on(struct ngbe_hw *hw, u32 index);
+int ngbe_led_off(struct ngbe_hw *hw, u32 index);
 
-s32 ngbe_set_rar(struct ngbe_hw *hw, u32 index, u8 *addr, u64 pools,
+int ngbe_set_rar(struct ngbe_hw *hw, u32 index, u8 *addr, u64 pools,
 			  u32 enable_addr);
-s32 ngbe_clear_rar(struct ngbe_hw *hw, u32 index);
-s32 ngbe_init_rx_addrs(struct ngbe_hw *hw);
-s32 ngbe_update_mc_addr_list(struct ngbe_hw *hw, u8 *mc_addr_list,
+int ngbe_clear_rar(struct ngbe_hw *hw, u32 index);
+int ngbe_init_rx_addrs(struct ngbe_hw *hw);
+int ngbe_update_mc_addr_list(struct ngbe_hw *hw, u8 *mc_addr_list,
 				      u32 mc_addr_count,
 				      ngbe_mc_addr_itr func, bool clear);
-s32 ngbe_update_uc_addr_list(struct ngbe_hw *hw, u8 *addr_list,
+int ngbe_update_uc_addr_list(struct ngbe_hw *hw, u8 *addr_list,
 				      u32 addr_count, ngbe_mc_addr_itr func);
-s32 ngbe_enable_mc(struct ngbe_hw *hw);
-s32 ngbe_disable_mc(struct ngbe_hw *hw);
-s32 ngbe_disable_sec_rx_path(struct ngbe_hw *hw);
-s32 ngbe_enable_sec_rx_path(struct ngbe_hw *hw);
+int ngbe_enable_mc(struct ngbe_hw *hw);
+int ngbe_disable_mc(struct ngbe_hw *hw);
+int ngbe_disable_sec_rx_path(struct ngbe_hw *hw);
+int ngbe_enable_sec_rx_path(struct ngbe_hw *hw);
 
-s32 ngbe_fc_enable(struct ngbe_hw *hw);
+int ngbe_fc_enable(struct ngbe_hw *hw);
 void ngbe_fc_autoneg(struct ngbe_hw *hw);
-s32 ngbe_setup_fc(struct ngbe_hw *hw);
+int ngbe_setup_fc(struct ngbe_hw *hw);
 
-s32 ngbe_validate_mac_addr(u8 *mac_addr);
-s32 ngbe_acquire_swfw_sync(struct ngbe_hw *hw, u32 mask);
+int ngbe_validate_mac_addr(u8 *mac_addr);
+int ngbe_acquire_swfw_sync(struct ngbe_hw *hw, u32 mask);
 void ngbe_release_swfw_sync(struct ngbe_hw *hw, u32 mask);
-s32 ngbe_disable_pcie_master(struct ngbe_hw *hw);
+int ngbe_disable_pcie_master(struct ngbe_hw *hw);
 
-s32 ngbe_set_vmdq(struct ngbe_hw *hw, u32 rar, u32 vmdq);
-s32 ngbe_set_vmdq_san_mac(struct ngbe_hw *hw, u32 vmdq);
-s32 ngbe_clear_vmdq(struct ngbe_hw *hw, u32 rar, u32 vmdq);
-s32 ngbe_insert_mac_addr(struct ngbe_hw *hw, u8 *addr, u32 vmdq);
-s32 ngbe_init_uta_tables(struct ngbe_hw *hw);
-s32 ngbe_set_vfta(struct ngbe_hw *hw, u32 vlan,
+int ngbe_set_vmdq(struct ngbe_hw *hw, u32 rar, u32 vmdq);
+int ngbe_set_vmdq_san_mac(struct ngbe_hw *hw, u32 vmdq);
+int ngbe_clear_vmdq(struct ngbe_hw *hw, u32 rar, u32 vmdq);
+int ngbe_insert_mac_addr(struct ngbe_hw *hw, u8 *addr, u32 vmdq);
+int ngbe_init_uta_tables(struct ngbe_hw *hw);
+int ngbe_set_vfta(struct ngbe_hw *hw, u32 vlan,
 			 u32 vind, bool vlan_on);
-s32 ngbe_set_vlvf(struct ngbe_hw *hw, u32 vlan, u32 vind,
+int ngbe_set_vlvf(struct ngbe_hw *hw, u32 vlan, u32 vind,
 			   bool vlan_on, bool *vfta_changed);
-s32 ngbe_clear_vfta(struct ngbe_hw *hw);
-s32 ngbe_find_vlvf_slot(struct ngbe_hw *hw, u32 vlan);
+int ngbe_clear_vfta(struct ngbe_hw *hw);
+int ngbe_find_vlvf_slot(struct ngbe_hw *hw, u32 vlan);
 
 void ngbe_set_mac_anti_spoofing(struct ngbe_hw *hw, bool enable, int pf);
 void ngbe_set_vlan_anti_spoofing(struct ngbe_hw *hw, bool enable, int vf);
 void ngbe_set_ethertype_anti_spoofing(struct ngbe_hw *hw,
 					bool enable, int vf);
-s32 ngbe_get_device_caps(struct ngbe_hw *hw, u16 *device_caps);
+int ngbe_get_device_caps(struct ngbe_hw *hw, u16 *device_caps);
 void ngbe_set_rxpba(struct ngbe_hw *hw, int num_pb, u32 headroom,
 			     int strategy);
-s32 ngbe_set_fw_drv_ver(struct ngbe_hw *hw, u8 maj, u8 min,
+int ngbe_set_fw_drv_ver(struct ngbe_hw *hw, u8 maj, u8 min,
 				 u8 build, u8 ver);
-s32 ngbe_reset_hostif(struct ngbe_hw *hw);
+int ngbe_reset_hostif(struct ngbe_hw *hw);
 u8 ngbe_calculate_checksum(u8 *buffer, u32 length);
-s32 ngbe_host_interface_command(struct ngbe_hw *hw, u32 *buffer,
+int ngbe_host_interface_command(struct ngbe_hw *hw, u32 *buffer,
 				 u32 length, u32 timeout, bool return_data);
 
 void ngbe_clear_tx_pending(struct ngbe_hw *hw);
@@ -199,11 +199,11 @@ void ngbe_stop_mac_link_on_d3(struct ngbe_hw *hw);
 bool ngbe_mng_present(struct ngbe_hw *hw);
 bool ngbe_check_mng_access(struct ngbe_hw *hw);
 
-s32 ngbe_get_thermal_sensor_data(struct ngbe_hw *hw);
-s32 ngbe_init_thermal_sensor_thresh(struct ngbe_hw *hw);
+int ngbe_get_thermal_sensor_data(struct ngbe_hw *hw);
+int ngbe_init_thermal_sensor_thresh(struct ngbe_hw *hw);
 void ngbe_enable_rx(struct ngbe_hw *hw);
 void ngbe_disable_rx(struct ngbe_hw *hw);
-s32 ngbe_setup_mac_link_multispeed_fiber(struct ngbe_hw *hw,
+int ngbe_setup_mac_link_multispeed_fiber(struct ngbe_hw *hw,
 					  u32 speed,
 					  bool autoneg_wait_to_complete);
 int ngbe_check_flash_load(struct ngbe_hw *hw, u32 check_bit);
@@ -214,7 +214,7 @@ void ngbe_atr_compute_perfect_hash(union ngbe_atr_input *input,
 u32 ngbe_atr_compute_sig_hash(union ngbe_atr_hash_dword input,
 				     union ngbe_atr_hash_dword common);
 
-s32 ngbe_get_link_capabilities(struct ngbe_hw *hw,
+int ngbe_get_link_capabilities(struct ngbe_hw *hw,
 				      u32 *speed, bool *autoneg);
 enum ngbe_media_type ngbe_get_media_type(struct ngbe_hw *hw);
 void ngbe_disable_tx_laser_multispeed_fiber(struct ngbe_hw *hw);
@@ -222,61 +222,59 @@ void ngbe_enable_tx_laser_multispeed_fiber(struct ngbe_hw *hw);
 void ngbe_flap_tx_laser_multispeed_fiber(struct ngbe_hw *hw);
 void ngbe_set_hard_rate_select_speed(struct ngbe_hw *hw,
 					u32 speed);
-s32 ngbe_setup_mac_link(struct ngbe_hw *hw, u32 speed,
+int ngbe_setup_mac_link(struct ngbe_hw *hw, u32 speed,
 						bool autoneg_wait_to_complete);
 void ngbe_init_mac_link_ops(struct ngbe_hw *hw);
-s32 ngbe_reset_hw(struct ngbe_hw *hw);
-s32 ngbe_identify_phy(struct ngbe_hw *hw);
-s32 ngbe_init_ops_common(struct ngbe_hw *hw);
-s32 ngbe_enable_rx_dma(struct ngbe_hw *hw, u32 regval);
-s32 ngbe_init_ops(struct ngbe_hw *hw);
-s32 ngbe_setup_eee(struct ngbe_hw *hw, bool enable_eee);
+int ngbe_reset_hw(struct ngbe_hw *hw);
+int ngbe_identify_phy(struct ngbe_hw *hw);
+void ngbe_init_ops_common(struct ngbe_hw *hw);
+int ngbe_enable_rx_dma(struct ngbe_hw *hw, u32 regval);
+void ngbe_init_ops(struct ngbe_hw *hw);
+int ngbe_setup_eee(struct ngbe_hw *hw, bool enable_eee);
 
-s32 ngbe_init_flash_params(struct ngbe_hw *hw);
-s32 ngbe_read_flash_buffer(struct ngbe_hw *hw, u32 offset,
+int ngbe_init_flash_params(struct ngbe_hw *hw);
+int ngbe_read_flash_buffer(struct ngbe_hw *hw, u32 offset,
 					  u32 dwords, u32 *data);
-s32 ngbe_write_flash_buffer(struct ngbe_hw *hw, u32 offset,
+int ngbe_write_flash_buffer(struct ngbe_hw *hw, u32 offset,
 					  u32 dwords, u32 *data);
 
-s32 ngbe_read_eeprom(struct ngbe_hw *hw,
+int ngbe_read_eeprom(struct ngbe_hw *hw,
 				   u16 offset, u16 *data);
-s32 ngbe_read_eeprom_buffer(struct ngbe_hw *hw, u16 offset,
+int ngbe_read_eeprom_buffer(struct ngbe_hw *hw, u16 offset,
 					  u16 words, u16 *data);
-s32 ngbe_init_eeprom_params(struct ngbe_hw *hw);
-s32 ngbe_update_eeprom_checksum(struct ngbe_hw *hw);
-s32 ngbe_calc_eeprom_checksum(struct ngbe_hw *hw);
-s32 ngbe_validate_eeprom_checksum(struct ngbe_hw *hw,
+int ngbe_init_eeprom_params(struct ngbe_hw *hw);
+int ngbe_update_eeprom_checksum(struct ngbe_hw *hw);
+int ngbe_calc_eeprom_checksum(struct ngbe_hw *hw);
+int ngbe_validate_eeprom_checksum(struct ngbe_hw *hw,
 					    u16 *checksum_val);
-s32 ngbe_upgrade_flash(struct ngbe_hw *hw, u32 region,
+int ngbe_upgrade_flash(struct ngbe_hw *hw, u32 region,
 				const u8 *data, u32 size);
-s32 ngbe_write_ee_hostif_buffer(struct ngbe_hw *hw,
+int ngbe_write_ee_hostif_buffer(struct ngbe_hw *hw,
 				u16 offset, u16 words, u16 *data);
-s32 ngbe_write_ee_hostif(struct ngbe_hw *hw, u16 offset,
+int ngbe_write_ee_hostif(struct ngbe_hw *hw, u16 offset,
 				u16 data);
-s32 ngbe_write_ee_hostif32(struct ngbe_hw *hw, u16 offset,
+int ngbe_write_ee_hostif32(struct ngbe_hw *hw, u16 offset,
 				u32 data);
 
-s32 ngbe_read_ee_hostif_buffer(struct ngbe_hw *hw,
+int ngbe_read_ee_hostif_buffer(struct ngbe_hw *hw,
 				u16 offset, u16 words, u16 *data);
-s32 ngbe_read_ee_hostif(struct ngbe_hw *hw, u16 offset, u16 *data);
+int ngbe_read_ee_hostif(struct ngbe_hw *hw, u16 offset, u16 *data);
 
-s32 ngbe_read_ee_hostif32(struct ngbe_hw *hw, u16 offset, u32 *data);
+int ngbe_read_ee_hostif32(struct ngbe_hw *hw, u16 offset, u32 *data);
 
 u32 ngbe_rd32_epcs(struct ngbe_hw *hw, u32 addr);
 void ngbe_wr32_epcs(struct ngbe_hw *hw, u32 addr, u32 data);
 void ngbe_wr32_ephy(struct ngbe_hw *hw, u32 addr, u32 data);
-s32 ngbe_upgrade_flash_hostif(struct ngbe_hw *hw,  u32 region,
+int ngbe_upgrade_flash_hostif(struct ngbe_hw *hw,  u32 region,
 				const u8 *data, u32 size);
 
-s32 ngbe_check_mac_link_zte(struct ngbe_hw *hw,
-							u32 *speed,
-							bool *link_up,
-							bool link_up_wait_to_complete);
-
-s32 ngbe_eepromcheck_cap(struct ngbe_hw *hw, u16 offset,
+int ngbe_eepromcheck_cap(struct ngbe_hw *hw, u16 offset,
 							   u32 *data);
-s32 ngbe_phy_signal_set(struct ngbe_hw *hw);
+int ngbe_phy_signal_set(struct ngbe_hw *hw);
 
+int ngbe_flash_read_dword(struct ngbe_hw *hw, u32 addr, u32 *data);
 
+int ngbe_is_lldp(struct ngbe_hw *hw);
+int ngbe_hic_write_lldp(struct ngbe_hw *hw, u32 open);
 
 #endif /* _NGBE_HW_H_ */

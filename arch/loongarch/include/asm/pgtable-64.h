@@ -14,7 +14,7 @@
 #define __ARCH_USE_5LEVEL_HACK
 #if defined(CONFIG_PAGE_SIZE_64KB) && !defined(CONFIG_VA_BITS_48)
 #include <asm-generic/pgtable-nopmd.h>
-#elif !(defined(CONFIG_PAGE_SIZE_4KB) && defined(CONFIG_VA_BITS_48))
+#elif (CONFIG_PGTABLE_LEVELS == 3)
 #include <asm-generic/pgtable-nopud.h>
 #else
 #include <asm-generic/5level-fixup.h>
@@ -43,7 +43,7 @@
 #ifdef CONFIG_VA_BITS_40
 #ifdef CONFIG_PAGE_SIZE_4KB
 #define PGD_ORDER		0
-#define PUD_ORDER		aieeee_attempt_to_allocate_pud
+#define PUD_ORDER		0
 #define PMD_ORDER		0
 #define PTE_ORDER		0
 #endif

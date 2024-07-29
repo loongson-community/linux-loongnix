@@ -25,10 +25,6 @@ static int dc_encoder_helper_atomic_check(struct drm_encoder *encoder,
 					  struct drm_crtc_state *crtc_state,
 					  struct drm_connector_state *conn_state)
 {
-	struct gsgpu_encoder *lencoder = to_gsgpu_encoder(encoder);
-
-	bridge_phy_mode_set(lencoder->bridge, &crtc_state->mode, NULL);
-
 	return 0;
 }
 

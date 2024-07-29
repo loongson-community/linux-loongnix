@@ -166,7 +166,7 @@ static unsigned long __init init_initrd(void)
 	return 0;
 }
 #endif
-static int loongson_syscall = true;
+static int loongson_syscall;
 static int __init loongson_syscall_disable(char *str)
 {
 	loongson_syscall = false;
@@ -595,9 +595,10 @@ static void parse_cmdline(char **cmdline_p)
 	strlcat(boot_command_line, arcs_cmdline, COMMAND_LINE_SIZE);
 
 	if (builtin_cmdline[0]) {
-		if (boot_command_line[0])
-			strlcat(boot_command_line, " ", COMMAND_LINE_SIZE);
-		strlcat(boot_command_line, builtin_cmdline, COMMAND_LINE_SIZE);
+		/* append boot loader cmdline to builtin */
+		strlcat(builtin_cmdline, " ", COMMAND_LINE_SIZE);
+		strlcat(builtin_cmdline, boot_command_line, COMMAND_LINE_SIZE);
+		strlcpy(boot_command_line, builtin_cmdline, COMMAND_LINE_SIZE);
 	}
 
 	strlcpy(command_line, boot_command_line, COMMAND_LINE_SIZE);

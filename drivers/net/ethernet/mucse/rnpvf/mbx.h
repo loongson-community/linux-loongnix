@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: GPL-2.0 */
+/* Copyright(c) 2022 - 2023 Mucse Corporation. */
+
 #ifndef _RNP_MBX_H_
 #define _RNP_MBX_H_
 
@@ -26,18 +29,15 @@ struct mbx_shm {
  * PF.  The reverse is true if it is RNP_PF_*.
  * Message ACK's are the value or'd with 0xF0000000
  */
-#define RNP_VT_MSGTYPE_ACK                                                     \
-	0x80000000
+#define RNP_VT_MSGTYPE_ACK 0x80000000
 /* Messages below or'd with
  * this are the ACK
  */
-#define RNP_VT_MSGTYPE_NACK                                                    \
-	0x40000000
+#define RNP_VT_MSGTYPE_NACK 0x40000000
 /* Messages below or'd with
  * this are the NACK
  */
-#define RNP_VT_MSGTYPE_CTS                                                     \
-	0x20000000
+#define RNP_VT_MSGTYPE_CTS 0x20000000
 /* Indicates that VF is still
  * clear to send requests
  */

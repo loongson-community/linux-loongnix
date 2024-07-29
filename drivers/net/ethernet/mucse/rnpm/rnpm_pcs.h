@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-2.0
+/* Copyright(c) 2022 - 2023 Mucse Corporation. */
 #ifndef _RNPM_PCS_H_
 #define _RNPM_PCS_H_
 

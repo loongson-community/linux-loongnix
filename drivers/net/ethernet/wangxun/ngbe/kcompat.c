@@ -77,10 +77,9 @@ static char *number(char *buf, char *end, long long num, int base, int size, int
 	}
 	i = 0;
 	if (num == 0)
-		tmp[i++] = '0';
-	else
-		while (num != 0)
-			tmp[i++] = digits[do_div(num, base)];
+		tmp[i++]='0';
+	else while (num != 0)
+		tmp[i++] = digits[do_div(num,base)];
 	if (i > precision)
 		precision = i;
 	size -= precision;
@@ -173,17 +172,12 @@ int _kc_vsnprintf(char *buf, size_t size, const char *fmt, va_list args)
 		repeat:
 			++fmt;		/* this also skips first '%' */
 			switch (*fmt) {
-			case '-':
-				flags |= _kc_LEFT; goto repeat;
-			case '+':
-				flags |= _kc_PLUS; goto repeat;
-			case ' ':
-				flags |= _kc_SPACE; goto repeat;
-			case '#':
-				flags |= _kc_SPECIAL; goto repeat;
-			case '0':
-				flags |= _kc_ZEROPAD; goto repeat;
-}
+				case '-': flags |= _kc_LEFT; goto repeat;
+				case '+': flags |= _kc_PLUS; goto repeat;
+				case ' ': flags |= _kc_SPACE; goto repeat;
+				case '#': flags |= _kc_SPECIAL; goto repeat;
+				case '0': flags |= _kc_ZEROPAD; goto repeat;
+			}
 
 		/* get field width */
 		field_width = -1;
@@ -1831,7 +1825,7 @@ int __kc_pcie_get_minimum_link(struct pci_dev *dev, enum pci_bus_speed *speed,
 	return 0;
 }
 
-#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6, 7))
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,7))
 int _kc_pci_wait_for_pending_transaction(struct pci_dev *dev)
 {
 	int i;
@@ -1868,7 +1862,7 @@ int __kc_dma_set_mask_and_coherent(struct device *dev, u64 mask)
 	return err;
 }
 
-#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7, 0))
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,0))
 static bool _kc_pci_bus_read_dev_vendor_id(struct pci_bus *bus, int devfn,
 					   u32 *l, int crs_timeout)
 {
@@ -2232,8 +2226,8 @@ void *__kc_devm_kmemdup(struct device *dev, const void *src, size_t len,
 #endif /* 3.16.0 */
 
 /******************************************************************************/
-#if ((LINUX_VERSION_CODE < KERNEL_VERSION(3, 17, 0)) && \
-   (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7, 5)))
+#if ((LINUX_VERSION_CODE < KERNEL_VERSION(3,17,0)) && \
+     (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,5)))
 #endif /* <3.17.0 && RHEL_RELEASE_CODE < RHEL7.5 */
 
 /******************************************************************************/
@@ -2435,10 +2429,10 @@ int _kc_bitmap_print_to_pagebuf(bool list, char *buf,
 #endif
 
 /******************************************************************************/
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 1, 0))
-#if !((RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(6, 8) && RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7, 0)) && \
-   (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7, 2)) && \
-  (SLE_VERSION_CODE > SLE_VERSION(12, 1, 0)))
+#if ( LINUX_VERSION_CODE < KERNEL_VERSION(4,1,0) )
+#if !((RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(6,8) && RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,0)) && \
+      (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7,2)) && \
+      (SLE_VERSION_CODE > SLE_VERSION(12,1,0)))
 unsigned int _kc_cpumask_local_spread(unsigned int i, int node)
 {
 	int cpu;
@@ -2482,9 +2476,9 @@ unsigned int _kc_cpumask_local_spread(unsigned int i, int node)
 #endif
 
 /******************************************************************************/
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 3, 0))
-#if (!(RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7, 4)) && \
-  !(SLE_VERSION_CODE >= SLE_VERSION(12, 2, 0)))
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(4,3,0))
+#if (!(RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,4)) && \
+     !(SLE_VERSION_CODE >= SLE_VERSION(12,2,0)))
 /**
  * _kc_skb_flow_dissect_flow_keys - parse SKB to fill _kc_flow_keys
  * @skb: SKB used to fille _kc_flow_keys
@@ -2576,8 +2570,8 @@ unsupported:
 #endif /* 4.3.0 */
 
 /******************************************************************************/
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 5, 0))
-#if (!(RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7, 3)))
+#if ( LINUX_VERSION_CODE < KERNEL_VERSION(4,5,0) )
+#if (!(RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,3)))
 #ifdef CONFIG_SPARC
 #include <asm/idprom.h>
 #include <asm/prom.h>
@@ -2625,9 +2619,9 @@ int _kc_eth_platform_get_mac_address(struct device *dev __maybe_unused,
 #endif /* < 4.5.0 */
 
 /*****************************************************************************/
-#if ((LINUX_VERSION_CODE < KERNEL_VERSION(4, 14, 0)) || \
-  (SLE_VERSION_CODE && (SLE_VERSION_CODE <= SLE_VERSION(12, 3, 0))) || \
-   (RHEL_RELEASE_CODE && (RHEL_RELEASE_CODE <= RHEL_RELEASE_VERSION(7, 5))))
+#if ((LINUX_VERSION_CODE < KERNEL_VERSION(4,14,0)) || \
+     (SLE_VERSION_CODE && (SLE_VERSION_CODE <= SLE_VERSION(12,3,0))) || \
+     (RHEL_RELEASE_CODE && (RHEL_RELEASE_CODE <= RHEL_RELEASE_VERSION(7,5))))
 const char *_kc_phy_speed_to_str(int speed)
 {
 	switch (speed) {
@@ -2668,7 +2662,7 @@ const char *_kc_phy_speed_to_str(int speed)
 #endif /* (LINUX < 4.14.0) || (SLES <= 12.3.0) || (RHEL <= 7.5) */
 
 /******************************************************************************/
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0))
+#if ( LINUX_VERSION_CODE < KERNEL_VERSION(4,15,0) )
 void _kc_ethtool_intersect_link_masks(struct ethtool_link_ksettings *dst,
 				      struct ethtool_link_ksettings *src)
 {
@@ -2685,11 +2679,11 @@ void _kc_ethtool_intersect_link_masks(struct ethtool_link_ksettings *dst,
 #endif /* 4.15.0 */
 
 /*****************************************************************************/
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
-#if !(RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(8, 0)) && \
-  !(SLE_VERSION_CODE >= SLE_VERSION(12, 5, 0) && \
-  SLE_VERSION_CODE < SLE_VERSION(15, 0, 0) || \
-  SLE_VERSION_CODE >= SLE_VERSION(15, 1, 0))
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(4,16,0))
+#if !(RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(8,0)) && \
+     !(SLE_VERSION_CODE >= SLE_VERSION(12,5,0) && \
+       SLE_VERSION_CODE < SLE_VERSION(15,0,0) || \
+       SLE_VERSION_CODE >= SLE_VERSION(15,1,0))
 #if BITS_PER_LONG == 64
 /**
  * bitmap_from_arr32 - copy the contents of u32 array of bits to bitmap
@@ -2865,8 +2859,8 @@ void _kc_pcie_print_link_status(struct pci_dev *dev) {
 #endif /* 4.17.0 */
 
 /*****************************************************************************/
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 1, 0))
-#if (RHEL_RELEASE_CODE && (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(8, 1)))
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(5,1,0))
+#if (RHEL_RELEASE_CODE && (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(8,1)))
 #define HAVE_NDO_FDB_ADD_EXTACK
 #else /* !RHEL || RHEL < 8.1 */
 #ifdef HAVE_TC_SETUP_CLSFLOWER
@@ -2957,8 +2951,8 @@ void ngbe_flow_rule_match_ports(const struct flow_rule *rule,
 #endif /* 5.1.0 */
 
 /*****************************************************************************/
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 3, 0))
-#if (!(RHEL_RELEASE_CODE && (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(8, 2))))
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(5,3,0))
+#if (!(RHEL_RELEASE_CODE && (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(8,2))))
 #ifdef HAVE_TC_CB_AND_SETUP_QDISC_MQPRIO
 #if 0
 int _kc_flow_block_cb_setup_simple(struct flow_block_offload *f,
@@ -2993,7 +2987,7 @@ int _kc_flow_block_cb_setup_simple(struct flow_block_offload *f,
 #endif /* 5.3.0 */
 
 /*****************************************************************************/
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 7, 0))
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(5,7,0))
 u64 _kc_pci_get_dsn(struct pci_dev *dev)
 {
 	u32 dword;
@@ -3019,3 +3013,12 @@ u64 _kc_pci_get_dsn(struct pci_dev *dev)
 }
 #endif /* 5.7.0 */
 
+/*****************************************************************************/
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(5,17,0))
+#ifndef ETH_HW_ADDR_SET
+void _kc_eth_hw_addr_set(struct net_device *dev, const void *addr)
+{
+	ether_addr_copy(dev->dev_addr, addr);
+}
+#endif /* ETH_HW_ADDR_SET */
+#endif /* 5.17.0 */

@@ -65,7 +65,6 @@
 
 #include "txgbe_osdep.h"
 #include "txgbe_mtd.h"
-/* #define SIMULATION_DEBUG */
 
 /* Override this by setting IOMEM in your txgbe_osdep.h header */
 #ifndef IOMEM
@@ -361,6 +360,7 @@
 #define TXGBE_MIS_PWR                   0x10000
 #define TXGBE_MIS_CTL                   0x10004
 #define TXGBE_MIS_PF_SM                 0x10008
+#define TXGBE_MIS_PRB_CTL               0x10010 /* for PCIE recovery only */
 #define TXGBE_MIS_ST                    0x10028
 #define TXGBE_MIS_SWSM                  0x1002C
 #define TXGBE_MIS_RST_ST                0x10030
@@ -398,6 +398,8 @@
 #define TXGBE_MIS_RST_ST_RST_INI_SHIFT  8
 #define TXGBE_MIS_RST_ST_RST_TIM        0x000000FFU
 #define TXGBE_MIS_PF_SM_SM              1
+#define TXGBE_MIS_PRB_CTL_LAN0_UP               0x2
+#define TXGBE_MIS_PRB_CTL_LAN1_UP               0x1
 
 /* Sensors for PVT(Process Voltage Temperature) */
 #define TXGBE_TS_CTL                    0x10300
@@ -649,6 +651,7 @@ struct txgbe_thermal_sensor_data {
 /* transmit global control */
 #define TXGBE_TDM_CTL           0x18000
 #define TXGBE_TDM_VF_TE(_i)     (0x18004 + ((_i) * 4))
+#define TXGBE_TDM_VFTE_CLR(_i)  (0x180A0 + ((_i) * 4))
 #define TXGBE_TDM_PB_THRE(_i)   (0x18020 + ((_i) * 4)) /* 8 of these 0 - 7 */
 #define TXGBE_TDM_LLQ(_i)       (0x18040 + ((_i) * 4)) /* 4 of these (0-3) */
 #define TXGBE_TDM_ETYPE_LB_L    0x18050
@@ -699,6 +702,7 @@ struct txgbe_thermal_sensor_data {
 /* receive control */
 #define TXGBE_RDM_ARB_CTL       0x12000
 #define TXGBE_RDM_VF_RE(_i)     (0x12004 + ((_i) * 4))
+#define TXGBE_RDM_VFRE_CLR(_i)  (0x120A0 + ((_i) * 4))
 #define TXGBE_RDM_RSC_CTL       0x1200C
 #define TXGBE_RDM_ARB_CFG(_i)   (0x12040 + ((_i) * 4)) /* 8 of these (0-7) */
 #define TXGBE_RDM_PF_QDE(_i)    (0x12080 + ((_i) * 4))
@@ -883,6 +887,7 @@ enum {
 #define TXGBE_RDB_PB_CTL_DISABLED       0x1
 
 #define TXGBE_RDB_RA_CTL_RSS_EN         0x00000004U /* RSS Enable */
+//#define TXGBE_RDB_RA_CTL_MULTI_RSS    0x00000001U /* VF RSS Hash Rule Enable */
 #define TXGBE_RDB_RA_CTL_RSS_MASK       0xFFFF0000U
 #define TXGBE_RDB_RA_CTL_RSS_IPV4_TCP   0x00010000U
 #define TXGBE_RDB_RA_CTL_RSS_IPV4       0x00020000U
@@ -1215,7 +1220,7 @@ enum txgbe_fdir_pballoc_type {
 #define TXGBE_PSR_MAX_SZ                0x15020
 
 /****************************** TDB ******************************************/
-#define TXGBE_TDB_RFCS                  0x1CE00
+#define TXGBE_TDB_TFCS                  0x1CE00
 #define TXGBE_TDB_PB_SZ(_i)             (0x1CC00 + ((_i) * 4)) /* 8 of these */
 #define TXGBE_TDB_MNG_TC                0x1CD10
 #define TXGBE_TDB_PRB_CTL               0x17010
@@ -2093,9 +2098,9 @@ enum txgbe_l2_ptypes {
 
 
 /************ txgbe_type.h ************/
-/* Number of Transmit and Receive Descriptors must be a multiple of 8 */
-#define TXGBE_REQ_TX_DESCRIPTOR_MULTIPLE        8
-#define TXGBE_REQ_RX_DESCRIPTOR_MULTIPLE        8
+/* Number of Transmit and Receive Descriptors must be a multiple of 128 */
+#define TXGBE_REQ_TX_DESCRIPTOR_MULTIPLE        128
+#define TXGBE_REQ_RX_DESCRIPTOR_MULTIPLE        128
 #define TXGBE_REQ_TX_BUFFER_GRANULARITY         1024
 
 /* Vlan-specific macros */
@@ -2276,6 +2281,11 @@ union txgbe_atr_hash_dword {
 #define FW_FLASH_UPGRADE_WRITE_CMD      0xE4
 #define FW_FLASH_UPGRADE_VERIFY_CMD     0xE5
 #define FW_FLASH_UPGRADE_VERIFY_LEN     0x4
+#define FW_DW_OPEN_NOTIFY               0xE9
+#define FW_DW_CLOSE_NOTIFY              0xEA
+
+#define TXGBE_CHECKSUM_CAP_ST_PASS      0x80658383
+#define TXGBE_CHECKSUM_CAP_ST_FAIL      0x70657376
 
 /* Host Interface Command Structures */
 struct txgbe_hic_hdr {
@@ -2391,6 +2401,13 @@ struct txgbe_hic_upg_verify {
 	u32 action_flag;
 };
 
+struct txgbe_hic_write_lldp{
+	struct txgbe_hic_hdr hdr;
+	u8 func;
+	u8 pad2;
+	u16 pad3;
+};
+
 /* Number of 100 microseconds we wait for PCI Express master disable */
 #define TXGBE_PCI_MASTER_DISABLE_TIMEOUT        800
 
@@ -2415,7 +2432,6 @@ struct txgbe_dmac_config {
 	u8      fcoe_tc;
 	u8      num_tcs;
 };
-
 
 /* Autonegotiation advertised speeds */
 typedef u32 txgbe_autoneg_advertised;
@@ -2596,6 +2612,8 @@ enum txgbe_sfp_type {
 	txgbe_sfp_type_1g_sx_core1 = 12,
 	txgbe_sfp_type_1g_lx_core0 = 13,
 	txgbe_sfp_type_1g_lx_core1 = 14,
+	txgbe_sfp_type_10g_cu_core0 = 15,       /* add for qi'an'xin 10G fiber2copper sfp */
+	txgbe_sfp_type_10g_cu_core1 = 16,
 	txgbe_sfp_type_not_present = 0xFFFE,
 	txgbe_sfp_type_unknown = 0xFFFF
 };
@@ -2814,6 +2832,8 @@ struct txgbe_mac_operations {
 	s32 (*enable_rx_dma)(struct txgbe_hw *, u32);
 	s32 (*disable_sec_rx_path)(struct txgbe_hw *);
 	s32 (*enable_sec_rx_path)(struct txgbe_hw *);
+	s32 (*disable_sec_tx_path)(struct txgbe_hw *);
+	s32 (*enable_sec_tx_path)(struct txgbe_hw *);
 	s32 (*acquire_swfw_sync)(struct txgbe_hw *, u32);
 	void (*release_swfw_sync)(struct txgbe_hw *, u32);
 
@@ -2892,6 +2912,7 @@ struct txgbe_phy_operations {
 	s32 (*write_i2c_byte)(struct txgbe_hw *, u8, u8, u8);
 	s32 (*read_i2c_sff8472)(struct txgbe_hw *, u8, u8 *);
 	s32 (*read_i2c_eeprom)(struct txgbe_hw *, u8, u8 *);
+	s32 (*read_i2c_sfp_phy)(struct txgbe_hw *, u16, u16 *);
 	s32 (*write_i2c_eeprom)(struct txgbe_hw *, u8, u8);
 	s32 (*check_overtemp)(struct txgbe_hw *);
 };
@@ -3039,13 +3060,13 @@ struct txgbe_hw {
 	bool force_full_reset;
 	bool allow_unsupported_sfp;
 	bool wol_enabled;
-#if defined(TXGBE_SUPPORT_KYLIN_FT)
 	bool Fdir_enabled;
-#endif
 	MTD_DEV phy_dev;
 	enum txgbe_link_status link_status;
-	u16 subsystem_id;
 	u16 tpid[8];
+	u16 oem_ssid;
+	u16 oem_svid;
+	bool f2c_mod_status;         /* fiber to copper modules internal phy link status */
 };
 
 #define TCALL(hw, func, args...) (((hw)->func != NULL) \
@@ -3112,6 +3133,9 @@ struct txgbe_hw {
 #define TXGBE_DEAD_READ_REG64       0xdeadbeefdeadbeefULL
 #define TXGBE_FAILED_READ_REG       0xffffffffU
 #define TXGBE_FAILED_READ_REG64     0xffffffffffffffffULL
+
+#define TXGBE_LLDP_REG 			0xf1000
+#define TXGBE_LLDP_ON 			0x0000000f
 
 static inline bool TXGBE_REMOVED(void __iomem *addr)
 {
@@ -3215,7 +3239,6 @@ po32m(struct txgbe_hw *hw, u32 reg,
 
 		if (loop-- <= 0)
 			break;
-
 		usec_delay(usecs);
 	} while (true);
 

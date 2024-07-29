@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-2.0
+/* Copyright(c) 2022 - 2023 Mucse Corporation. */
 #include <linux/pci.h>
 #include <linux/delay.h>
 #include <linux/sched.h>
@@ -10,25 +12,26 @@
 
 #define RNPM_N10_MAX_TX_QUEUES 128
 #define RNPM_N10_MAX_RX_QUEUES 128
-#ifndef RNPM_N10_NCSI_RAR_ENTRIES
-#define RNPM_N10_NCSI_RAR_ENTRIES 0 /*4*/
-#endif
-#define RNPM_N10_RAR_ENTRIES	   (128 - RNPM_N10_NCSI_RAR_ENTRIES)
-#define RNPM_N10_MC_TBL_SIZE   128
+
+#define RNPM_N400_MAX_TX_QUEUES 16
+#define RNPM_N400_MAX_RX_QUEUES 16
+
+#define RNPM_N10_NCSI_RAR_ENTRIES (hw->ncsi_rar_entries) /*4*/
+#define RNPM_N10_RAR_ENTRIES (128 - RNPM_N10_NCSI_RAR_ENTRIES)
+#define RNPM_N10_MC_TBL_SIZE 128
 #define RNPM_N10_MC_TBL_SIZE_MAC 8
-#define RNPM_N10_VFT_TBL_SIZE  128
-#define RNPM_N10_VFT_TBL_SIZE_MAC  1
-#define RNPM_N10_RX_PB_SIZE	512
+#define RNPM_N10_VFT_TBL_SIZE 128
+#define RNPM_N10_VFT_TBL_SIZE_MAC 1
+#define RNPM_N10_RX_PB_SIZE 512
 #define RNPM_N10_MSIX_VECTORS 64
 
-#define  NET_FEATURE_TCAM 1
+#define NET_FEATURE_TCAM 1
 
 static bool rnpm_mng_enabled(struct rnpm_hw *hw)
 {
 	return false;
 }
-__maybe_unused
-static void rnpm_init_mac_link_ops_n10(struct rnpm_hw *hw)
+__maybe_unused static void rnpm_init_mac_link_ops_n10(struct rnpm_hw *hw)
 {
 	return;
 }
@@ -37,8 +40,8 @@ static s32 rnpm_get_invariants_n10(struct rnpm_hw *hw)
 {
 	struct rnpm_mac_info *mac = &hw->mac;
 
-	//rnpm_init_mac_link_ops_n10(hw);
-	// mode is setup here
+	// rnpm_init_mac_link_ops_n10(hw);
+	//  mode is setup here
 	switch (hw->mode) {
 	case MODE_NIC_MODE_1PORT_40G:
 	case MODE_NIC_MODE_1PORT:
@@ -47,7 +50,7 @@ static s32 rnpm_get_invariants_n10(struct rnpm_hw *hw)
 		mac->mc_filter_type = rnpm_mc_filter_type0;
 		mac->vlan_location = rnpm_vlan_location_nic;
 		mac->vft_size = RNPM_N10_VFT_TBL_SIZE;
-	break;
+		break;
 	case MODE_NIC_MODE_2PORT:
 	case MODE_NIC_MODE_4PORT:
 		mac->mc_filter_type = rnpm_mc_filter_type4;
@@ -57,28 +60,79 @@ static s32 rnpm_get_invariants_n10(struct rnpm_hw *hw)
 		mac->vft_size = RNPM_N10_VFT_TBL_SIZE_MAC;
 
 		break;
-
-
 	}
 
 	hw->usecstocount = hw->axi_mhz;
-
+	hw->dma_split_size = RNPM_RXBUFFER_1536;
+	hw->ncsi_vf_cpu_shm_pf_base = RNPM_VF_CPU_SHM_BASE_NR62;
+	hw->ncsi_mc_count = RNPM_NCSI_MC_COUNT;
+	hw->ncsi_vlan_count = RNPM_NCSI_VLAN_COUNT;
 	mac->num_rar_entries = RNPM_N10_RAR_ENTRIES;
 	mac->max_rx_queues = RNPM_N10_MAX_RX_QUEUES;
 	mac->max_tx_queues = RNPM_N10_MAX_TX_QUEUES;
-	//mac->max_msix_vectors = rnpm_get_pcie_msix_count_generic(hw);
+	// mac->max_msix_vectors = rnpm_get_pcie_msix_count_generic(hw);
 	mac->max_msix_vectors = RNPM_N10_MSIX_VECTORS;
+	hw->wol_supported = WAKE_MAGIC;
+	hw->feature_flags |=
+		RNPM_NET_FEATURE_SG | RNPM_NET_FEATURE_TX_CHECKSUM |
+		RNPM_NET_FEATURE_RX_CHECKSUM | RNPM_NET_FEATURE_TSO |
+		RNPM_NET_FEATURE_TX_UDP_TUNNEL | RNPM_NET_FEATURE_VLAN_FILTER |
+		/*RNPM_NET_FEATURE_VLAN_OFFLOAD |*/ RNPM_NET_FEATURE_TCAM |
+		RNPM_NET_FEATURE_RX_HASH | RNPM_NET_FEATURE_RX_FCS;
+	if (!hw->ncsi_en) {
+		hw->feature_flags |= RNPM_NET_FEATURE_VLAN_OFFLOAD;
+	}
 
-	hw->feature_flags |= RNPM_NET_FEATURE_SG
-				| RNPM_NET_FEATURE_TX_CHECKSUM
-				| RNPM_NET_FEATURE_RX_CHECKSUM
-				| RNPM_NET_FEATURE_TSO
-				| RNPM_NET_FEATURE_TX_UDP_TUNNEL
-				| RNPM_NET_FEATURE_VLAN_FILTER
-				| RNPM_NET_FEATURE_VLAN_OFFLOAD
-				| RNPM_NET_FEATURE_TCAM
-				| RNPM_NET_FEATURE_RX_HASH
-				| RNPM_NET_FEATURE_RX_FCS;
+	return 0;
+}
+
+static s32 rnpm_get_invariants_n400(struct rnpm_hw *hw)
+{
+	struct rnpm_mac_info *mac = &hw->mac;
+
+	// rnpm_init_mac_link_ops_n10(hw);
+	//  mode is setup here
+	switch (hw->mode) {
+	case MODE_NIC_MODE_1PORT_40G:
+	case MODE_NIC_MODE_1PORT:
+		mac->mc_location = rnpm_mc_location_nic;
+		mac->mcft_size = RNPM_N10_MC_TBL_SIZE;
+		mac->mc_filter_type = rnpm_mc_filter_type0;
+		mac->vlan_location = rnpm_vlan_location_nic;
+		mac->vft_size = RNPM_N10_VFT_TBL_SIZE;
+		break;
+	case MODE_NIC_MODE_2PORT:
+	case MODE_NIC_MODE_4PORT:
+		mac->mc_filter_type = rnpm_mc_filter_type4;
+		mac->mc_location = rnpm_mc_location_mac;
+		mac->mcft_size = RNPM_N10_MC_TBL_SIZE_MAC;
+		mac->vlan_location = rnpm_vlan_location_mac;
+		mac->vft_size = RNPM_N10_VFT_TBL_SIZE_MAC;
+
+		break;
+	}
+
+	hw->usecstocount = hw->axi_mhz;
+	hw->dma_split_size = RNPM_RXBUFFER_1536;
+	hw->ncsi_vf_cpu_shm_pf_base = RNPM_VF_CPU_SHM_BASE_NR62;
+	hw->ncsi_mc_count = RNPM_NCSI_MC_COUNT;
+	hw->ncsi_vlan_count = RNPM_NCSI_VLAN_COUNT;
+	mac->num_rar_entries = RNPM_N10_RAR_ENTRIES;
+	mac->max_rx_queues = RNPM_N400_MAX_RX_QUEUES;
+	mac->max_tx_queues = RNPM_N400_MAX_TX_QUEUES;
+	// mac->max_msix_vectors = rnpm_get_pcie_msix_count_generic(hw);
+	mac->max_msix_vectors = RNPM_N10_MSIX_VECTORS;
+	hw->wol_supported = WAKE_MAGIC;
+	hw->feature_flags |=
+		RNPM_NET_FEATURE_SG | RNPM_NET_FEATURE_TX_CHECKSUM |
+		RNPM_NET_FEATURE_RX_CHECKSUM | RNPM_NET_FEATURE_TSO |
+		RNPM_NET_FEATURE_TX_UDP_TUNNEL | RNPM_NET_FEATURE_VLAN_FILTER |
+		/*RNPM_NET_FEATURE_VLAN_OFFLOAD |*/ RNPM_NET_FEATURE_TCAM |
+		RNPM_NET_FEATURE_RX_HASH | RNPM_NET_FEATURE_RX_FCS;
+	if (!hw->ncsi_en) {
+		hw->feature_flags |= RNPM_NET_FEATURE_VLAN_OFFLOAD;
+	}
+
 	return 0;
 }
 
@@ -93,8 +147,6 @@ static s32 rnpm_get_invariants_n10(struct rnpm_hw *hw)
  **/
 static s32 rnpm_init_phy_ops_n10(struct rnpm_hw *hw)
 {
-	// struct rnpm_mac_info *mac = &hw->mac;
-	// struct rnpm_phy_info *phy = &hw->phy;
 	s32 ret_val = 0;
 
 	hw->phy.sfp_setup_needed = true;
@@ -106,14 +158,12 @@ static s32 rnpm_setup_sfp_modules_n10(struct rnpm_hw *hw)
 	return 0;
 }
 
-
 /**
  *  rnpm_reinit_fdir_tables_n10 - Reinitialize Flow Director tables.
  *  @hw: pointer to hardware structure
  **/
 s32 rnpm_reinit_fdir_tables_n10(struct rnpm_hw *hw)
 {
-
 	return 0;
 }
 
@@ -123,7 +173,7 @@ s32 rnpm_reinit_fdir_tables_n10(struct rnpm_hw *hw)
  *  @fdirctrl: value to write to flow director control register
  **/
 __maybe_unused static void rnpm_fdir_enable_n10(struct rnpm_hw *hw,
-												u32 fdirctrl)
+						u32 fdirctrl)
 {
 }
 
@@ -190,11 +240,11 @@ s32 rnpm_init_fdir_perfect_n10(struct rnpm_hw *hw, u32 fdirctrl)
  * in the function below by simply calling out RNPM_COMPUTE_SIG_HASH_ITERATION
  * for values 0 through 15
  */
-#define RNPM_ATR_COMMON_HASH_KEY \
-		(RNPM_ATR_BUCKET_HASH_KEY & RNPM_ATR_SIGNATURE_HASH_KEY)
-#define RNPM_COMPUTE_SIG_HASH_ITERATION(_n) \
-do { \
-} while (0)
+#define RNPM_ATR_COMMON_HASH_KEY                                               \
+	(RNPM_ATR_BUCKET_HASH_KEY & RNPM_ATR_SIGNATURE_HASH_KEY)
+#define RNPM_COMPUTE_SIG_HASH_ITERATION(_n)                                    \
+	do {                                                                   \
+	} while (0)
 
 /**
  *  rnpm_atr_compute_sig_hash_n10 - Compute the signature hash
@@ -208,7 +258,7 @@ do { \
  **/
 __maybe_unused static u32
 rnpm_atr_compute_sig_hash_n10(union rnpm_atr_hash_dword input,
-							  union rnpm_atr_hash_dword common)
+			      union rnpm_atr_hash_dword common)
 {
 #if 0
 	u32 hi_hash_dword, lo_hash_dword, flow_vm_vlan;
@@ -275,9 +325,9 @@ rnpm_atr_compute_sig_hash_n10(union rnpm_atr_hash_dword input,
  *  @queue: queue index to direct traffic to
  **/
 s32 rnpm_fdir_add_signature_filter_n10(struct rnpm_hw *hw,
-		union rnpm_atr_hash_dword input,
-		union rnpm_atr_hash_dword common,
-		u8 queue)
+				       union rnpm_atr_hash_dword input,
+				       union rnpm_atr_hash_dword common,
+				       u8 queue)
 {
 #if 0
 	u64  fdirhashcmd;
@@ -318,14 +368,14 @@ s32 rnpm_fdir_add_signature_filter_n10(struct rnpm_hw *hw,
 	return 0;
 }
 
-#define RNPM_COMPUTE_BKT_HASH_ITERATION(_n) \
-do { \
-	u32 n = (_n); \
-	if (RNPM_ATR_BUCKET_HASH_KEY & (0x01 << n)) \
-		bucket_hash ^= lo_hash_dword >> n; \
-	if (RNPM_ATR_BUCKET_HASH_KEY & (0x01 << (n + 16))) \
-		bucket_hash ^= hi_hash_dword >> n; \
-} while (0)
+#define RNPM_COMPUTE_BKT_HASH_ITERATION(_n)                                    \
+	do {                                                                   \
+		u32 n = (_n);                                                  \
+		if (RNPM_ATR_BUCKET_HASH_KEY & (0x01 << n))                    \
+			bucket_hash ^= lo_hash_dword >> n;                     \
+		if (RNPM_ATR_BUCKET_HASH_KEY & (0x01 << (n + 16)))             \
+			bucket_hash ^= hi_hash_dword >> n;                     \
+	} while (0)
 
 /**
  *  rnpm_atr_compute_perfect_hash_n10 - Compute the perfect filter hash
@@ -339,9 +389,8 @@ do { \
  *  future use without needing to recompute the hash.
  **/
 void rnpm_atr_compute_perfect_hash_n10(union rnpm_atr_input *input,
-					  union rnpm_atr_input *input_mask)
+				       union rnpm_atr_input *input_mask)
 {
-
 #if 0
 	u32 hi_hash_dword, lo_hash_dword, flow_vm_vlan;
 	u32 bucket_hash = 0;
@@ -448,18 +497,18 @@ rnpm_get_fdirtcpm_n10(union rnpm_atr_input *input_mask)
  * it is byte swapped again and written to the hardware in the original
  * big-endian format.
  */
-#define RNPM_STORE_AS_BE32(_value) \
-	(((u32)(_value) >> 24) | (((u32)(_value) & 0x00FF0000) >> 8) | \
+#define RNPM_STORE_AS_BE32(_value)                                             \
+	(((u32)(_value) >> 24) | (((u32)(_value) & 0x00FF0000) >> 8) |         \
 	 (((u32)(_value) & 0x0000FF00) << 8) | ((u32)(_value) << 24))
 
-#define RNPM_WRITE_REG_BE32(a, reg, value) \
+#define RNPM_WRITE_REG_BE32(a, reg, value)                                     \
 	RNPM_WRITE_REG((a), (reg), RNPM_STORE_AS_BE32(ntohl(value)))
 
-#define RNPM_STORE_AS_BE16(_value) \
+#define RNPM_STORE_AS_BE16(_value)                                             \
 	ntohs(((u16)(_value) >> 8) | ((u16)(_value) << 8))
 
 s32 rnpm_fdir_set_input_mask_n10(struct rnpm_hw *hw,
-				    union rnpm_atr_input *input_mask)
+				 union rnpm_atr_input *input_mask)
 {
 #if 0
 	/* mask IPv6 since it is currently not supported */
@@ -557,8 +606,8 @@ s32 rnpm_fdir_set_input_mask_n10(struct rnpm_hw *hw,
 }
 
 s32 rnpm_fdir_write_perfect_filter_n10(struct rnpm_hw *hw,
-					  union rnpm_atr_input *input,
-					  u16 soft_id, u8 queue)
+				       union rnpm_atr_input *input, u16 soft_id,
+				       u8 queue)
 {
 #if 0
 	u32 fdirport, fdirvlan, fdirhash, fdircmd;
@@ -615,8 +664,7 @@ s32 rnpm_fdir_write_perfect_filter_n10(struct rnpm_hw *hw,
 }
 
 s32 rnpm_fdir_erase_perfect_filter_n10(struct rnpm_hw *hw,
-					  union rnpm_atr_input *input,
-					  u16 soft_id)
+				       union rnpm_atr_input *input, u16 soft_id)
 {
 	s32 err = 0;
 #if 0
@@ -658,7 +706,6 @@ s32 rnpm_fdir_erase_perfect_filter_n10(struct rnpm_hw *hw,
 	return err;
 }
 
-
 /**
  *  rnpm_identify_phy_n10 - Get physical layer module
  *  @hw: pointer to hardware structure
@@ -683,7 +730,6 @@ static s32 rnpm_identify_sfp_module_n10(struct rnpm_hw *hw)
 	return 0;
 }
 
-
 /**
  *  rnpm_enable_rx_dma_n10 - Enable the Rx DMA unit on n10
  *  @hw: pointer to hardware structure
@@ -701,7 +747,7 @@ static s32 rnpm_enable_rx_dma_n10(struct rnpm_hw *hw, u32 regval)
 	 */
 	hw->mac.ops.disable_rx_buff(hw);
 
-	//RNPM_WRITE_REG(hw, RNPM_RXCTRL, regval);
+	// RNPM_WRITE_REG(hw, RNPM_RXCTRL, regval);
 
 	hw->mac.ops.enable_rx_buff(hw);
 
@@ -753,9 +799,8 @@ bool rnpm_verify_lesm_fw_enabled_n10(struct rnpm_hw *hw)
  *  Retrieves 16 bit word(s) read from EEPROM
  **/
 __maybe_unused static s32 rnpm_read_eeprom_buffer_n10(struct rnpm_hw *hw,
-													  u16 offset,
-													  u16 words,
-													  u16 *data)
+						      u16 offset, u16 words,
+						      u16 *data)
 {
 	s32 ret_val = RNPM_ERR_CONFIG;
 #if 0
@@ -788,8 +833,8 @@ __maybe_unused static s32 rnpm_read_eeprom_buffer_n10(struct rnpm_hw *hw,
  *
  *  Reads a 16 bit word from the EEPROM
  **/
-__maybe_unused static s32
-rnpm_read_eeprom_n10(struct rnpm_hw *hw, u16 offset, u16 *data)
+__maybe_unused static s32 rnpm_read_eeprom_n10(struct rnpm_hw *hw, u16 offset,
+					       u16 *data)
 {
 	s32 ret_val = RNPM_ERR_CONFIG;
 
@@ -829,7 +874,7 @@ s32 rnpm_reset_pipeline_n10(struct rnpm_hw *hw)
 	/* Wait for AN to leave state 0 */
 	for (i = 0; i < 10; i++) {
 		usleep_range(4000, 8000);
-			break;
+		break;
 	}
 
 	ret_val = 0;
@@ -840,8 +885,7 @@ s32 rnpm_reset_pipeline_n10(struct rnpm_hw *hw)
 	return ret_val;
 }
 
-__maybe_unused
-static void upl_init(u8 __iomem *bar2)
+__maybe_unused static void upl_init(u8 __iomem *bar2)
 {
 	int data;
 #define SOFT_COMMON11 (0x0007000 + 0xf2c)
@@ -849,16 +893,19 @@ static void upl_init(u8 __iomem *bar2)
 
 	// config ulh pll
 	data = ioread32((void *)(bar2 + SOFT_COMMON11));
-	iowrite32(((0x3 << 29) | data), (void *)(bar2 + SOFT_COMMON11)); // ulh pd is 1, bypass is 1
+	iowrite32(((0x3 << 29) | data),
+		  (void *)(bar2 + SOFT_COMMON11)); // ulh pd is 1, bypass is 1
 	data = ioread32((void *)(bar2 + SOFT_COMMON11));
-	iowrite32(((0x1 << 31) | data), (void *)(bar2 + SOFT_COMMON11)); // ulh reset is 1
+	iowrite32(((0x1 << 31) | data),
+		  (void *)(bar2 + SOFT_COMMON11)); // ulh reset is 1
 
 	data = ioread32((void *)(bar2 + SOFT_COMMON12));
-	iowrite32(((0x3 << 29) | data), (void *) (bar2 + SOFT_COMMON12)); // ulh pd is 1, bypass is 1
+	iowrite32(((0x3 << 29) | data),
+		  (void *)(bar2 + SOFT_COMMON12)); // ulh pd is 1, bypass is 1
 	data = ioread32((void *)(bar2 + SOFT_COMMON12));
-	iowrite32(((0x1 << 31) | data), (void *) (bar2 + SOFT_COMMON12)); // ulh reset is 1
+	iowrite32(((0x1 << 31) | data),
+		  (void *)(bar2 + SOFT_COMMON12)); // ulh reset is 1
 }
-
 
 /**
  *  rnpm_reset_hw_n10 - Perform hardware reset
@@ -888,15 +935,15 @@ static s32 rnpm_reset_hw_n10(struct rnpm_hw *hw)
 		hw->phy.ops.reset(hw);
 
 	// maybe too early to open rx?
-//	wr32(hw, RNPM_MAC_RX_CFG(port), rd32(hw, RNPM_MAC_RX_CFG(port)) | 0x01);
-//
-//	/* in this mode close mc filter in mac */
-//	if (hw->mac.mc_location == rnpm_mc_location_nic)
-//		wr32(hw, RNPM_MAC_PKT_FLT(port), rd32(hw, RNPM_MAC_PKT_FLT(port)) | RNPM_RA);
-//	else
-//		wr32(hw, RNPM_MAC_PKT_FLT(port), rd32(hw, RNPM_MAC_PKT_FLT(port)) | RNPM_HPF);
+	//	wr32(hw, RNPM_MAC_RX_CFG(port), rd32(hw, RNPM_MAC_RX_CFG(port)) | 0x01);
+	//
+	//	/* in this mode close mc filter in mac */
+	//	if (hw->mac.mc_location == rnpm_mc_location_nic)
+	//		wr32(hw, RNPM_MAC_PKT_FLT(port), rd32(hw, RNPM_MAC_PKT_FLT(port)) |
+	//RNPM_RA); 	else 		wr32(hw, RNPM_MAC_PKT_FLT(port), rd32(hw,
+	//RNPM_MAC_PKT_FLT(port)) | RNPM_HPF);
 
-	//wr32(hw, RNPM_MAC_LPI_CTRL(port), 0x00060000);
+	// wr32(hw, RNPM_MAC_LPI_CTRL(port), 0x00060000);
 
 	/* Store the permanent mac address only once */
 	if (!(hw->mac.mac_flags & RNPM_FLAGS_INIT_MAC_ADDRESS)) {
@@ -931,24 +978,25 @@ static s32 rnpm_start_hw_n10(struct rnpm_hw *hw)
 		goto out;
 
 	// ETH Registers
-	//wr32(hw, RNPM_ETH_ERR_MASK_VECTOR, ~ETH_IGNORE_ALL_ERR);
-	//wr32(hw, RNPM_ETH_ERR_MASK_VECTOR, 0);
+	// wr32(hw, RNPM_ETH_ERR_MASK_VECTOR, ~ETH_IGNORE_ALL_ERR);
+	// wr32(hw, RNPM_ETH_ERR_MASK_VECTOR, 0);
+	wr32(hw, RNPM_ETH_ERR_MASK_VECTOR,
+	     INNER_L4_BIT | PKT_LEN_ERR | HDR_LEN_ERR);
 	wr32(hw, RNPM_ETH_BYPASS, 0);
 	wr32(hw, RNPM_ETH_DEFAULT_RX_RING, 0);
-/*
-	wr32(hw, RNPM_TOP_NIC_CONFIG, hw->mode
-#ifdef CONFIG_RNPM_FPGA
-			| hw->default_rx_queue << 24
-#endif
-	    );
-*/
+	/*
+		wr32(hw, RNPM_TOP_NIC_CONFIG, hw->mode
+	#ifdef CONFIG_RNPM_FPGA
+				| hw->default_rx_queue << 24
+	#endif
+			);
+	*/
 
 	// DMA common Registers
 	wr32(hw, RNPM_DMA_CONFIG, DMA_VEB_BYPASS);
 
 	// enable-dma-axi
 	wr32(hw, RNPM_DMA_AXI_EN, (RX_AXI_RW_EN | TX_AXI_RW_EN));
-
 
 	if (ret_val == 0)
 		ret_val = rnpm_verify_fw_version_n10(hw);
@@ -982,42 +1030,24 @@ static u32 rnpm_get_supported_physical_layer_n10(struct rnpm_hw *hw)
 }
 
 static s32 rnpm_get_link_capabilities_n10(struct rnpm_hw *hw,
-		rnpm_link_speed *speed,
-		bool *autoneg,
-		u32 *media_type)
+					  rnpm_link_speed *speed, bool *autoneg,
+					  u32 *media_type)
 {
 	*autoneg = false;
-	// not used now
-	switch (hw->mac_type) {
-	case rnp_mac_n10g_x8_40G:
-		*speed = RNPM_LINK_SPEED_40GB_FULL;
-	break;
-	case rnp_mac_n10g_x8_10G:
-	case rnp_mac_n10g_x4_10G:
-	case rnp_mac_n10g_x2_10G:
-		*speed = RNPM_LINK_SPEED_10GB_FULL;
-	break;
-	case rnp_mac_n10l_x8_1G:
-	case rnp_mac_n10l_x4_1G:
-		*speed = RNPM_LINK_SPEED_1GB_FULL;
-	break;
-	default:
-	break;
-
-	}
 
 	switch (hw->phy_type) {
-	case PHY_TYPE_RGMII:
-		*media_type = rnpm_media_type_copper;
+	case PHY_TYPE_SGMII:
+		// *media_type = rnpm_media_type_copper;
 		*autoneg = true;
 		break;
 	default:
 		*media_type = rnpm_media_type_fiber;
 		*autoneg = false;
+
 		break;
 	}
-	//switch (hw->speed)
-	// setup
+	// switch (hw->speed)
+	//  setup
 	/* fix setup */
 	//*speed = RNPM_LINK_SPEED_10GB_FULL;
 	// we don't support autoneg now */
@@ -1026,20 +1056,20 @@ static s32 rnpm_get_link_capabilities_n10(struct rnpm_hw *hw,
 }
 
 static struct rnpm_phy_operations phy_ops_n10 = {
-	.identify		= &rnpm_identify_phy_n10,
-	.identify_sfp		= &rnpm_identify_sfp_module_n10,
-	.init			= &rnpm_init_phy_ops_n10,
-	.reset			= &rnpm_reset_phy_generic,
-	.read_reg		= &rnpm_read_phy_reg_generic,
-	.write_reg		= &rnpm_write_phy_reg_generic,
-	.setup_link		= &rnpm_setup_phy_link_generic,
-	.setup_link_speed	= &rnpm_setup_phy_link_speed_generic,
-	.read_i2c_byte		= &rnpm_read_i2c_byte_generic,
-	.write_i2c_byte		= &rnpm_write_i2c_byte_generic,
-	.read_i2c_sff8472	= &rnpm_read_i2c_sff8472_generic,
-	.read_i2c_eeprom	= &rnpm_read_i2c_eeprom_generic,
-	.write_i2c_eeprom	= &rnpm_write_i2c_eeprom_generic,
-	.check_overtemp		= &rnpm_tn_check_overtemp,
+	.identify = &rnpm_identify_phy_n10,
+	.identify_sfp = &rnpm_identify_sfp_module_n10,
+	.init = &rnpm_init_phy_ops_n10,
+	.reset = &rnpm_reset_phy_generic,
+	.read_reg = &rnpm_read_phy_reg_generic,
+	.write_reg = &rnpm_write_phy_reg_generic,
+	.setup_link = &rnpm_setup_phy_link_generic,
+	.setup_link_speed = &rnpm_setup_phy_link_speed_generic,
+	.read_i2c_byte = &rnpm_read_i2c_byte_generic,
+	.write_i2c_byte = &rnpm_write_i2c_byte_generic,
+	.read_i2c_sff8472 = &rnpm_read_i2c_sff8472_generic,
+	.read_i2c_eeprom = &rnpm_read_i2c_eeprom_generic,
+	.write_i2c_eeprom = &rnpm_write_i2c_eeprom_generic,
+	.check_overtemp = &rnpm_tn_check_overtemp,
 };
 
 static struct rnpm_mac_operations mac_ops_n10 = {
@@ -1081,29 +1111,73 @@ static struct rnpm_mac_operations mac_ops_n10 = {
 	.set_vfta = &rnpm_set_vfta_generic,
 	.set_vfta_mac = &rnpm_set_vfta_mac_generic,
 	.fc_enable = &rnpm_fc_enable_generic,
+	.setup_fc = &rnpm_setup_fc,
 	.set_fw_drv_ver = &rnpm_set_fw_drv_ver_generic,
 	.init_uta_tables = &rnpm_init_uta_tables_generic,
 	.setup_sfp = &rnpm_setup_sfp_modules_n10,
+	.get_thermal_sensor_data = &rnpm_get_thermal_sensor_data_generic,
+	.init_thermal_sensor_thresh = &rnpm_init_thermal_sensor_thresh_generic,
 	.mng_fw_enabled = &rnpm_mng_enabled,
 };
 
 //==========   n10 ===============
 struct rnpm_info rnpm_n10_info = {
-	.one_pf_with_two_dma   = false,
+	.one_pf_with_two_dma = false,
 	.total_queue_pair_cnts = RNPM_N10_MAX_TX_QUEUES,
-	.total_msix_table      = 64,
-	.total_layer2_count    = RNPM_MAX_LAYER2_FILTERS,
+	.queue_depth = RNPM_DEFAULT_TXD,
+	.total_msix_table = 64,
+	.coalesce.tx_work_limit = RNPM_DEFAULT_TX_WORK,
+	.coalesce.rx_usecs = RNPM_DEFAULT_LOW_RX_USEC,
+	.coalesce.rx_frames = 1,
+	//.coalesce.rx_frames = RNPM_RX_PKT_POLL_BUDGET,
+	.coalesce.tx_usecs = 100,
+	.coalesce.tx_frames = RNPM_TX_PKT_POLL_BUDGET,
+	.total_layer2_count = RNPM_MAX_LAYER2_FILTERS,
 #if NET_FEATURE_TCAM
 	.total_tuple5_count = RNPM_MAX_TCAM_FILTERS,
 #else
 	.total_tuple5_count = RNPM_MAX_TUPLE5_FILTERS,
 #endif
-	.adapter_cnt    = 4,
-	.rss_type       = rnpm_rss_n10,
+#ifdef RNPM_FIX_MAC_PADDING
+	.mac_padding = true,
+#endif
+	.adapter_cnt = 4,
+	.rss_type = rnpm_rss_n10,
 	.get_invariants = &rnpm_get_invariants_n10,
-	.mac_ops        = &mac_ops_n10,
-	.eeprom_ops     = NULL,
-	.phy_ops        = &phy_ops_n10,
-	.mbx_ops        = &mbx_ops_generic,
-	.pcs_ops 	= &pcs_ops_generic,
+	.mac_ops = &mac_ops_n10,
+	.eeprom_ops = NULL,
+	.phy_ops = &phy_ops_n10,
+	.mbx_ops = &mbx_ops_generic,
+	.pcs_ops = &pcs_ops_generic,
+};
+
+//==========   n10 ===============
+struct rnpm_info rnpm_n400_4x1G_info = {
+	.one_pf_with_two_dma = false,
+	.total_queue_pair_cnts = RNPM_N400_MAX_TX_QUEUES,
+	.queue_depth = RNPM_N400_DEFAULT_TXD,
+	.total_msix_table = 17,
+	.coalesce.tx_work_limit = RNPM_DEFAULT_TX_WORK,
+	//.coalesce.rx_usecs = 1200,
+	.coalesce.rx_usecs = RNPM_DEFAULT_LOW_RX_USEC,
+	.coalesce.rx_frames = 1,
+	.coalesce.tx_usecs = 100,
+	.coalesce.tx_frames = RNPM_TX_PKT_POLL_BUDGET,
+	.total_layer2_count = RNPM_MAX_LAYER2_FILTERS,
+#if NET_FEATURE_TCAM
+	.total_tuple5_count = RNPM_MAX_TCAM_FILTERS,
+#else
+	.total_tuple5_count = RNPM_MAX_TUPLE5_FILTERS,
+#endif
+#ifdef RNPM_FIX_MAC_PADDING
+	.mac_padding = false,
+#endif
+	.adapter_cnt = 2,
+	.rss_type = rnpm_rss_n10,
+	.get_invariants = &rnpm_get_invariants_n400,
+	.mac_ops = &mac_ops_n10,
+	.eeprom_ops = NULL,
+	.phy_ops = &phy_ops_n10,
+	.mbx_ops = &mbx_ops_generic,
+	.pcs_ops = &pcs_ops_generic,
 };

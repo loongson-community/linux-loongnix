@@ -40,6 +40,10 @@
 #include "ngbe_type.h"
 #include "kcompat.h"
 
+#ifdef HAVE_XDP_BUFF_RXQ
+#include <net/xdp.h>
+#endif
+
 #ifdef HAVE_NDO_BUSY_POLL
 #include <net/busy_poll.h>
 #define BP_EXTENDED_STATS
@@ -100,6 +104,7 @@
 #define NGBE_RXBUFFER_15K      15360
 #endif /* CONFIG_NGBE_DISABLE_PACKET_SPLIT */
 #define NGBE_MAX_RXBUFFER      16384  /* largest size for single descriptor */
+
 
 /*
  * NOTE: netdev_alloc_skb reserves up to 64 bytes, NET_IP_ALIGN means we
@@ -192,6 +197,13 @@ enum ngbe_tx_flags {
 		counter &= 0xFFFFFFF000000000LL;                         \
 		counter |= current_counter;                              \
 	}
+#ifdef HAVE_XDP_SUPPORT
+DECLARE_STATIC_KEY_FALSE(ngbe_xdp_locking_key);
+#endif
+
+#ifndef XDP_PACKET_HEADROOM
+#define XDP_PACKET_HEADROOM 256
+#endif
 
 struct vf_stats {
 	u64 gprc;
@@ -285,7 +297,15 @@ struct ngbe_lro_list {
 struct ngbe_tx_buffer {
 	union ngbe_tx_desc *next_to_watch;
 	unsigned long time_stamp;
-	struct sk_buff *skb;
+	union {
+		struct sk_buff *skb;
+		/* XDP uses address ptr on irq_clean */
+#ifdef HAVE_XDP_FRAME_STRUCT
+		struct xdp_frame *xdpf;
+#else
+		void *data;
+#endif
+	};
 	unsigned int bytecount;
 	unsigned short gso_segs;
 	__be16 protocol;
@@ -338,6 +358,7 @@ enum ngbe_ring_state_t {
 	__NGBE_TX_DETECT_HANG,
 	__NGBE_HANG_CHECK_ARMED,
 	__NGBE_RX_HS_ENABLED,
+	__NGBE_TX_XDP_RING,
 };
 
 struct ngbe_fwd_adapter {
@@ -365,11 +386,18 @@ struct ngbe_fwd_adapter {
 	set_bit(__NGBE_TX_DETECT_HANG, &(ring)->state)
 #define clear_check_for_tx_hang(ring) \
 	clear_bit(__NGBE_TX_DETECT_HANG, &(ring)->state)
+#define ring_is_xdp(ring) \
+	test_bit(__NGBE_TX_XDP_RING, &(ring)->state)
+#define set_ring_xdp(ring) \
+	set_bit(__NGBE_TX_XDP_RING, &(ring)->state)
+#define clear_ring_xdp(ring) \
+	clear_bit(__NGBE_TX_XDP_RING, &(ring)->state)
 
 struct ngbe_ring {
 	struct ngbe_ring *next;        /* pointer to next ring in q_vector */
 	struct ngbe_q_vector *q_vector; /* backpointer to host q_vector */
 	struct net_device *netdev;      /* netdev ring belongs to */
+	struct bpf_prog *xdp_prog;
 	struct device *dev;             /* device for DMA mapping */
 	struct ngbe_fwd_adapter *accel;
 	void *desc;                     /* descriptor ring memory */
@@ -377,6 +405,7 @@ struct ngbe_ring {
 		struct ngbe_tx_buffer *tx_buffer_info;
 		struct ngbe_rx_buffer *rx_buffer_info;
 	};
+	spinlock_t tx_lock;		/* used in XDP mode */
 	unsigned long state;
 	u8 __iomem *tail;
 	dma_addr_t dma;                 /* phys. address of descriptor ring */
@@ -417,6 +446,9 @@ struct ngbe_ring {
 		struct ngbe_tx_queue_stats tx_stats;
 		struct ngbe_rx_queue_stats rx_stats;
 	};
+#ifdef HAVE_XDP_BUFF_RXQ
+	struct xdp_rxq_info xdp_rxq;
+#endif
 } ____cacheline_internodealigned_in_smp;
 
 enum ngbe_ring_f_enum {
@@ -428,6 +460,7 @@ enum ngbe_ring_f_enum {
 
 #define TGB_MAX_RX_QUEUES 16
 #define NGBE_MAX_TX_QUEUES 16
+#define NGBE_MAX_XDP_QS NGBE_MAX_TX_QUEUES
 
 
 
@@ -761,6 +794,7 @@ struct ngbe_therm_proc_data {
 #define NGBE_FLAG2_GLOBAL_RESET_REQUESTED      (1U << 20)
 #define NGBE_FLAG2_MNG_REG_ACCESS_DISABLED     (1U << 22)
 #define NGBE_FLAG2_SRIOV_MISC_IRQ_REMAP        (1U << 23)
+#define NGBE_FLAG2_ECC_ERR_RESET               (1U << 24)
 #define NGBE_FLAG2_PCIE_NEED_RECOVER           (1U << 31)
 
 #define NGBE_SET_FLAG(_input, _flag, _result) \
@@ -788,6 +822,7 @@ struct ngbe_adapter {
 #endif
 	/* OS defined structs */
 	struct net_device *netdev;
+	struct bpf_prog *xdp_prog;
 	struct pci_dev *pdev;
 
 	unsigned long state;
@@ -797,6 +832,8 @@ struct ngbe_adapter {
 	 */
 	u32 flags;
 	u32 flags2;
+	u32 led_conf;
+	u32 gphy_efuse[2];
 
 	/* Tx fast path data */
 	int num_tx_queues;
@@ -807,6 +844,11 @@ struct ngbe_adapter {
 	int num_rx_queues;
 	u16 rx_itr_setting;
 	u16 rx_work_limit;
+
+
+	/* XDP */
+	int num_xdp_queues;
+	struct ngbe_ring *xdp_ring[NGBE_MAX_XDP_QS];
 
 	unsigned int num_vmdqs; /* does not include pools assigned to VFs */
 	unsigned int queues_per_pool;
@@ -837,8 +879,9 @@ struct ngbe_adapter {
 	int num_q_vectors;      /* current number of q_vectors for device */
 	int max_q_vectors;      /* upper limit of q_vectors for device */
 	struct ngbe_ring_feature ring_feature[RING_F_ARRAY_SIZE];
+	u16 irq_remap_offset;
 	struct msix_entry *msix_entries;
-
+	u16 old_rss_limit;
 #ifndef HAVE_NETDEV_STATS_IN_NETDEV
 	struct net_device_stats net_stats;
 #endif
@@ -863,9 +906,15 @@ struct ngbe_adapter {
 	u32 lli_vlan_pri;
 #endif /* NGBE_NO_LLI */
 
+	struct ngbe_queue_stats old_rx_qstats[MAX_RX_QUEUES];
+	struct ngbe_queue_stats old_tx_qstats[MAX_TX_QUEUES];
+	struct ngbe_tx_queue_stats old_tx_stats[MAX_TX_QUEUES];
+	struct ngbe_rx_queue_stats old_rx_stats[MAX_RX_QUEUES];
+
 	u32 *config_space;
 	u64 tx_busy;
 	unsigned int tx_ring_count;
+	unsigned int xdp_ring_count;
 	unsigned int rx_ring_count;
 
 	u32 link_speed;
@@ -875,9 +924,8 @@ struct ngbe_adapter {
 
 	struct timer_list service_timer;
 	struct work_struct service_task;
-#ifdef POLL_LINK_STATUS
 	struct timer_list link_check_timer;
-#endif
+
 	u32 atr_sample_rate;
 	u8 __iomem *io_addr;    /* Mainly for iounmap use */
 	u32 wol;
@@ -971,17 +1019,16 @@ struct ngbe_adapter {
 	u32 isb_tag[NGBE_ISB_MAX];
 
 	u32 hang_cnt;
+	u64 eth_priv_flags;
+#define NGBE_ETH_PRIV_FLAG_LLDP		BIT(0)
 };
 
 static inline u32 ngbe_misc_isb(struct ngbe_adapter *adapter,
 				 enum ngbe_isb_idx idx)
 {
 	u32 cur_tag = 0;
-	u32 cur_diff = 0;
 
 	cur_tag = adapter->isb_mem[NGBE_ISB_HEADER];
-	cur_diff = cur_tag - adapter->isb_tag[idx];
-
 	adapter->isb_tag[idx] = cur_tag;
 
 	return cpu_to_le32(adapter->isb_mem[idx]);
@@ -989,6 +1036,8 @@ static inline u32 ngbe_misc_isb(struct ngbe_adapter *adapter,
 
 static inline u8 ngbe_max_rss_indices(struct ngbe_adapter *adapter)
 {
+	if (adapter->xdp_prog)
+		return NGBE_MAX_RSS_INDICES / 2;
 	return NGBE_MAX_RSS_INDICES;
 }
 
@@ -1002,6 +1051,7 @@ enum ngbe_state_t {
 	__NGBE_SERVICE_SCHED,
 	__NGBE_SERVICE_INITED,
 	__NGBE_IN_SFP_INIT,
+	__NGBE_NO_PHY_SET,
 #ifdef HAVE_PTP_1588_CLOCK
 	__NGBE_PTP_RUNNING,
 	__NGBE_PTP_TX_IN_PROGRESS,
@@ -1087,7 +1137,7 @@ void ngbe_alloc_rx_buffers(struct ngbe_ring *, u16);
 
 void ngbe_set_rx_mode(struct net_device *netdev);
 int ngbe_write_mc_addr_list(struct net_device *netdev);
-int ngbe_setup_tc(struct net_device *dev, u8 tc);
+int ngbe_setup_tc(struct net_device *dev, u8 tc, bool save_stats);
 void ngbe_tx_ctxtdesc(struct ngbe_ring *, u32, u32, u32, u32);
 void ngbe_do_reset(struct net_device *netdev);
 void ngbe_write_eitr(struct ngbe_q_vector *q_vector);
@@ -1099,6 +1149,7 @@ void ngbe_vlan_strip_disable(struct ngbe_adapter *adapter);
 #ifdef ETHTOOL_OPS_COMPAT
 int ethtool_ioctl(struct ifreq *ifr);
 #endif
+void ngbe_print_tx_hang_status(struct ngbe_adapter *adapter);
 
 #ifdef HAVE_NGBE_DEBUG_FS
 void ngbe_dbg_adapter_init(struct ngbe_adapter *adapter);

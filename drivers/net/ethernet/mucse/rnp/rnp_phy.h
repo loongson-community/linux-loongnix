@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: GPL-2.0 */
+/* Copyright(c) 2022 - 2023 Mucse Corporation. */
+
 #ifndef _RNP_PHY_H_
 #define _RNP_PHY_H_
 
@@ -5,13 +8,18 @@
 #define RNP_I2C_EEPROM_DEV_ADDR 0xA0
 #define RNP_I2C_EEPROM_DEV_ADDR2 0xA2
 
+#define RNP_YT8531_PHY_SPEC_CTRL 0x10
+#define RNP_YT8531_PHY_SPEC_CTRL_FORCE_MDIX 0x0020
+#define RNP_YT8531_PHY_SPEC_CTRL_AUTO_MDI_MDIX 0x0060
+#define RNP_YT8531_PHY_SPEC_CTRL_MDIX_CFG_MASK 0x0060
+
 /* EEPROM byte offsets */
-#define SFF_MODULE_ID_OFFSET	0x00
+#define SFF_MODULE_ID_OFFSET 0x00
 #define SFF_DIAG_SUPPORT_OFFSET 0x5c
-#define SFF_MODULE_ID_SFP		0x3
-#define SFF_MODULE_ID_QSFP		0xc
+#define SFF_MODULE_ID_SFP 0x3
+#define SFF_MODULE_ID_QSFP 0xc
 #define SFF_MODULE_ID_QSFP_PLUS 0xd
-#define SFF_MODULE_ID_QSFP28	0x11
+#define SFF_MODULE_ID_QSFP28 0x11
 
 /* Bitmasks */
 #define RNP_SFF_DA_PASSIVE_CABLE 0x4
@@ -66,12 +74,13 @@
 s32 rnp_init_phy_ops_generic(struct rnp_hw *hw);
 s32 rnp_identify_phy_generic(struct rnp_hw *hw);
 s32 rnp_reset_phy_generic(struct rnp_hw *hw);
-s32 rnp_read_phy_reg_generic(struct rnp_hw *hw, u32 reg_addr, u32 device_type,
-			     u16 *phy_data);
-s32 rnp_write_phy_reg_generic(struct rnp_hw *hw, u32 reg_addr, u32 device_type,
-			      u16 phy_data);
+s32 rnp_read_phy_reg_generic(struct rnp_hw *hw, u32 reg_addr,
+			     u32 device_type, u16 *phy_data);
+s32 rnp_write_phy_reg_generic(struct rnp_hw *hw, u32 reg_addr,
+			      u32 device_type, u16 phy_data);
 s32 rnp_setup_phy_link_generic(struct rnp_hw *hw);
-s32 rnp_setup_phy_link_speed_generic(struct rnp_hw *hw, rnp_link_speed speed,
+s32 rnp_setup_phy_link_speed_generic(struct rnp_hw *hw,
+				     rnp_link_speed speed,
 				     bool autoneg_wait_to_complete);
 s32 rnp_get_copper_link_capabilities_generic(struct rnp_hw *hw,
 					     rnp_link_speed *speed,
@@ -81,7 +90,8 @@ s32 rnp_get_copper_link_capabilities_generic(struct rnp_hw *hw,
 s32 rnp_check_phy_link_tnx(struct rnp_hw *hw, rnp_link_speed *speed,
 			   bool *link_up);
 s32 rnp_setup_phy_link_tnx(struct rnp_hw *hw);
-s32 rnp_get_phy_firmware_version_tnx(struct rnp_hw *hw, u16 *firmware_version);
+s32 rnp_get_phy_firmware_version_tnx(struct rnp_hw *hw,
+				     u16 *firmware_version);
 s32 rnp_get_phy_firmware_version_generic(struct rnp_hw *hw,
 					 u16 *firmware_version);
 
@@ -90,10 +100,10 @@ s32 rnp_identify_sfp_module_generic(struct rnp_hw *hw);
 s32 rnp_get_sfp_init_sequence_offsets(struct rnp_hw *hw, u16 *list_offset,
 				      u16 *data_offset);
 s32 rnp_tn_check_overtemp(struct rnp_hw *hw);
-s32 rnp_read_i2c_byte_generic(struct rnp_hw *hw, u8 byte_offset, u8 dev_addr,
-			      u8 *data);
-s32 rnp_write_i2c_byte_generic(struct rnp_hw *hw, u8 byte_offset, u8 dev_addr,
-			       u8 data);
+s32 rnp_read_i2c_byte_generic(struct rnp_hw *hw, u8 byte_offset,
+			      u8 dev_addr, u8 *data);
+s32 rnp_write_i2c_byte_generic(struct rnp_hw *hw, u8 byte_offset,
+			       u8 dev_addr, u8 data);
 s32 rnp_read_i2c_eeprom_generic(struct rnp_hw *hw, u8 byte_offset,
 				u8 *eeprom_data);
 s32 rnp_read_i2c_sff8472_generic(struct rnp_hw *hw, u8 byte_offset,

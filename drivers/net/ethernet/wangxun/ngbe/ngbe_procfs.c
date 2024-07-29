@@ -485,13 +485,13 @@ static int ngbe_maclla1(char *page, char __always_unused **start,
 	if (hw == NULL)
 		return snprintf(page, count, "error: no hw data\n");
 
-	rc = TCALL(hw, eeprom.ops.read_buffer, first_word, 1, &first_word);
+	rc = hw->eeprom.ops.read_buffer(hw, first_word, 1, &first_word);
 	if (rc != 0)
 		return snprintf(page, count,
 				"error: reading pointer to the EEPROM\n");
 
 	if (first_word != 0x0000 && first_word != 0xFFFF) {
-		rc = TCALL(hw, eeprom.ops.read_buffer, first_word, word_count,
+		rc = hw->eeprom.ops.read_buffer(hw, first_word, word_count,
 					eeprom_buff);
 		if (rc != 0)
 			return snprintf(page, count, "error: reading buffer\n");
@@ -714,7 +714,7 @@ static int ngbe_therm_temp(char *page, char __always_unused **start,
 			    off_t __always_unused off, int count,
 			    int __always_unused *eof, void *data)
 {
-	s32 status;
+	int status;
 	struct ngbe_therm_proc_data *therm_data =
 		(struct ngbe_therm_proc_data *)data;
 
@@ -880,7 +880,7 @@ int ngbe_procfs_init(struct ngbe_adapter *adapter)
 			goto fail;
 		}
 	}
-	if (!TCALL(&(adapter->hw), ops.init_thermal_sensor_thresh))
+	if (!adapter->hw->ops.init_thermal_sensor_thresh(hw))
 		goto exit;
 
 

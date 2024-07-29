@@ -46,6 +46,10 @@
 #include "kcompat_ethtool.c"
 #endif
 
+#ifdef HAVE_XDP_SUPPORT
+#include <linux/bpf_trace.h>
+#endif
+
 #ifdef ETHTOOL_GSTATS
 struct ngbe_stats {
 	char stat_string[ETH_GSTRING_LEN];
@@ -67,7 +71,6 @@ static const struct ngbe_stats ngbe_gstrings_net_stats[] = {
 	NGBE_NETDEV_STAT(tx_errors),
 	NGBE_NETDEV_STAT(rx_dropped),
 	NGBE_NETDEV_STAT(tx_dropped),
-	NGBE_NETDEV_STAT(multicast),
 	NGBE_NETDEV_STAT(collisions),
 	NGBE_NETDEV_STAT(rx_over_errors),
 	NGBE_NETDEV_STAT(rx_crc_errors),
@@ -93,7 +96,10 @@ static struct ngbe_stats ngbe_gstrings_stats[] = {
 	NGBE_STAT("lsc_int", lsc_int),
 	NGBE_STAT("tx_busy", tx_busy),
 	NGBE_STAT("non_eop_descs", non_eop_descs),
-	NGBE_STAT("broadcast", stats.bprc),
+	NGBE_STAT("rx_broadcast", stats.bprc),
+	NGBE_STAT("tx_broadcast", stats.bptc),
+	NGBE_STAT("rx_multicast", stats.mprc),
+	NGBE_STAT("tx_multicast", stats.mptc),
 	NGBE_STAT("rx_no_buffer_count", stats.rnbc[0]),
 	NGBE_STAT("tx_timeout_count", tx_timeout_count),
 	NGBE_STAT("tx_restart_queue", restart_queue),
@@ -171,12 +177,29 @@ static const char ngbe_gstrings_test[][ETH_GSTRING_LEN] = {
 #define NGBE_TEST_LEN  (sizeof(ngbe_gstrings_test) / ETH_GSTRING_LEN)
 #endif /* ETHTOOL_TEST */
 
-#define ngbe_isbackplane(type)  \
-			((type == ngbe_media_type_backplane) ? true : false)
+#ifdef HAVE_ETHTOOL_GET_SSET_COUNT
+struct ngbe_priv_flags {
+	char flag_string[ETH_GSTRING_LEN];
+	u64 flag;
+	bool read_only;
+};
 
+#define NGBE_PRIV_FLAG(_name, _flag, _read_only) { \
+	.flag_string = _name, \
+	.flag = _flag, \
+	.read_only = _read_only, \
+}
 
-#ifdef HAVE_ETHTOOL_CONVERT_U32_AND_LINK_MODE
-int ngbe_get_link_ksettings(struct net_device *netdev,
+static const struct ngbe_priv_flags ngbe_gstrings_priv_flags[] = {
+	NGBE_PRIV_FLAG("lldp", NGBE_ETH_PRIV_FLAG_LLDP, 0),
+};
+
+#define NGBE_PRIV_FLAGS_STR_LEN ARRAY_SIZE(ngbe_gstrings_priv_flags)
+
+#endif /* HAVE_ETHTOOL_GET_SSET_COUNT */
+
+#ifdef HAVE_ETHTOOL_CONVERT_U32_AND_LINK_MODE			
+static int ngbe_get_link_ksettings(struct net_device *netdev,
 		    struct ethtool_link_ksettings *cmd)
 {
 	struct ngbe_adapter *adapter = netdev_priv(netdev);
@@ -184,41 +207,168 @@ int ngbe_get_link_ksettings(struct net_device *netdev,
 	u32 supported_link = 0;
 	u32 link_speed = 0;
 	bool autoneg = false;
-	u32 supported, advertising = 0;
 	bool link_up = 0;
-	u16 value = 0;
-
-	ethtool_convert_link_mode_to_legacy_u32(&supported,
-						cmd->link_modes.supported);
-
-	TCALL(hw, mac.ops.get_link_capabilities, &supported_link, &autoneg);
+	u16 yt_mode = 0;
+	unsigned long flags;
+	
+	ethtool_link_ksettings_zero_link_mode(cmd, supported);
+	ethtool_link_ksettings_zero_link_mode(cmd, advertising);
+	
+	hw->mac.ops.get_link_capabilities(hw, &supported_link, &autoneg);
 
 	/* set the supported link speeds */
-	if (supported_link & NGBE_LINK_SPEED_1GB_FULL)
-		supported |= (ngbe_isbackplane(hw->phy.media_type)) ?
-			SUPPORTED_1000baseKX_Full : SUPPORTED_1000baseT_Full;
-	if (supported_link & NGBE_LINK_SPEED_100_FULL)
-		supported |= SUPPORTED_100baseT_Full;
-	if (supported_link & NGBE_LINK_SPEED_10_FULL)
-		supported |= SUPPORTED_10baseT_Full;
+	if ((hw->phy.type == ngbe_phy_m88e1512_sfi) || 
+	    (hw->phy.type == ngbe_phy_internal_yt8521s_sfi)) {
+		if (supported_link & NGBE_LINK_SPEED_1GB_FULL)
+#ifndef HAVE_NOT_SUPPORTED_1000baseX_Full
+			ethtool_link_ksettings_add_link_mode(cmd, supported, 1000baseX_Full);
+#else
+			ethtool_link_ksettings_add_link_mode(cmd, supported, 1000baseT_Full);
+#endif
+
+		if (supported_link & NGBE_LINK_SPEED_100_FULL)
+			ethtool_link_ksettings_add_link_mode(cmd, supported, 100baseT_Full);
+	} else if (hw->phy.type == ngbe_phy_yt8521s_sfi) {
+		spin_lock_irqsave(&hw->phy_lock, flags);
+		ngbe_phy_read_reg_ext_yt8521s(hw, 0xA001, 0, &yt_mode);
+		spin_unlock_irqrestore(&hw->phy_lock, flags);
+		if((yt_mode & 7) == 0) {//utp_to_rgmii
+			if (supported_link & NGBE_LINK_SPEED_1GB_FULL)
+			ethtool_link_ksettings_add_link_mode(cmd, supported, 1000baseT_Full);
+
+			if (supported_link & NGBE_LINK_SPEED_100_FULL)
+				ethtool_link_ksettings_add_link_mode(cmd, supported, 100baseT_Full);
+
+			if (supported_link & NGBE_LINK_SPEED_10_FULL)
+				ethtool_link_ksettings_add_link_mode(cmd, supported, 10baseT_Full);
+		} else {
+			if (supported_link & NGBE_LINK_SPEED_1GB_FULL)
+#ifndef HAVE_NOT_SUPPORTED_1000baseX_Full
+				ethtool_link_ksettings_add_link_mode(cmd, supported,1000baseX_Full);
+#else
+				ethtool_link_ksettings_add_link_mode(cmd, supported,1000baseT_Full);
+#endif
+
+			if (supported_link & NGBE_LINK_SPEED_100_FULL)
+				ethtool_link_ksettings_add_link_mode(cmd, supported,100baseT_Full);
+		}		
+	} else if ((hw->phy.type == ngbe_phy_internal) || 
+		    (hw->phy.type == ngbe_phy_m88e1512)) {
+		if (supported_link & NGBE_LINK_SPEED_1GB_FULL)
+			ethtool_link_ksettings_add_link_mode(cmd, supported, 1000baseT_Full);
+
+		if (supported_link & NGBE_LINK_SPEED_100_FULL)
+			ethtool_link_ksettings_add_link_mode(cmd, supported, 100baseT_Full);
+
+		if (supported_link & NGBE_LINK_SPEED_10_FULL)
+			ethtool_link_ksettings_add_link_mode(cmd, supported, 10baseT_Full);
+
+	} else {
+		if (supported_link & NGBE_LINK_SPEED_1GB_FULL)
+			ethtool_link_ksettings_add_link_mode(cmd, supported, 1000baseT_Full);
+	}
 
 	/* set the advertised speeds */
-	if (hw->phy.autoneg_advertised) {
-		if (hw->phy.autoneg_advertised & NGBE_LINK_SPEED_100_FULL)
-			advertising |= ADVERTISED_100baseT_Full;
-		if (hw->phy.autoneg_advertised & NGBE_LINK_SPEED_1GB_FULL) {
-			if (supported & SUPPORTED_1000baseKX_Full)
-				advertising |= ADVERTISED_1000baseKX_Full;
-			else
-				advertising |= ADVERTISED_1000baseT_Full;
+	if ((hw->phy.type == ngbe_phy_m88e1512_sfi) ||
+	    (hw->phy.type == ngbe_phy_internal_yt8521s_sfi)) {
+		 if (hw->phy.autoneg_advertised) {
+			if (hw->phy.autoneg_advertised & NGBE_LINK_SPEED_100_FULL)
+				ethtool_link_ksettings_add_link_mode(cmd, advertising, 100baseT_Full);
+
+			if (hw->phy.autoneg_advertised & NGBE_LINK_SPEED_1GB_FULL)
+#ifndef HAVE_NOT_SUPPORTED_1000baseX_Full
+				ethtool_link_ksettings_add_link_mode(cmd, advertising, 1000baseX_Full);
+#else
+				ethtool_link_ksettings_add_link_mode(cmd, advertising, 1000baseT_Full);
+#endif
+
+		 } else {
+			if (hw->phy.force_speed & NGBE_LINK_SPEED_1GB_FULL)
+#ifndef HAVE_NOT_SUPPORTED_1000baseX_Full
+				ethtool_link_ksettings_add_link_mode(cmd, advertising, 1000baseX_Full);
+#else
+				ethtool_link_ksettings_add_link_mode(cmd, advertising, 1000baseT_Full);
+#endif
+			if (hw->phy.force_speed & NGBE_LINK_SPEED_100_FULL)
+				ethtool_link_ksettings_add_link_mode(cmd, advertising, 100baseT_Full);
+
+			if (hw->phy.force_speed & NGBE_LINK_SPEED_10_FULL)
+				ethtool_link_ksettings_add_link_mode(cmd, advertising, 10baseT_Full);
 		}
-		if (hw->phy.autoneg_advertised & NGBE_LINK_SPEED_10_FULL)
-			advertising |= ADVERTISED_10baseT_Full;
+	}else if (hw->phy.type == ngbe_phy_yt8521s_sfi) {
+		if ((yt_mode & 7) == 0) {
+			if (hw->phy.autoneg_advertised) {
+				if (hw->phy.autoneg_advertised & NGBE_LINK_SPEED_10_FULL)
+					ethtool_link_ksettings_add_link_mode(cmd, advertising, 10baseT_Full);
+
+				if (hw->phy.autoneg_advertised & NGBE_LINK_SPEED_100_FULL)
+					ethtool_link_ksettings_add_link_mode(cmd, advertising, 100baseT_Full);
+
+				if (hw->phy.autoneg_advertised & NGBE_LINK_SPEED_1GB_FULL)
+					ethtool_link_ksettings_add_link_mode(cmd, advertising, 1000baseT_Full);
+			} else {
+				if (hw->phy.force_speed & NGBE_LINK_SPEED_10_FULL)
+					ethtool_link_ksettings_add_link_mode(cmd, advertising, 10baseT_Full);
+
+				if (hw->phy.force_speed & NGBE_LINK_SPEED_100_FULL)
+					ethtool_link_ksettings_add_link_mode(cmd, advertising, 100baseT_Full);
+
+				if (hw->phy.force_speed & NGBE_LINK_SPEED_1GB_FULL)
+					ethtool_link_ksettings_add_link_mode(cmd, advertising, 1000baseT_Full);
+			}
+		} else {
+			if (hw->phy.autoneg_advertised) {
+				if (hw->phy.autoneg_advertised & NGBE_LINK_SPEED_1GB_FULL)
+#ifndef HAVE_NOT_SUPPORTED_1000baseX_Full
+					ethtool_link_ksettings_add_link_mode(cmd, advertising, 1000baseX_Full);
+#else
+					ethtool_link_ksettings_add_link_mode(cmd, advertising, 1000baseT_Full);
+#endif
+
+				if (hw->phy.autoneg_advertised & NGBE_LINK_SPEED_100_FULL)
+					ethtool_link_ksettings_add_link_mode(cmd, advertising, 100baseT_Full);
+
+				if (hw->phy.autoneg_advertised & NGBE_LINK_SPEED_10_FULL)
+					ethtool_link_ksettings_add_link_mode(cmd, advertising, 10baseT_Full);
+			} else {
+				if (hw->phy.force_speed & NGBE_LINK_SPEED_1GB_FULL)
+#ifndef HAVE_NOT_SUPPORTED_1000baseX_Full
+					ethtool_link_ksettings_add_link_mode(cmd, advertising, 1000baseX_Full);
+#else
+					ethtool_link_ksettings_add_link_mode(cmd, advertising, 1000baseT_Full);
+#endif
+
+				if (hw->phy.force_speed & NGBE_LINK_SPEED_100_FULL)
+					ethtool_link_ksettings_add_link_mode(cmd, advertising, 100baseT_Full);
+
+				if (hw->phy.force_speed & NGBE_LINK_SPEED_10_FULL)
+					ethtool_link_ksettings_add_link_mode(cmd, advertising, 10baseT_Full);
+			}
+		}
+	} else {
+		if (hw->phy.autoneg_advertised) {
+			if (hw->phy.autoneg_advertised & NGBE_LINK_SPEED_1GB_FULL)
+				ethtool_link_ksettings_add_link_mode(cmd, advertising, 1000baseT_Full);
+	
+			if (hw->phy.autoneg_advertised & NGBE_LINK_SPEED_100_FULL)
+				ethtool_link_ksettings_add_link_mode(cmd, advertising, 100baseT_Full);
+
+			if (hw->phy.autoneg_advertised & NGBE_LINK_SPEED_10_FULL)
+				ethtool_link_ksettings_add_link_mode(cmd, advertising, 10baseT_Full);
+		} else {
+			if (hw->phy.force_speed & NGBE_LINK_SPEED_1GB_FULL)
+				ethtool_link_ksettings_add_link_mode(cmd, advertising, 1000baseT_Full);
+			if (hw->phy.force_speed & NGBE_LINK_SPEED_100_FULL)
+				ethtool_link_ksettings_add_link_mode(cmd, advertising, 100baseT_Full);
+			if (hw->phy.force_speed & NGBE_LINK_SPEED_10_FULL)
+				ethtool_link_ksettings_add_link_mode(cmd, advertising, 10baseT_Full);
+		}
 	}
-	supported |= SUPPORTED_Autoneg;
+	
+	ethtool_link_ksettings_add_link_mode(cmd, supported, Autoneg);
 	if (autoneg) {
-		advertising |= ADVERTISED_Autoneg;
-		autoneg = AUTONEG_ENABLE;
+		ethtool_link_ksettings_add_link_mode(cmd, supported, Autoneg);
+		ethtool_link_ksettings_add_link_mode(cmd, advertising, Autoneg);
 		cmd->base.autoneg = AUTONEG_ENABLE;
 	} else
 		cmd->base.autoneg = AUTONEG_DISABLE;
@@ -227,81 +377,36 @@ int ngbe_get_link_ksettings(struct net_device *netdev,
 	switch (adapter->hw.phy.type) {
 	case ngbe_phy_internal:
 	case ngbe_phy_m88e1512:
-	case ngbe_phy_zte:
-		supported |= SUPPORTED_TP;
-		advertising |= ADVERTISED_TP;
+		ethtool_link_ksettings_add_link_mode(cmd, supported, TP);
+		ethtool_link_ksettings_add_link_mode(cmd, advertising, TP);
 		cmd->base.port = PORT_TP;
 		break;
-	case ngbe_phy_sfp_passive_tyco:
-	case ngbe_phy_sfp_passive_unknown:
-	case ngbe_phy_sfp_ftl:
-	case ngbe_phy_sfp_avago:
-	case ngbe_phy_sfp_intel:
-	case ngbe_phy_sfp_unknown:
-		switch (adapter->hw.phy.sfp_type) {
-			/* SFP+ devices, further checking needed */
-		case ngbe_sfp_type_da_cu:
-		case ngbe_sfp_type_da_cu_core0:
-		case ngbe_sfp_type_da_cu_core1:
-			supported |= SUPPORTED_FIBRE;
-			advertising |= ADVERTISED_FIBRE;
-			cmd->base.port = PORT_DA;
-			break;
-		case ngbe_sfp_type_sr:
-		case ngbe_sfp_type_lr:
-		case ngbe_sfp_type_srlr_core0:
-		case ngbe_sfp_type_srlr_core1:
-		case ngbe_sfp_type_1g_sx_core0:
-		case ngbe_sfp_type_1g_sx_core1:
-		case ngbe_sfp_type_1g_lx_core0:
-		case ngbe_sfp_type_1g_lx_core1:
-			supported |= SUPPORTED_FIBRE;
-			advertising |= ADVERTISED_FIBRE;
-			cmd->base.port = PORT_FIBRE;
-			break;
-		case ngbe_sfp_type_not_present:
-			supported |= SUPPORTED_FIBRE;
-			advertising |= ADVERTISED_FIBRE;
-			cmd->base.port = PORT_NONE;
-			break;
-		case ngbe_sfp_type_1g_cu_core0:
-		case ngbe_sfp_type_1g_cu_core1:
-			supported |= SUPPORTED_TP;
-			advertising |= ADVERTISED_TP;
-			cmd->base.port = PORT_TP;
-			break;
-		case ngbe_sfp_type_unknown:
-		default:
-			supported |= SUPPORTED_FIBRE;
-			advertising |= ADVERTISED_FIBRE;
-			cmd->base.port = PORT_OTHER;
-			break;
-		}
-		break;
 	case ngbe_phy_yt8521s_sfi:
-		ngbe_phy_read_reg_ext_yt8521s(hw, 0xA001, 0, &value);
-		if ((value & 7) == 0) {//utp_to_rgmii
-			supported |= SUPPORTED_TP;
-			advertising |= ADVERTISED_TP;
-			cmd->base.port = PORT_TP;
+		if((yt_mode & 7) == 0) {//utp_to_rgmii
+			ethtool_link_ksettings_add_link_mode(cmd, supported, TP);
+			ethtool_link_ksettings_add_link_mode(cmd, advertising, TP);
+			cmd->base.port = PORT_TP;			
 		} else {
-			supported |= SUPPORTED_FIBRE;
-			advertising |= ADVERTISED_FIBRE;
-			cmd->base.port = PORT_FIBRE;
+			ethtool_link_ksettings_add_link_mode(cmd, supported, FIBRE);
+			ethtool_link_ksettings_add_link_mode(cmd, advertising, FIBRE);
+			cmd->base.port = PORT_FIBRE;			
 		}
 		break;
-	case ngbe_phy_unknown:
-	case ngbe_phy_generic:
-	case ngbe_phy_sfp_unsupported:
+	case ngbe_phy_internal_yt8521s_sfi:
+	case ngbe_phy_m88e1512_sfi:
+		ethtool_link_ksettings_add_link_mode(cmd, supported, FIBRE);
+		ethtool_link_ksettings_add_link_mode(cmd, advertising, FIBRE);
+		cmd->base.port = PORT_FIBRE;			
+		break;
 	default:
-		supported |= SUPPORTED_FIBRE;
-		advertising |= ADVERTISED_FIBRE;
+		ethtool_link_ksettings_add_link_mode(cmd, supported, FIBRE);
+		ethtool_link_ksettings_add_link_mode(cmd, advertising, FIBRE);
 		cmd->base.port = PORT_OTHER;
 		break;
 	}
 
 	if (!in_interrupt()) {
-		TCALL(hw, mac.ops.check_link, &link_speed, &link_up, false);
+		hw->mac.ops.check_link(hw, &link_speed, &link_up, false);
 	} else {
 		/*
 		 * this case is a special workaround for RHEL5 bonding
@@ -311,22 +416,22 @@ int ngbe_get_link_ksettings(struct net_device *netdev,
 		link_up = adapter->link_up;
 	}
 
-	supported |= SUPPORTED_Pause;
+	ethtool_link_ksettings_add_link_mode(cmd, supported, Pause);
 
 	switch (hw->fc.requested_mode) {
 	case ngbe_fc_full:
-		advertising |= ADVERTISED_Pause;
+		ethtool_link_ksettings_add_link_mode(cmd, advertising, Pause);
 		break;
 	case ngbe_fc_rx_pause:
-		advertising |= ADVERTISED_Pause |
-				     ADVERTISED_Asym_Pause;
+		ethtool_link_ksettings_add_link_mode(cmd, advertising, Pause);
+		ethtool_link_ksettings_add_link_mode(cmd, advertising, Asym_Pause);
 		break;
 	case ngbe_fc_tx_pause:
-		advertising |= ADVERTISED_Asym_Pause;
+		ethtool_link_ksettings_add_link_mode(cmd, advertising, Asym_Pause);
 		break;
 	default:
-		advertising &= ~(ADVERTISED_Pause |
-				       ADVERTISED_Asym_Pause);
+		ethtool_link_ksettings_del_link_mode(cmd, advertising, Pause);
+		ethtool_link_ksettings_del_link_mode(cmd, advertising, Asym_Pause);
 	}
 
 	if (link_up) {
@@ -349,10 +454,6 @@ int ngbe_get_link_ksettings(struct net_device *netdev,
 		cmd->base.duplex = -1;
 	}
 
-	ethtool_convert_legacy_u32_to_link_mode(cmd->link_modes.supported,
-						supported);
-	ethtool_convert_legacy_u32_to_link_mode(cmd->link_modes.advertising,
-						advertising);
 	return 0;
 }
 #else /* !HAVE_ETHTOOL_CONVERT_U32_AND_LINK_MODE */
@@ -366,13 +467,13 @@ int ngbe_get_settings(struct net_device *netdev,
 	bool autoneg = false;
 	bool link_up = 0;
 	u16 value = 0;
-
-	TCALL(hw, mac.ops.get_link_capabilities, &supported_link, &autoneg);
+	unsigned long flags;
+	
+	hw->mac.ops.get_link_capabilities(hw, &supported_link, &autoneg);
 
 	/* set the supported link speeds */
 	if (supported_link & NGBE_LINK_SPEED_1GB_FULL)
-		ecmd->supported |= (ngbe_isbackplane(hw->phy.media_type)) ?
-			SUPPORTED_1000baseKX_Full : SUPPORTED_1000baseT_Full;
+		ecmd->supported |= SUPPORTED_1000baseT_Full;
 	if (supported_link & NGBE_LINK_SPEED_100_FULL)
 		ecmd->supported |= SUPPORTED_100baseT_Full;
 	if (supported_link & NGBE_LINK_SPEED_10_FULL)
@@ -390,6 +491,13 @@ int ngbe_get_settings(struct net_device *netdev,
 		}
 		if (hw->phy.autoneg_advertised & NGBE_LINK_SPEED_10_FULL)
 			ecmd->advertising |= ADVERTISED_10baseT_Full;
+	} else {
+		if (hw->phy.force_speed & NGBE_LINK_SPEED_1GB_FULL)
+			ecmd->advertising |= ADVERTISED_1000baseT_Full;
+		if (hw->phy.force_speed & NGBE_LINK_SPEED_100_FULL)
+			ecmd->advertising |= ADVERTISED_100baseT_Full;
+		if (hw->phy.force_speed & NGBE_LINK_SPEED_10_FULL)
+			ecmd->advertising |= ADVERTISED_10baseT_Full;
 	}
 
 	ecmd->supported |= SUPPORTED_Autoneg;
@@ -405,7 +513,6 @@ int ngbe_get_settings(struct net_device *netdev,
 	switch (adapter->hw.phy.type) {
 	case ngbe_phy_internal:
 	case ngbe_phy_m88e1512:
-	case ngbe_phy_zte:
 		ecmd->supported |= SUPPORTED_TP;
 		ecmd->advertising |= ADVERTISED_TP;
 		ecmd->port = PORT_TP;
@@ -457,16 +564,23 @@ int ngbe_get_settings(struct net_device *netdev,
 		}
 		break;
 	case ngbe_phy_yt8521s_sfi:
+		spin_lock_irqsave(&hw->phy_lock, flags);
 		ngbe_phy_read_reg_ext_yt8521s(hw, 0xA001, 0, &value);
-		if ((value & 7) == 0) {//utp_to_rgmii
+		spin_unlock_irqrestore(&hw->phy_lock, flags);
+		if((value & 7) == 0) {/* utp_to_rgmii */
 			ecmd->supported |= SUPPORTED_TP;
 			ecmd->advertising |= ADVERTISED_TP;
-			ecmd->port = PORT_TP;
+			ecmd->port = PORT_TP;		
 		} else {
 			ecmd->supported |= SUPPORTED_FIBRE;
 			ecmd->advertising |= ADVERTISED_FIBRE;
-			ecmd->port = PORT_FIBRE;
+			ecmd->port = PORT_FIBRE;		
 		}
+		break;
+	case ngbe_phy_internal_yt8521s_sfi:
+		ecmd->supported |= SUPPORTED_FIBRE;
+		ecmd->advertising |= ADVERTISED_FIBRE;
+		ecmd->port = PORT_FIBRE;				
 		break;
 	case ngbe_phy_unknown:
 	case ngbe_phy_generic:
@@ -479,7 +593,7 @@ int ngbe_get_settings(struct net_device *netdev,
 	}
 
 	if (!in_interrupt()) {
-		TCALL(hw, mac.ops.check_link, &link_speed, &link_up, false);
+		hw->mac.ops.check_link(hw, &link_speed, &link_up, false);
 	} else {
 		/*
 		 * this case is a special workaround for RHEL5 bonding
@@ -533,44 +647,66 @@ int ngbe_get_settings(struct net_device *netdev,
 
 #ifdef HAVE_ETHTOOL_CONVERT_U32_AND_LINK_MODE
 static int ngbe_set_link_ksettings(struct net_device *netdev,
-				const struct ethtool_link_ksettings *cmd)
+				   const struct ethtool_link_ksettings *cmd)
 {
 	struct ngbe_adapter *adapter = netdev_priv(netdev);
 	struct ngbe_hw *hw = &adapter->hw;
-	u32 advertised, old;
-	s32 err = 0;
-	u32 supported, advertising;
-	ethtool_convert_link_mode_to_legacy_u32(&supported,
-						cmd->link_modes.supported);
-	ethtool_convert_link_mode_to_legacy_u32(&advertising,
-						cmd->link_modes.advertising);
+	u32 advertised;
+	int err = 0;
+	struct ethtool_link_ksettings temp_ks;
+
+	if (!netif_running(netdev))
+		return -EINVAL;
 
 	if ((hw->phy.media_type == ngbe_media_type_copper) ||
 	    (hw->phy.multispeed_fiber)) {
+	    memcpy(&temp_ks, cmd, sizeof(struct ethtool_link_ksettings));
+	    /* To be compatible with test cases */	
+		if ((hw->phy.type == ngbe_phy_m88e1512_sfi) || 
+		    (hw->phy.type == ngbe_phy_yt8521s_sfi)  ||
+		    (hw->phy.type == ngbe_phy_internal_yt8521s_sfi)) {
+			if (ethtool_link_ksettings_test_link_mode(cmd, advertising,
+							  1000baseT_Full)) {
+				ethtool_link_ksettings_add_link_mode(&temp_ks, supported, 
+								 1000baseT_Full);
+#ifndef HAVE_NOT_SUPPORTED_1000baseX_Full
+				ethtool_link_ksettings_del_link_mode(&temp_ks, supported, 
+								 1000baseX_Full);
+#endif
+			}
+		}
+		
 		/*
 		 * this function does not support duplex forcing, but can
 		 * limit the advertising of the adapter to the specified speed
 		 */
-		if (advertising & ~supported) {
+		if (!bitmap_subset(cmd->link_modes.advertising,
+			   temp_ks.link_modes.supported,
+			   __ETHTOOL_LINK_MODE_MASK_NBITS))
 			return -EINVAL;
-		}
-		old = hw->phy.autoneg_advertised;
+		
 		advertised = 0;
 
 		if (cmd->base.autoneg == AUTONEG_ENABLE) {
 			hw->mac.autoneg = true;
-			if (advertising & ADVERTISED_1000baseT_Full)
+#ifndef HAVE_NOT_SUPPORTED_1000baseX_Full
+			if (ethtool_link_ksettings_test_link_mode(cmd, advertising,
+							  1000baseT_Full) ||
+				ethtool_link_ksettings_test_link_mode(cmd, advertising,
+							  1000baseX_Full))
+#else
+			if (ethtool_link_ksettings_test_link_mode(cmd, advertising,
+							  1000baseT_Full))
+#endif
 				advertised |= NGBE_LINK_SPEED_1GB_FULL;
 
-			if (advertising & ADVERTISED_100baseT_Full)
+			if (ethtool_link_ksettings_test_link_mode(cmd, advertising,
+							  100baseT_Full))
 				advertised |= NGBE_LINK_SPEED_100_FULL;
 
-			if (advertising & ADVERTISED_10baseT_Full)
+			if (ethtool_link_ksettings_test_link_mode(cmd, advertising,
+							  10baseT_Full))
 				advertised |= NGBE_LINK_SPEED_10_FULL;
-
-			if (old == advertised) {
-				return err;
-			}
 		} else {
 			if (cmd->base.duplex == DUPLEX_HALF) {
 				e_err(probe, "unsupported duplex\n");
@@ -578,25 +714,25 @@ static int ngbe_set_link_ksettings(struct net_device *netdev,
 			}
 
 			switch (cmd->base.speed) {
-			case SPEED_10:
-				advertised = NGBE_LINK_SPEED_10_FULL;
-				break;
-			case SPEED_100:
-				advertised = NGBE_LINK_SPEED_100_FULL;
-				break;
-			case SPEED_1000:
-				advertised = NGBE_LINK_SPEED_1GB_FULL;
-				break;
-			default:
-				e_err(probe, "unsupported speed\n");
-				return -EINVAL;
-}
+				case SPEED_10:
+					advertised = NGBE_LINK_SPEED_10_FULL;
+					break;
+				case SPEED_100:
+					advertised = NGBE_LINK_SPEED_100_FULL;
+					break;
+				case SPEED_1000:
+					advertised = NGBE_LINK_SPEED_1GB_FULL;
+					break;
+				default:
+					e_err(probe, "unsupported speed\n");
+					return -EINVAL;
+			}
 
 			hw->mac.autoneg = false;
 		}
 
 		hw->mac.autotry_restart = true;
-		TCALL(hw, mac.ops.setup_link, advertised, true);
+		hw->phy.ops.setup_link(hw, advertised, true);
 		if (cmd->base.autoneg == AUTONEG_ENABLE) {
 			hw->phy.autoneg_advertised = advertised;
 		} else {
@@ -607,8 +743,9 @@ static int ngbe_set_link_ksettings(struct net_device *netdev,
 		/* in this case we currently only support 1Gb/FULL */
 		u32 speed = cmd->base.speed;
 		if ((cmd->base.autoneg == AUTONEG_ENABLE) ||
-		    (advertising != ADVERTISED_10000baseT_Full) ||
-		    (speed + cmd->base.duplex != SPEED_10000 + DUPLEX_FULL))
+		    (!ethtool_link_ksettings_test_link_mode(cmd, advertising,
+							  1000baseT_Full)) ||
+		    (speed + cmd->base.duplex != SPEED_1000 + DUPLEX_FULL))
 			return -EINVAL;
 	}
 
@@ -617,12 +754,15 @@ static int ngbe_set_link_ksettings(struct net_device *netdev,
 
 #else /* !HAVE_ETHTOOL_CONVERT_U32_AND_LINK_MODE */
 static int ngbe_set_settings(struct net_device *netdev,
-							 struct ethtool_cmd *ecmd)
+			     struct ethtool_cmd *ecmd)
 {
 	struct ngbe_adapter *adapter = netdev_priv(netdev);
 	struct ngbe_hw *hw = &adapter->hw;
 	u32 advertised, old;
-	s32 err = 0;
+	int err = 0;
+
+	if (!netif_running(netdev))
+		return -EINVAL;
 
 	if ((hw->phy.media_type == ngbe_media_type_copper) ||
 		(hw->phy.multispeed_fiber)) {
@@ -648,9 +788,7 @@ static int ngbe_set_settings(struct net_device *netdev,
 			if (ecmd->advertising & ADVERTISED_10baseT_Full)
 				advertised |= NGBE_LINK_SPEED_10_FULL;
 
-			if (old == advertised) {
-				return err;
-			}
+
 		} else {
 			if (ecmd->duplex == DUPLEX_HALF) {
 				e_err(probe, "unsupported duplex\n");
@@ -675,7 +813,7 @@ static int ngbe_set_settings(struct net_device *netdev,
 		}
 
 		hw->mac.autotry_restart = true;
-		TCALL(hw, mac.ops.setup_link, advertised, true);
+		hw->phy.ops.setup_link(hw, advertised, true);
 		if (ecmd->autoneg == AUTONEG_ENABLE) {
 			hw->phy.autoneg_advertised = advertised;
 		} else {
@@ -906,7 +1044,7 @@ static void ngbe_get_regs(struct net_device *netdev,
 	for (i = 0; i < 8; i++) {
 		regs_buff[id++] = NGBE_R32_Q(hw, NGBE_RDB_5T_CTL1(i));//154-161
 	}
-
+	
 	regs_buff[id++] = NGBE_R32_Q(hw, NGBE_RDB_SYN_CLS);//162
 	for (i = 0; i < 8; i++) {
 		regs_buff[id++] = NGBE_R32_Q(hw, NGBE_RDB_ETYPE_CLS(i));//163-170
@@ -921,7 +1059,7 @@ static void ngbe_get_regs(struct net_device *netdev,
 	regs_buff[id++] = NGBE_R32_Q(hw, NGBE_RDB_PFCMACDAL);//177
 	regs_buff[id++] = NGBE_R32_Q(hw, NGBE_RDB_PFCMACDAH);//178
 	regs_buff[id++] = NGBE_R32_Q(hw, NGBE_RDB_TXSWERR);//179
-
+	
 	/* PSR */
 	regs_buff[id++] = NGBE_R32_Q(hw, NGBE_PSR_CTL);//180
 	regs_buff[id++] = NGBE_R32_Q(hw, NGBE_PSR_MAX_SZ);//181
@@ -932,7 +1070,7 @@ static void ngbe_get_regs(struct net_device *netdev,
 	regs_buff[id++] = NGBE_R32_Q(hw, NGBE_PSR_DBG_DOP_CNT);//186
 	regs_buff[id++] = NGBE_R32_Q(hw, NGBE_PSR_MNG_DOP_CNT);//187
 	regs_buff[id++] = NGBE_R32_Q(hw, NGBE_PSR_VM_FLP_L);//188
-
+	
 	/* vm l2 control */
 	for (i = 0; i < 8; i++) {
 		regs_buff[id++] = NGBE_R32_Q(hw, NGBE_PSR_VM_L2CTL(i));//189-196
@@ -996,7 +1134,7 @@ static void ngbe_get_regs(struct net_device *netdev,
 	regs_buff[id++] = NGBE_R32_Q(hw, NGBE_PSR_LAN_FLEX_CTL);//672
 
 	/* TDB */
-	regs_buff[id++] = NGBE_R32_Q(hw, NGBE_TDB_RFCS);//673
+	regs_buff[id++] = NGBE_R32_Q(hw, NGBE_TDB_TFCS);//673
 	regs_buff[id++] = NGBE_R32_Q(hw, NGBE_TDB_PB_SZ);//674
 	regs_buff[id++] = NGBE_R32_Q(hw, NGBE_TDB_PBRARB_CTL);//675
 	/* statistic */
@@ -1028,7 +1166,7 @@ static void ngbe_get_regs(struct net_device *netdev,
 	for (i = 0; i < 4; i++) {
 		regs_buff[id++] = NGBE_R32_Q(hw, NGBE_TSEC_1588_SDP(i));//696-699
 	}
-
+	
 	/* RSEC */
 	regs_buff[id++] = NGBE_R32_Q(hw, NGBE_RSEC_CTL);//700
 	regs_buff[id++] = NGBE_R32_Q(hw, NGBE_RSEC_ST);//701
@@ -1127,7 +1265,7 @@ static int ngbe_get_eeprom(struct net_device *netdev,
 	if (!eeprom_buff)
 		return -ENOMEM;
 
-	ret_val = TCALL(hw, eeprom.ops.read_buffer, first_word, eeprom_len,
+	ret_val = hw->eeprom.ops.read_buffer(hw, first_word, eeprom_len,
 					   eeprom_buff);
 
 	/* Device's eeprom is always little-endian, word addressable */
@@ -1171,7 +1309,7 @@ static int ngbe_set_eeprom(struct net_device *netdev,
 		 * need read/modify/write of first changed EEPROM word
 		 * only the second byte of the word is being modified
 		 */
-		ret_val = TCALL(hw, eeprom.ops.read, first_word,
+		ret_val = hw->eeprom.ops.read(hw, first_word,
 				&eeprom_buff[0]);
 		if (ret_val)
 			goto err;
@@ -1183,7 +1321,7 @@ static int ngbe_set_eeprom(struct net_device *netdev,
 		 * need read/modify/write of last changed EEPROM word
 		 * only the first byte of the word is being modified
 		 */
-		ret_val = TCALL(hw, eeprom.ops.read, last_word,
+		ret_val = hw->eeprom.ops.read(hw, last_word,
 				&eeprom_buff[last_word - first_word]);
 		if (ret_val)
 			goto err;
@@ -1198,13 +1336,13 @@ static int ngbe_set_eeprom(struct net_device *netdev,
 	for (i = 0; i < last_word - first_word + 1; i++)
 		cpu_to_le16s(&eeprom_buff[i]);
 
-	ret_val = TCALL(hw, eeprom.ops.write_buffer, first_word,
+	ret_val = hw->eeprom.ops.write_buffer(hw, first_word,
 					    last_word - first_word + 1,
 					    eeprom_buff);
 
 	/* Update the checksum */
 	if (ret_val == 0)
-		TCALL(hw, eeprom.ops.update_checksum);
+		hw->eeprom.ops.update_checksum(hw);
 
 err:
 	kfree(eeprom_buff);
@@ -1236,7 +1374,13 @@ static void ngbe_get_drvinfo(struct net_device *netdev,
 }
 
 static void ngbe_get_ringparam(struct net_device *netdev,
+#ifdef HAVE_ETHTOOL_EXTENDED_RINGPARAMS
+				struct ethtool_ringparam *ring,
+				struct kernel_ethtool_ringparam *ringp,
+				struct netlink_ext_ack *extack)
+#else
 				struct ethtool_ringparam *ring)
+#endif
 {
 	struct ngbe_adapter *adapter = netdev_priv(netdev);
 
@@ -1251,7 +1395,13 @@ static void ngbe_get_ringparam(struct net_device *netdev,
 }
 
 static int ngbe_set_ringparam(struct net_device *netdev,
-			       struct ethtool_ringparam *ring)
+#ifdef HAVE_ETHTOOL_EXTENDED_RINGPARAMS
+				struct ethtool_ringparam *ring,
+				struct kernel_ethtool_ringparam *ringp,
+				struct netlink_ext_ack *extack)
+#else
+				struct ethtool_ringparam *ring)
+#endif
 {
 	struct ngbe_adapter *adapter = netdev_priv(netdev);
 	struct ngbe_ring *temp_ring;
@@ -1284,6 +1434,7 @@ static int ngbe_set_ringparam(struct net_device *netdev,
 		for (i = 0; i < adapter->num_rx_queues; i++)
 			adapter->rx_ring[i]->count = new_rx_count;
 		adapter->tx_ring_count = new_tx_count;
+		adapter->xdp_ring_count = new_tx_count;
 		adapter->rx_ring_count = new_rx_count;
 		goto clear_reset;
 	}
@@ -1336,7 +1487,9 @@ static int ngbe_set_ringparam(struct net_device *netdev,
 		for (i = 0; i < adapter->num_rx_queues; i++) {
 			memcpy(&temp_ring[i], adapter->rx_ring[i],
 			       sizeof(struct ngbe_ring));
-
+#ifdef HAVE_XDP_BUFF_RXQ
+			xdp_rxq_info_unreg(&temp_ring[i].xdp_rxq);
+#endif
 			temp_ring[i].count = new_rx_count;
 			err = ngbe_setup_rx_resources(&temp_ring[i]);
 			if (err) {
@@ -1398,10 +1551,86 @@ static int ngbe_get_sset_count(struct net_device *netdev, int sset)
 		}else{
 			return NGBE_STATS_LEN;
 		}
+	case ETH_SS_PRIV_FLAGS:
+		return NGBE_PRIV_FLAGS_STR_LEN;
 	default:
 		return -EOPNOTSUPP;
 	}
 }
+
+/**
+ * ngbe_get_priv_flags - report device private flags
+ * @dev: network interface device structure
+ *
+ * The get string set count and the string set should be matched for each
+ * flag returned.  Add new strings for each flag to the ngbe_gstrings_priv_flags
+ * array.
+ *
+ * Returns a u32 bitmap of flags.
+ **/
+static u32 ngbe_get_priv_flags(struct net_device *dev)
+{
+	struct ngbe_adapter *adapter = netdev_priv(dev);
+	u32 i , ret_flags = 0;
+
+	for (i = 0; i < NGBE_PRIV_FLAGS_STR_LEN; i++) {
+		const struct ngbe_priv_flags *priv_flags;
+
+		priv_flags = &ngbe_gstrings_priv_flags[i];
+
+		if (priv_flags->flag & adapter->eth_priv_flags)
+			ret_flags |= BIT(i);
+	}
+	return ret_flags;
+}
+
+/**
+ * ngbe_set_priv_flags - set private flags
+ * @dev: network interface device structure
+ * @flags: bit flags to be set
+ **/
+static int ngbe_set_priv_flags(struct net_device *dev, u32 flags)
+{
+	struct ngbe_adapter *adapter = netdev_priv(dev);
+	u32 orig_flags, new_flags, changed_flags;
+	u32 i;
+	int status = 0;
+
+	orig_flags = adapter->eth_priv_flags;
+	new_flags = orig_flags;
+
+	if (!netif_running(dev))
+		return -EINVAL;
+
+	for (i = 0; i < NGBE_PRIV_FLAGS_STR_LEN; i++) {
+		const struct ngbe_priv_flags *priv_flags;
+
+		priv_flags = &ngbe_gstrings_priv_flags[i];
+
+		if (flags & BIT(i))
+			new_flags |= priv_flags->flag;
+		else
+			new_flags &= ~(priv_flags->flag);
+
+		/* If this is a read-only flag, it can't be changed */
+		if (priv_flags->read_only &&
+		    ((orig_flags ^ new_flags) & ~BIT(i)))
+			return -EOPNOTSUPP;
+	}
+	
+	changed_flags = orig_flags ^ new_flags;
+
+	if(!changed_flags) return 0;
+
+	if (changed_flags & NGBE_ETH_PRIV_FLAG_LLDP) {
+		status = ngbe_hic_write_lldp(&adapter->hw, (u32)(new_flags & NGBE_ETH_PRIV_FLAG_LLDP));
+		if(!status)
+			adapter->eth_priv_flags = new_flags;
+	}
+
+	return status;
+}
+
 
 #endif /* HAVE_ETHTOOL_GET_SSET_COUNT */
 static void ngbe_get_ethtool_stats(struct net_device *netdev,
@@ -1419,7 +1648,7 @@ static void ngbe_get_ethtool_stats(struct net_device *netdev,
 #ifdef HAVE_NDO_GET_STATS64
 	unsigned int start;
 #endif
-	struct ngbe_ring *ring;
+	struct ngbe_ring *ring, *xdp_ring;
 	int i, j;
 	char *p;
 
@@ -1438,6 +1667,7 @@ static void ngbe_get_ethtool_stats(struct net_device *netdev,
 
 	for (j = 0; j < adapter->num_tx_queues; j++) {
 		ring = adapter->tx_ring[j];
+		xdp_ring = adapter->xdp_ring[j];
 		if (!ring) {
 			data[i++] = 0;
 			data[i++] = 0;
@@ -1458,11 +1688,27 @@ static void ngbe_get_ethtool_stats(struct net_device *netdev,
 #ifdef HAVE_NDO_GET_STATS64
 		} while (u64_stats_fetch_retry_irq(&ring->syncp, start));
 #endif
+		if (xdp_ring) {
+#ifdef HAVE_NDO_GET_STATS64
+			do {
+				start = u64_stats_fetch_begin_irq(&xdp_ring->syncp);
+#endif
+				data[i]   += xdp_ring->stats.packets;
+				data[i+1] += xdp_ring->stats.bytes;
+#ifdef HAVE_NDO_GET_STATS64
+			} while (u64_stats_fetch_retry_irq(&xdp_ring->syncp, start));
+#endif
+		}
 		i += 2;
 #ifdef BP_EXTENDED_STATS
 		data[i] = ring->stats.yields;
 		data[i+1] = ring->stats.misses;
-		data[i+2] = ring->stats.cleaned;
+		data[i + 2] = ring->stats.cleaned;
+		if (xdp_ring) {
+			data[i] += xdp_ring->stats.yields;
+			data[i+1] += xdp_ring->stats.misses;
+			data[i + 2] += xdp_ring->stats.cleaned;
+		}
 		i += 3;
 #endif
 	}
@@ -1519,6 +1765,18 @@ static void ngbe_get_ethtool_stats(struct net_device *netdev,
 	}
 }
 
+static void ngbe_get_priv_flag_strings(struct net_device *netdev, u8 *data)
+{
+	char *p = (char *)data;
+	unsigned int i;
+
+	for (i = 0; i < NGBE_PRIV_FLAGS_STR_LEN; i++) {
+		snprintf(p, ETH_GSTRING_LEN, "%s",
+			ngbe_gstrings_priv_flags[i].flag_string);
+		p += ETH_GSTRING_LEN;
+	}
+}
+
 static void ngbe_get_strings(struct net_device *netdev, u32 stringset,
 			      u8 *data)
 {
@@ -1542,7 +1800,7 @@ static void ngbe_get_strings(struct net_device *netdev, u32 stringset,
 			       ETH_GSTRING_LEN);
 			p += ETH_GSTRING_LEN;
 		}
-	for (i = 0; i < adapter->num_tx_queues; i++) {  /*temp setting2*/
+        for (i = 0; i < adapter->num_tx_queues; i++) {  /*temp setting2*/ 
 			sprintf(p, "tx_queue_%u_packets", i);
 			p += ETH_GSTRING_LEN;
 			sprintf(p, "tx_queue_%u_bytes", i);
@@ -1556,7 +1814,7 @@ static void ngbe_get_strings(struct net_device *netdev, u32 stringset,
 			p += ETH_GSTRING_LEN;
 #endif /* BP_EXTENDED_STATS */
 		}
-	for (i = 0; i < adapter->num_rx_queues; i++) {  /*temp setting2*/
+        for (i = 0; i < adapter->num_rx_queues; i++) {  /*temp setting2*/ 
 			sprintf(p, "rx_queue_%u_packets", i);
 			p += ETH_GSTRING_LEN;
 			sprintf(p, "rx_queue_%u_bytes", i);
@@ -1596,13 +1854,16 @@ static void ngbe_get_strings(struct net_device *netdev, u32 stringset,
 		}
 		/* BUG_ON(p - data != NGBE_STATS_LEN * ETH_GSTRING_LEN); */
 		break;
+	case ETH_SS_PRIV_FLAGS:
+		ngbe_get_priv_flag_strings(netdev, data);
+		break;
 	}
 }
 
 static int ngbe_link_test(struct ngbe_adapter *adapter, u64 *data)
 {
 	struct ngbe_hw *hw = &adapter->hw;
-	bool link_up;
+	bool link_up = 0;
 	u32 link_speed = 0;
 
 	if (NGBE_REMOVED(hw->hw_addr)) {
@@ -1610,7 +1871,7 @@ static int ngbe_link_test(struct ngbe_adapter *adapter, u64 *data)
 		return 1;
 	}
 	*data = 0;
-    TCALL(hw, mac.ops.check_link, &link_speed, &link_up, true);
+	hw->mac.ops.check_link(hw, &link_speed, &link_up, true);
 	if (link_up)
 		return *data;
 	else
@@ -1789,13 +2050,12 @@ static bool ngbe_reg_test(struct ngbe_adapter *adapter, u64 *data)
 	return false;
 }
 
-#ifndef SIMULATION_DEBUG
 static bool ngbe_eeprom_test(struct ngbe_adapter *adapter, u64 *data)
 {
 	struct ngbe_hw *hw = &adapter->hw;
 	u32 devcap;
 
-	if (TCALL(hw, eeprom.ops.eeprom_chksum_cap_st, NGBE_CALSUM_COMMAND, &devcap)) {
+	if (hw->eeprom.ops.eeprom_chksum_cap_st(hw, NGBE_CALSUM_COMMAND, &devcap)) {
 		*data = 1;
 		return true;
 	} else {
@@ -1803,8 +2063,6 @@ static bool ngbe_eeprom_test(struct ngbe_adapter *adapter, u64 *data)
 		return false;
 	}
 }
-#endif
-
 
 static irqreturn_t ngbe_test_intr(int __always_unused irq, void *data)
 {
@@ -1927,7 +2185,7 @@ static void ngbe_free_desc_rings(struct ngbe_adapter *adapter)
 	/* shut down the DMA engines now so they can be reinitialized later */
 
 	/* first Rx */
-	TCALL(hw, mac.ops.disable_rx);
+	hw->mac.ops.disable_rx(hw);
 	ngbe_disable_rx_queue(adapter, rx_ring);
 
 	/* now Tx */
@@ -1949,7 +2207,7 @@ static int ngbe_setup_desc_rings(struct ngbe_adapter *adapter)
 	int ret_val;
 	int err;
 
-	TCALL(hw, mac.ops.setup_rxpba, 0, 0, PBA_STRATEGY_EQUAL);
+	hw->mac.ops.setup_rxpba(hw, 0, 0, PBA_STRATEGY_EQUAL);
 
 	/* Setup Tx descriptor ring and Tx buffers */
 	tx_ring->count = NGBE_DEFAULT_TXD;
@@ -1990,11 +2248,9 @@ static int ngbe_setup_desc_rings(struct ngbe_adapter *adapter)
 		goto err_nomem;
 	}
 
-	TCALL(hw, mac.ops.disable_rx);
-
+	hw->mac.ops.disable_rx(hw);
 	ngbe_configure_rx_ring(adapter, rx_ring);
-
-	TCALL(hw, mac.ops.enable_rx);
+	hw->mac.ops.enable_rx(hw);
 
 	return 0;
 
@@ -2018,7 +2274,7 @@ static int ngbe_setup_loopback_test(struct ngbe_adapter *adapter)
 	wr32(hw, NGBE_PSR_CTL, reg_data);
 
 	wr32(hw, 0x17000,
-		(rd32(hw, 0x17000)|
+		(rd32(hw, 0x17000 )|
 		0x00000040U) & ~0x1U);
 
 	wr32(hw, 0x17204, 0x4);
@@ -2102,22 +2358,35 @@ static u16 ngbe_clean_test_rings(struct ngbe_ring *rx_ring,
 		/* check Rx buffer */
 		rx_buffer = &rx_ring->rx_buffer_info[rx_ntc];
 
+#ifndef CONFIG_NGBE_DISABLE_PACKET_SPLIT
 		/* sync Rx buffer for CPU read */
 		dma_sync_single_for_cpu(rx_ring->dev,
 					rx_buffer->page_dma,
 					bufsz,
 					DMA_FROM_DEVICE);
-
+#else
+		/* sync Rx buffer for CPU read */
+		dma_sync_single_for_cpu(rx_ring->dev,
+					rx_buffer->dma,
+					bufsz,
+					DMA_FROM_DEVICE);	
+#endif
 		/* verify contents of skb */
 		if (ngbe_check_lbtest_frame(rx_buffer, size))
 			count++;
 
+#ifndef CONFIG_NGBE_DISABLE_PACKET_SPLIT
 		/* sync Rx buffer for device write */
 		dma_sync_single_for_device(rx_ring->dev,
 					   rx_buffer->page_dma,
 					   bufsz,
 					   DMA_FROM_DEVICE);
-
+#else 
+		dma_sync_single_for_device(rx_ring->dev,
+					   rx_buffer->dma,
+					   bufsz,
+					   DMA_FROM_DEVICE);
+#endif
 		/* increment Rx/Tx next to clean counters */
 		rx_ntc++;
 		if (rx_ntc == rx_ring->count)
@@ -2204,7 +2473,6 @@ static int ngbe_run_loopback_test(struct ngbe_adapter *adapter)
 		good_cnt = ngbe_clean_test_rings(rx_ring, tx_ring, size);
 		if (good_cnt != 64) {
 			ret_val = 13;
-			e_dev_err("ngbe_run_loopback_test: recv_cnt = %d\n", good_cnt);
 			break;
 		}
 	}
@@ -2297,7 +2565,7 @@ static void ngbe_diag_test(struct net_device *netdev,
 		if (if_running)
 			/* indicate we're in test mode */
 			ngbe_close(netdev);
-		else {
+		else{
 			msleep(20);
 			ngbe_reset(adapter);
 			}
@@ -2308,23 +2576,18 @@ static void ngbe_diag_test(struct net_device *netdev,
 
 		if (ngbe_reg_test(adapter, &data[0]))
 			eth_test->flags |= ETH_TEST_FL_FAILED;
-#ifndef SIMULATION_DEBUG
 		msleep(20);
 		ngbe_reset(adapter);
 		e_info(hw, "eeprom testing starting\n");
 		if (ngbe_eeprom_test(adapter, &data[1]))
 			eth_test->flags |= ETH_TEST_FL_FAILED;
-#else
-		data[1] = 0;
-#endif
 		msleep(20);
 		ngbe_reset(adapter);
 		e_info(hw, "interrupt testing starting\n");
 		if (ngbe_intr_test(adapter, &data[2]))
 			eth_test->flags |= ETH_TEST_FL_FAILED;
 
-	if (!(((hw->subsystem_device_id & OEM_MASK) == OCP_CARD) ||
-		((hw->subsystem_device_id & NCSI_SUP_MASK) == NCSI_SUP))) {
+	if (!hw->ncsi_enabled){
 		/* If SRIOV or VMDq is enabled then skip MAC
 		 * loopback diagnostic. */
 		if (adapter->flags & (NGBE_FLAG_SRIOV_ENABLED |
@@ -2337,7 +2600,7 @@ static void ngbe_diag_test(struct net_device *netdev,
 		e_info(hw, "loopback testing starting\n");
 		ngbe_loopback_test(adapter, &data[3]);
 	}
-
+	
 
 	data[3] = 0;
 
@@ -2387,7 +2650,7 @@ static void ngbe_get_wol(struct net_device *netdev,
 			  struct ethtool_wolinfo *wol)
 {
 	struct ngbe_adapter *adapter = netdev_priv(netdev);
-
+	
 	struct ngbe_hw *hw = &adapter->hw;
 
 	wol->supported = WAKE_UCAST | WAKE_MCAST |
@@ -2407,7 +2670,7 @@ static void ngbe_get_wol(struct net_device *netdev,
 	if (adapter->wol & NGBE_PSR_WKUP_CTL_MAG)
 		wol->wolopts |= WAKE_MAGIC;
 
-	if (!((hw->subsystem_device_id & WOL_SUP_MASK) == WOL_SUP))
+	if ( !((hw->subsystem_device_id & WOL_SUP_MASK) == WOL_SUP))
 		wol->wolopts = 0;
 }
 
@@ -2423,7 +2686,7 @@ static int ngbe_set_wol(struct net_device *netdev, struct ethtool_wolinfo *wol)
 
 	if (ngbe_wol_exclusion(adapter, wol))
 		return wol->wolopts ? -EOPNOTSUPP : 0;
-	if (!((hw->subsystem_device_id & WOL_SUP_MASK) == WOL_SUP))
+	if ( !((hw->subsystem_device_id & WOL_SUP_MASK) == WOL_SUP))
 		return -EOPNOTSUPP;
 	adapter->wol = 0;
 
@@ -2433,21 +2696,21 @@ static int ngbe_set_wol(struct net_device *netdev, struct ethtool_wolinfo *wol)
 		adapter->wol |= NGBE_PSR_WKUP_CTL_MC;
 	if (wol->wolopts & WAKE_BCAST)
 		adapter->wol |= NGBE_PSR_WKUP_CTL_BC;
-	if (wol->wolopts & WAKE_MAGIC) {
+	if (wol->wolopts & WAKE_MAGIC){
 		adapter->wol |= NGBE_PSR_WKUP_CTL_MAG;
 		hw->wol_enabled = !!(adapter->wol);
 		wr32(hw, NGBE_PSR_WKUP_CTL, adapter->wol);
 		ngbe_read_ee_hostif(hw, 0x7FE, &value);
 		/*enable wol in shadow ram*/
-		ngbe_write_ee_hostif(hw, 0x7FE, value | (1 << slot));
+		ngbe_write_ee_hostif(hw, 0x7FE, value | ( 1 << slot) );
 		ngbe_write_ee_hostif(hw, 0x7FF, 0x5a5a);
 		device_set_wakeup_enable(pci_dev_to_dev(adapter->pdev), adapter->wol);
 		return 0;
 	}
-
+	
 	ngbe_read_ee_hostif(hw, 0x7FE, &value);
 	/*disable wol in shadow ram*/
-	ngbe_write_ee_hostif(hw, 0x7FE, value & ~(1 << slot));
+	ngbe_write_ee_hostif(hw, 0x7FE, value & ~( 1 << slot ));
 	ngbe_write_ee_hostif(hw, 0x7FF, 0x5a5a);
 	return 0;
 }
@@ -2470,32 +2733,52 @@ static int ngbe_set_phys_id(struct net_device *netdev,
 
 	switch (state) {
 	case ETHTOOL_ID_ACTIVE:
-
-		if (adapter->hw.phy.type == ngbe_phy_yt8521s_sfi) {
-			ngbe_phy_read_reg_ext_yt8521s(hw, 0xA00B, 0, (u16 *)&adapter->led_reg);
+		
+		if (adapter->hw.phy.type == ngbe_phy_yt8521s_sfi ||
+			adapter->hw.phy.type == ngbe_phy_internal_yt8521s_sfi) {
+			ngbe_phy_read_reg_ext_yt8521s(hw, 0xA00B, 0, (u16*)&adapter->led_reg);
+		} else if (adapter->hw.phy.type == ngbe_phy_m88e1512 ||
+			adapter->hw.phy.type == ngbe_phy_m88e1512_sfi) {
+			hw->phy.ops.write_reg_mdi(hw, 22, 0, 3);
+			hw->phy.ops.read_reg_mdi(hw, 16, 0, (u16*)&adapter->led_reg);
 		} else
 			adapter->led_reg = rd32(hw, NGBE_CFG_LED_CTL);
 		return 2;
 
 	case ETHTOOL_ID_ON:
-		if (adapter->hw.phy.type == ngbe_phy_yt8521s_sfi) {
+		if (adapter->hw.phy.type == ngbe_phy_yt8521s_sfi ||
+			adapter->hw.phy.type == ngbe_phy_internal_yt8521s_sfi) {
 			ngbe_phy_write_reg_ext_yt8521s(hw, 0xA00B, 0, adapter->led_reg | 0x140);
-		} else
-			TCALL(hw, mac.ops.led_on, NGBE_LED_LINK_1G);
+		} else if (adapter->hw.phy.type == ngbe_phy_m88e1512 ||
+					adapter->hw.phy.type == ngbe_phy_m88e1512_sfi) {
+			hw->phy.ops.write_reg_mdi(hw, 22, 0, 3);
+			hw->phy.ops.write_reg_mdi(hw, 16, 0, (adapter->led_reg & ~0xF) | 0x9);			
+		} else		
+			hw->mac.ops.led_on(hw, NGBE_LED_LINK_1G);
 		break;
 
 	case ETHTOOL_ID_OFF:
-		if (adapter->hw.phy.type == ngbe_phy_yt8521s_sfi) {
+		if (adapter->hw.phy.type == ngbe_phy_yt8521s_sfi ||
+			adapter->hw.phy.type == ngbe_phy_internal_yt8521s_sfi) {
 			ngbe_phy_write_reg_ext_yt8521s(hw, 0xA00B, 0, adapter->led_reg | 0x100);
-		} else
-			TCALL(hw, mac.ops.led_off, NGBE_LED_LINK_100M | NGBE_LED_LINK_1G);
+		} else if (adapter->hw.phy.type == ngbe_phy_m88e1512 ||
+					adapter->hw.phy.type == ngbe_phy_m88e1512_sfi) {
+			hw->phy.ops.write_reg_mdi(hw, 22, 0, 3);
+			hw->phy.ops.write_reg_mdi(hw, 16, 0, (adapter->led_reg & ~0xF) | 0x8);	
+		} else			
+			hw->mac.ops.led_off(hw, NGBE_LED_LINK_100M | NGBE_LED_LINK_1G);
 		break;
 
 	case ETHTOOL_ID_INACTIVE:
 		/* Restore LED settings */
-		if (adapter->hw.phy.type == ngbe_phy_yt8521s_sfi) {
+		if (adapter->hw.phy.type == ngbe_phy_yt8521s_sfi ||
+			adapter->hw.phy.type == ngbe_phy_internal_yt8521s_sfi) {
 			ngbe_phy_write_reg_ext_yt8521s(hw, 0xA00B, 0, adapter->led_reg);
-		} else
+		} else if (adapter->hw.phy.type == ngbe_phy_m88e1512 ||
+			adapter->hw.phy.type == ngbe_phy_m88e1512_sfi) {
+			hw->phy.ops.write_reg_mdi(hw, 22, 0, 3);
+			hw->phy.ops.write_reg_mdi(hw, 16, 0, adapter->led_reg);
+		} else		
 			wr32(&adapter->hw, NGBE_CFG_LED_CTL,
 				adapter->led_reg);
 		break;
@@ -2514,21 +2797,33 @@ static int ngbe_phys_id(struct net_device *netdev, u32 data)
 	if (!data || data > 300)
 		data = 300;
 
-	if (adapter->hw.phy.type == ngbe_phy_yt8521s_sfi) {
-		ngbe_phy_read_reg_ext_yt8521s(hw, 0xA00B, 0, (u16 *)&led_reg);
+	if (adapter->hw.phy.type == ngbe_phy_yt8521s_sfi ||
+		adapter->hw.phy.type == ngbe_phy_internal_yt8521s_sfi) {
+		ngbe_phy_read_reg_ext_yt8521s(hw, 0xA00B, 0, (u16*)&led_reg);
 		for (i = 0; i < (data * 1000); i += 400) {
 			ngbe_phy_write_reg_ext_yt8521s(hw, 0xA00B, 0, led_reg | 0x140);
 			msleep_interruptible(200);
 			ngbe_phy_write_reg_ext_yt8521s(hw, 0xA00B, 0, led_reg | 0x100);
 			msleep_interruptible(200);
 		}
-		ngbe_phy_read_reg_ext_yt8521s(hw, 0xA00B, 0, led_reg);
-	} else {
+		ngbe_phy_write_reg_ext_yt8521s(hw, 0xA00B, 0, led_reg);
+	} else if (adapter->hw.phy.type == ngbe_phy_m88e1512 ||
+		adapter->hw.phy.type == ngbe_phy_m88e1512_sfi) {		
+		hw->phy.ops.write_reg_mdi(hw, 22, 0, 3);
+		hw->phy.ops.read_reg_mdi(hw, 16, 0, (u16*)&led_reg);
+		for (i = 0; i < (data * 1000); i += 400) {
+			hw->phy.ops.write_reg_mdi(hw, 16, 0, (adapter->led_reg & ~0xF) | 0x9);
+			msleep_interruptible(200);
+			hw->phy.ops.write_reg_mdi(hw, 16, 0, (adapter->led_reg & ~0xF) | 0x8);
+			msleep_interruptible(200);
+		}
+		hw->phy.ops.write_reg_mdi(hw, 16, 0, led_reg);
+	} else {	
 		led_reg = rd32(hw, NGBE_CFG_LED_CTL);
 		for (i = 0; i < (data * 1000); i += 400) {
-			TCALL(hw, mac.ops.led_on, NGBE_LED_LINK_1G);
+			hw->mac.ops.led_on(hw, NGBE_LED_LINK_1G);
 			msleep_interruptible(200);
-			TCALL(hw, mac.ops.led_off, NGBE_LED_LINK_100M | NGBE_LED_LINK_1G);
+			hw->mac.ops.led_off(hw, NGBE_LED_LINK_100M | NGBE_LED_LINK_1G);
 			msleep_interruptible(200);
 		}
 		/* Restore LED settings */
@@ -2541,7 +2836,13 @@ static int ngbe_phys_id(struct net_device *netdev, u32 data)
 #endif /* HAVE_ETHTOOL_SET_PHYS_ID */
 
 static int ngbe_get_coalesce(struct net_device *netdev,
+#ifdef HAVE_ETHTOOL_COALESCE_EXTACK
+			      struct ethtool_coalesce *ec,
+			      struct kernel_ethtool_coalesce *kernel_coal,
+			      struct netlink_ext_ack *extack)
+#else
 			      struct ethtool_coalesce *ec)
+#endif
 {
 	struct ngbe_adapter *adapter = netdev_priv(netdev);
 
@@ -2566,7 +2867,13 @@ static int ngbe_get_coalesce(struct net_device *netdev,
 }
 
 static int ngbe_set_coalesce(struct net_device *netdev,
+#ifdef HAVE_ETHTOOL_COALESCE_EXTACK
+			      struct ethtool_coalesce *ec,
+			      struct kernel_ethtool_coalesce *kernel_coal,
+			      struct netlink_ext_ack *extack)
+#else
 			      struct ethtool_coalesce *ec)
+#endif
 {
 	struct ngbe_adapter *adapter = netdev_priv(netdev);
 	struct ngbe_hw *hw = &adapter->hw;
@@ -2628,13 +2935,15 @@ static int ngbe_set_coalesce(struct net_device *netdev,
 			need_reset = true;
 	}
 
-	if (adapter->hw.mac.dmac_config.watchdog_timer &&
+	/* hw->mac.ops.dmac_config is null*/
+	if (hw->mac.ops.dmac_config &&
+	    adapter->hw.mac.dmac_config.watchdog_timer &&
 	    (!adapter->rx_itr_setting && !adapter->tx_itr_setting)) {
 		e_info(probe,
 		       "Disabling DMA coalescing because interrupt throttling "
 		       "is disabled\n");
 		adapter->hw.mac.dmac_config.watchdog_timer = 0;
-		TCALL(hw, mac.ops.dmac_config);
+		hw->mac.ops.dmac_config(hw);
 	}
 
 	for (i = 0; i < adapter->num_q_vectors; i++) {
@@ -2669,7 +2978,9 @@ static u32 ngbe_get_rx_csum(struct net_device *netdev)
 
 static int ngbe_set_rx_csum(struct net_device *netdev, u32 data)
 {
+#ifdef HAVE_VXLAN_RX_OFFLOAD
 	struct ngbe_adapter *adapter = netdev_priv(netdev);
+#endif
 	bool need_reset = false;
 
 	if (data)
@@ -2775,7 +3086,9 @@ static int ngbe_set_flags(struct net_device *netdev, u32 data)
 {
 	struct ngbe_adapter *adapter = netdev_priv(netdev);
 	u32 supported_flags = ETH_FLAG_RXVLAN | ETH_FLAG_TXVLAN;
+#ifndef HAVE_VLAN_RX_REGISTER	
 	u32 changed = netdev->features ^ data;
+#endif
 	bool need_reset = false;
 	int rc;
 
@@ -2871,11 +3184,11 @@ static int ngbe_get_rss_hash_opts(struct ngbe_adapter *adapter,
 	switch (cmd->flow_type) {
 	case TCP_V4_FLOW:
 		cmd->data |= RXH_L4_B_0_1 | RXH_L4_B_2_3;
-		/* fall through */
+		fallthrough;
 	case UDP_V4_FLOW:
 		if (adapter->flags2 & NGBE_FLAG2_RSS_FIELD_IPV4_UDP)
 			cmd->data |= RXH_L4_B_0_1 | RXH_L4_B_2_3;
-		/* fall through */
+		fallthrough;
 	case SCTP_V4_FLOW:
 	case AH_ESP_V4_FLOW:
 	case AH_V4_FLOW:
@@ -2885,11 +3198,11 @@ static int ngbe_get_rss_hash_opts(struct ngbe_adapter *adapter,
 		break;
 	case TCP_V6_FLOW:
 		cmd->data |= RXH_L4_B_0_1 | RXH_L4_B_2_3;
-		/* fall through */
+		fallthrough;
 	case UDP_V6_FLOW:
 		if (adapter->flags2 & NGBE_FLAG2_RSS_FIELD_IPV6_UDP)
 			cmd->data |= RXH_L4_B_0_1 | RXH_L4_B_2_3;
-		/* fall through */
+		fallthrough;
 	case SCTP_V6_FLOW:
 	case AH_ESP_V6_FLOW:
 	case AH_V6_FLOW:
@@ -3267,6 +3580,8 @@ static unsigned int ngbe_max_channels(struct ngbe_adapter *adapter)
 		/* support up to max allowed queues with RSS */
 		max_combined = ngbe_max_rss_indices(adapter);
 	}
+	if (adapter->xdp_prog)
+		return max_combined = NGBE_MAX_RSS_INDICES / 2;
 
 	return max_combined;
 }
@@ -3287,6 +3602,8 @@ static void ngbe_get_channels(struct net_device *dev,
 
 	/* record RSS queues */
 	ch->combined_count = adapter->ring_feature[RING_F_RSS].indices;
+	if (adapter->xdp_prog)
+		ch->combined_count = min(ch->combined_count, (u32)(NGBE_MAX_RSS_INDICES / 2));
 
 	/* nothing else to report if RSS is disabled */
 	if (ch->combined_count == 1)
@@ -3331,7 +3648,7 @@ static int ngbe_set_channels(struct net_device *dev,
 	adapter->ring_feature[RING_F_RSS].limit = count;
 
 	/* use setup TC to update any traffic class queue mapping */
-	return ngbe_setup_tc(dev, netdev_get_num_tc(dev));
+	return ngbe_setup_tc(dev, netdev_get_num_tc(dev), 0);
 }
 #endif /* ETHTOOL_SCHANNELS */
 
@@ -3359,7 +3676,7 @@ static int ngbe_set_eee(struct net_device *netdev, struct ethtool_eee *edata)
 	struct ngbe_adapter *adapter = netdev_priv(netdev);
 	struct ngbe_hw *hw = &adapter->hw;
 	struct ethtool_eee eee_data;
-	s32 ret_val;
+	int ret_val;
 
 	if (!(hw->mac.ops.setup_eee &&
 	    (adapter->flags2 & NGBE_FLAG2_EEE_CAPABLE)))
@@ -3481,6 +3798,8 @@ static struct ethtool_ops ngbe_ethtool_ops = {
 	.get_stats_count        = ngbe_get_stats_count,
 #else /* HAVE_ETHTOOL_GET_SSET_COUNT */
 	.get_sset_count         = ngbe_get_sset_count,
+	.get_priv_flags		= ngbe_get_priv_flags,
+	.set_priv_flags		= ngbe_set_priv_flags,
 #endif /* HAVE_ETHTOOL_GET_SSET_COUNT */
 	.get_ethtool_stats      = ngbe_get_ethtool_stats,
 #ifdef HAVE_ETHTOOL_GET_PERM_ADDR

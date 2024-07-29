@@ -20,6 +20,11 @@
 # Makefile for the WangXun(R) GbE PCI Express ethernet driver
 #
 
+path := $(abspath $(lastword $(MAKEFILE_LIST)))
+dir := $(dir ${path})
+
+include ${dir}/configure
+
 obj-$(CONFIG_NGBE) += ngbe.o
 
 ngbe-objs := ngbe_main.o ngbe_ethtool.o ngbe_lib.o \

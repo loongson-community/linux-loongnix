@@ -1,9 +1,12 @@
+// SPDX-License-Identifier: GPL-2.0
+/* Copyright(c) 2022 - 2023 Mucse Corporation. */
 #include <linux/debugfs.h>
 #include <linux/module.h>
 
 #include "rnpm.h"
 #include "rnpm_mbx_fw.h"
 
+#ifdef CONFIG_DEBUG_FS
 static struct dentry *rnpm_dbg_root;
 
 static char rnpm_dbg_reg_ops_buf[256] = "";
@@ -16,19 +19,17 @@ static char rnpm_dbg_reg_ops_buf[256] = "";
  * @ppos: file position offset
  **/
 static ssize_t rnpm_dbg_reg_ops_read(struct file *filp, char __user *buffer,
-				    size_t count, loff_t *ppos)
+				     size_t count, loff_t *ppos)
 {
 	struct rnpm_adapter *adapter = filp->private_data;
 	char *buf;
 	int len;
 
-
 	/* don't allow partial reads */
 	if (*ppos != 0)
 		return 0;
 
-	buf = kasprintf(GFP_KERNEL, "%s: %s\n",
-			adapter->name,
+	buf = kasprintf(GFP_KERNEL, "%s: %s\n", adapter->name,
 			rnpm_dbg_reg_ops_buf);
 	if (!buf)
 		return -ENOMEM;
@@ -52,8 +53,8 @@ static ssize_t rnpm_dbg_reg_ops_read(struct file *filp, char __user *buffer,
  * @ppos: file position offset
  **/
 static ssize_t rnpm_dbg_reg_ops_write(struct file *filp,
-				     const char __user *buffer,
-				     size_t count, loff_t *ppos)
+				      const char __user *buffer, size_t count,
+				      loff_t *ppos)
 {
 	struct rnpm_adapter *adapter = filp->private_data;
 	struct rnpm_hw *hw = &adapter->hw;
@@ -66,10 +67,8 @@ static ssize_t rnpm_dbg_reg_ops_write(struct file *filp,
 		return -ENOSPC;
 
 	len = simple_write_to_buffer(rnpm_dbg_reg_ops_buf,
-				     sizeof(rnpm_dbg_reg_ops_buf)-1,
-				     ppos,
-				     buffer,
-				     count);
+				     sizeof(rnpm_dbg_reg_ops_buf) - 1, ppos,
+				     buffer, count);
 	if (len < 0)
 		return len;
 
@@ -81,8 +80,12 @@ static ssize_t rnpm_dbg_reg_ops_write(struct file *filp,
 
 		cnt = sscanf(&rnpm_dbg_reg_ops_buf[5], "%x %x", &reg, &value);
 		if (cnt == 2) {
-			rnpm_wr_reg(hw->hw_addr + reg, value);
-			value = rnpm_rd_reg(hw->hw_addr + reg);
+			if (reg >= 0x30000000) {
+				rnpm_mbx_reg_write(hw, reg, value);
+			} else {
+				rnpm_wr_reg(hw->hw_addr + reg, value);
+				value = rnpm_rd_reg(hw->hw_addr + reg);
+			}
 			e_dev_info("write: 0x%08x = 0x%08x\n", reg, value);
 		} else {
 			e_dev_info("write <reg> <value>\n");
@@ -93,12 +96,19 @@ static ssize_t rnpm_dbg_reg_ops_write(struct file *filp,
 
 		cnt = sscanf(&rnpm_dbg_reg_ops_buf[4], "%x", &reg);
 		if (cnt == 1) {
-			value = rnpm_rd_reg(hw->hw_addr + reg);
+			if (reg >= 0x30000000) {
+				value = rnpm_mbx_fw_reg_read(hw, reg);
+			} else {
+				value = rnpm_rd_reg(hw->hw_addr + reg);
+			}
+			snprintf(rnpm_dbg_reg_ops_buf,
+				 sizeof(rnpm_dbg_reg_ops_buf), "0x%08x: 0x%08x",
+				 reg, value);
 			e_dev_info("read 0x%08x = 0x%08x\n", reg, value);
 		} else {
 			e_dev_info("read <reg>\n");
 		}
-	}  else {
+	} else {
 		e_dev_info("Unknown command %s\n", rnpm_dbg_reg_ops_buf);
 		e_dev_info("Available commands:\n");
 		e_dev_info("   read <reg>\n");
@@ -110,7 +120,7 @@ static ssize_t rnpm_dbg_reg_ops_write(struct file *filp,
 static const struct file_operations rnpm_dbg_reg_ops_fops = {
 	.owner = THIS_MODULE,
 	.open = simple_open,
-	.read =  rnpm_dbg_reg_ops_read,
+	.read = rnpm_dbg_reg_ops_read,
 	.write = rnpm_dbg_reg_ops_write,
 };
 
@@ -123,9 +133,8 @@ static char rnpm_dbg_netdev_ops_buf[256] = "";
  * @count: the size of the user's buffer
  * @ppos: file position offset
  **/
-static ssize_t rnpm_dbg_netdev_ops_read(struct file *filp,
-					 char __user *buffer,
-					 size_t count, loff_t *ppos)
+static ssize_t rnpm_dbg_netdev_ops_read(struct file *filp, char __user *buffer,
+					size_t count, loff_t *ppos)
 {
 	struct rnpm_adapter *adapter = filp->private_data;
 	// struct rnpm_hw *hw = &adapter->hw;
@@ -136,8 +145,7 @@ static ssize_t rnpm_dbg_netdev_ops_read(struct file *filp,
 	if (*ppos != 0)
 		return 0;
 
-	buf = kasprintf(GFP_KERNEL, "%s: %s\n",
-			adapter->name,
+	buf = kasprintf(GFP_KERNEL, "%s: %s\n", adapter->name,
 			rnpm_dbg_netdev_ops_buf);
 	if (!buf)
 		return -ENOMEM;
@@ -161,8 +169,8 @@ static ssize_t rnpm_dbg_netdev_ops_read(struct file *filp,
  * @ppos: file position offset
  **/
 static ssize_t rnpm_dbg_netdev_ops_write(struct file *filp,
-					  const char __user *buffer,
-					  size_t count, loff_t *ppos)
+					 const char __user *buffer,
+					 size_t count, loff_t *ppos)
 {
 	struct rnpm_adapter *adapter = filp->private_data;
 	int len;
@@ -174,10 +182,8 @@ static ssize_t rnpm_dbg_netdev_ops_write(struct file *filp,
 		return -ENOSPC;
 
 	len = simple_write_to_buffer(rnpm_dbg_netdev_ops_buf,
-				     sizeof(rnpm_dbg_netdev_ops_buf)-1,
-				     ppos,
-				     buffer,
-				     count);
+				     sizeof(rnpm_dbg_netdev_ops_buf) - 1, ppos,
+				     buffer, count);
 	if (len < 0)
 		return len;
 
@@ -186,12 +192,12 @@ static ssize_t rnpm_dbg_netdev_ops_write(struct file *filp,
 	if (strncmp(rnpm_dbg_netdev_ops_buf, "stat", 4) == 0) {
 		rnpm_info("adapter->stat=0x%lx\n", adapter->state);
 		rnpm_info("adapter->tx_timeout_count=%d\n",
-			adapter->tx_timeout_count);
+			  adapter->tx_timeout_count);
 	} else if (strncmp(rnpm_dbg_netdev_ops_buf, "tx_timeout", 10) == 0) {
 #ifdef HAVE_NET_DEVICE_OPS
 #ifdef HAVE_TX_TIMEOUT_TXQUEUE
 		adapter->netdev->netdev_ops->ndo_tx_timeout(adapter->netdev,
-								UINT_MAX);
+							    UINT_MAX);
 #else
 		adapter->netdev->netdev_ops->ndo_tx_timeout(adapter->netdev);
 #endif
@@ -224,7 +230,7 @@ static char rnpm_dbg_phy_ops_buf[256] = "";
  * @ppos: file position offset
  **/
 static ssize_t rnpm_dbg_phy_ops_read(struct file *filp, char __user *buffer,
-				    size_t count, loff_t *ppos)
+				     size_t count, loff_t *ppos)
 {
 	struct rnpm_adapter *adapter = filp->private_data;
 	char *buf;
@@ -234,8 +240,7 @@ static ssize_t rnpm_dbg_phy_ops_read(struct file *filp, char __user *buffer,
 	if (*ppos != 0)
 		return 0;
 
-	buf = kasprintf(GFP_KERNEL, "%s: %s\n",
-			adapter->name,
+	buf = kasprintf(GFP_KERNEL, "%s: %s\n", adapter->name,
 			rnpm_dbg_phy_ops_buf);
 	if (!buf)
 		return -ENOMEM;
@@ -259,8 +264,8 @@ static ssize_t rnpm_dbg_phy_ops_read(struct file *filp, char __user *buffer,
  * @ppos: file position offset
  **/
 static ssize_t rnpm_dbg_phy_ops_write(struct file *filp,
-				     const char __user *buffer,
-				     size_t count, loff_t *ppos)
+				      const char __user *buffer, size_t count,
+				      loff_t *ppos)
 {
 	struct rnpm_adapter *adapter = filp->private_data;
 	struct rnpm_hw *hw = &adapter->hw;
@@ -273,10 +278,8 @@ static ssize_t rnpm_dbg_phy_ops_write(struct file *filp,
 		return -ENOSPC;
 
 	len = simple_write_to_buffer(rnpm_dbg_phy_ops_buf,
-				     sizeof(rnpm_dbg_phy_ops_buf)-1,
-				     ppos,
-				     buffer,
-				     count);
+				     sizeof(rnpm_dbg_phy_ops_buf) - 1, ppos,
+				     buffer, count);
 	if (len < 0)
 		return len;
 
@@ -288,9 +291,12 @@ static ssize_t rnpm_dbg_phy_ops_write(struct file *filp,
 		cnt = sscanf(&rnpm_dbg_phy_ops_buf[5], "%x %x", &reg, &value);
 		if (cnt == 2) {
 			if (0 == rnpm_mbx_phy_write(hw, reg, value))
-				e_dev_info("write phy: 0x%08x = 0x%08x\n", reg, value);
+				e_dev_info("write phy: 0x%08x = 0x%08x\n", reg,
+					   value);
 			else
-				e_dev_info("write phy failed: 0x%08x = 0x%08x\n", reg, value);
+				e_dev_info(
+					"write phy failed: 0x%08x = 0x%08x\n",
+					reg, value);
 		} else {
 			e_dev_info("write phy <reg> <value>\n");
 		}
@@ -302,10 +308,14 @@ static ssize_t rnpm_dbg_phy_ops_write(struct file *filp,
 		cnt = sscanf(&rnpm_dbg_phy_ops_buf[4], "%x", &reg);
 		if (cnt == 1) {
 			if (0 == rnpm_mbx_phy_read(hw, reg, &value)) {
-				sprintf(rnpm_dbg_phy_ops_buf, "read phy 0x%08x = 0x%08x\n", reg, value);
-				rnpm_info("read phy 0x%08x = 0x%08x\n", reg, value);
+				sprintf(rnpm_dbg_phy_ops_buf,
+					"read phy 0x%08x = 0x%08x\n", reg,
+					value);
+				rnpm_info("read phy 0x%08x = 0x%08x\n", reg,
+					  value);
 			} else
-				e_dev_info("read phy failed 0x%08x = 0x%08x\n", reg, value);
+				e_dev_info("read phy failed 0x%08x = 0x%08x\n",
+					   reg, value);
 		} else {
 			e_dev_info("read phy <reg>\n");
 		}
@@ -321,7 +331,7 @@ static ssize_t rnpm_dbg_phy_ops_write(struct file *filp,
 static const struct file_operations rnpm_dbg_phy_ops_fops = {
 	.owner = THIS_MODULE,
 	.open = simple_open,
-	.read =  rnpm_dbg_phy_ops_read,
+	.read = rnpm_dbg_phy_ops_read,
 	.write = rnpm_dbg_phy_ops_write,
 };
 
@@ -384,3 +394,4 @@ void rnpm_dbg_exit(void)
 {
 	debugfs_remove_recursive(rnpm_dbg_root);
 }
+#endif

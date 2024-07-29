@@ -189,6 +189,11 @@ void ngbe_enable_sriov(struct ngbe_adapter *adapter)
 {
 	int pre_existing_vfs = 0;
 
+	if (!(adapter->flags & NGBE_FLAG_MSIX_ENABLED)) {
+		e_dev_warn("SR-IOV already disabled\n");
+		return;
+	}
+
 	pre_existing_vfs = pci_num_vf(adapter->pdev);
 	if (!pre_existing_vfs && !adapter->num_vfs)
 		return;
@@ -396,7 +401,7 @@ int ngbe_set_vf_vlan(struct ngbe_adapter *adapter, int add, int vid, u16 vf)
 	if (!vid && !add)
 		return 0;
 
-	return TCALL(hw, mac.ops.set_vfta, vid, vf, (bool)add);
+	return hw->mac.ops.set_vfta(hw, vid, vf, (bool)add);
 }
 
 static int ngbe_set_vf_lpe(struct ngbe_adapter *adapter, u32 max_frame,
@@ -430,7 +435,7 @@ static int ngbe_set_vf_lpe(struct ngbe_adapter *adapter, u32 max_frame,
 		 */
 		if (pf_max_frame > ETH_FRAME_LEN)
 			break;
-		/* fall through */
+		fallthrough;
 	default:
 		/*
 		 * If the PF or VF are running w/ jumbo frames enabled
@@ -525,7 +530,7 @@ static inline void ngbe_vf_reset_event(struct ngbe_adapter *adapter, u16 vf)
 					adapter->default_up, vf);
 
 		if (vfinfo->spoofchk_enabled)
-			TCALL(hw, mac.ops.set_vlan_anti_spoofing, true, vf);
+			hw->mac.ops.set_vlan_anti_spoofing(hw, true, vf);
 	}
 
 	/* reset multicast table array for vf */
@@ -883,7 +888,7 @@ static int ngbe_set_vf_vlan_msg(struct ngbe_adapter *adapter,
 
 	err = ngbe_set_vf_vlan(adapter, add, vid, vf);
 	if (!err && adapter->vfinfo[vf].spoofchk_enabled)
-		TCALL(hw, mac.ops.set_vlan_anti_spoofing, true, vf);
+		hw->mac.ops.set_vlan_anti_spoofing(hw, true, vf);
 
 #ifdef CONFIG_PCI_IOV
 	/* Go through all the checks to see if the VLAN filter should
@@ -972,7 +977,7 @@ static int ngbe_update_vf_xcast_mode(struct ngbe_adapter *adapter,
 {
 	struct ngbe_hw *hw = &adapter->hw;
 	int xcast_mode = msgbuf[1];
-	u32 vmolr, fctrl, disable, enable;
+	u32 vmolr, disable, enable;
 
 	/* verify the PF is supporting the correct APIs */
 	switch (adapter->vfinfo[vf].vf_api) {
@@ -1019,13 +1024,6 @@ static int ngbe_update_vf_xcast_mode(struct ngbe_adapter *adapter,
 				NGBE_PSR_VM_L2CTL_MPE;
 		break;
 	case NGBEVF_XCAST_MODE_PROMISC:
-		fctrl = rd32(hw, NGBE_PSR_CTL);
-		if (!(fctrl & NGBE_PSR_CTL_UPE)) {
-			/* VF promisc requires PF in promisc */
-			e_warn(drv,
-					"Enabling VF promisc requires PF in promisc\n");
-			return -EPERM;
-		}
 		disable = 0;
 		enable = NGBE_PSR_VM_L2CTL_BAM |
 				NGBE_PSR_VM_L2CTL_ROMPE |
@@ -1204,6 +1202,22 @@ void ngbe_ping_all_vfs(struct ngbe_adapter *adapter)
 	}
 }
 
+void ngbe_ping_all_vfs_with_link_status(struct ngbe_adapter *adapter, bool link_up)
+{
+	struct ngbe_hw *hw = &adapter->hw;
+	u32 msgbuf[2];
+	u16 i;
+	u32 link_speed = adapter->link_speed;
+
+	msgbuf[0] = NGBE_NOFITY_VF_LINK_STATUS | NGBE_PF_CONTROL_MSG;
+	msgbuf[1] = (link_speed << 1) | link_up;
+	for (i = 0 ; i < adapter->num_vfs; i++) {
+		if (adapter->vfinfo[i].clear_to_send)
+			msgbuf[0] |= NGBE_VT_MSGTYPE_CTS;
+		ngbe_write_mbx(hw, msgbuf, 2, i);
+	}
+}
+
 #ifdef HAVE_NDO_SET_VF_TRUST
 int ngbe_ndo_set_vf_trust(struct net_device *netdev, int vf, bool setting)
 {
@@ -1238,6 +1252,11 @@ static int ngbe_pci_sriov_enable(struct pci_dev *dev, int num_vfs)
 
 	if (!(adapter->flags & NGBE_FLAG_SRIOV_CAPABLE)) {
 		e_dev_warn("SRIOV not supported on this device\n");
+		return -EOPNOTSUPP;
+	}
+
+	if (!(adapter->flags & NGBE_FLAG_MSIX_ENABLED)) {
+		e_dev_warn("SR-IOV already disabled\n");
 		return -EOPNOTSUPP;
 	}
 
@@ -1307,8 +1326,9 @@ int ngbe_pci_sriov_configure(struct pci_dev __maybe_unused *dev,
 		return ngbe_pci_sriov_disable(dev);
 	else
 		return ngbe_pci_sriov_enable(dev, num_vfs);
-#endif
+#else
 	return 0;
+#endif
 }
 
 #ifdef IFLA_VF_MAX
@@ -1356,7 +1376,7 @@ static int ngbe_enable_port_vlan(struct ngbe_adapter *adapter,
 	ngbe_set_vmvir(adapter, vlan, qos, vf);
 	ngbe_set_vmolr(hw, vf, false);
 	if (adapter->vfinfo[vf].spoofchk_enabled)
-		TCALL(hw, mac.ops.set_vlan_anti_spoofing, true, vf);
+		hw->mac.ops.set_vlan_anti_spoofing(hw, true, vf);
 	adapter->vfinfo[vf].vlan_count++;
 	/* enable hide vlan */
 	ngbe_write_qde(adapter, vf, 1);
@@ -1387,7 +1407,7 @@ static int ngbe_disable_port_vlan(struct ngbe_adapter *adapter, int vf)
 				adapter->vfinfo[vf].pf_vlan, vf);
 	ngbe_clear_vmvir(adapter, vf);
 	ngbe_set_vmolr(hw, vf, true);
-	TCALL(hw, mac.ops.set_vlan_anti_spoofing, false, vf);
+	hw->mac.ops.set_vlan_anti_spoofing(hw, false, vf);
 	if (adapter->vfinfo[vf].vlan_count)
 		adapter->vfinfo[vf].vlan_count--;
 	/* disable hide vlan */

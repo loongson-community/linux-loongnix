@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-2.0
+/* Copyright(c) 2022 - 2023 Mucse Corporation. */
 #include <linux/types.h>
 #include <linux/module.h>
 #include <linux/pci.h>
@@ -37,11 +39,10 @@ static int __rnpm_enable_sriov(struct rnpm_adapter *adapter)
 	adapter->ring_feature[RING_F_VMDQ].offset = adapter->num_vfs;
 
 	num_vf_macvlans = hw->mac.num_rar_entries -
-		(RNPM_MAX_PF_MACVLANS + 1 + adapter->num_vfs);
+			  (RNPM_MAX_PF_MACVLANS + 1 + adapter->num_vfs);
 
-	adapter->mv_list = mv_list = kcalloc(num_vf_macvlans,
-			sizeof(struct vf_macvlans),
-			GFP_KERNEL);
+	adapter->mv_list = mv_list = kcalloc(
+		num_vf_macvlans, sizeof(struct vf_macvlans), GFP_KERNEL);
 	if (mv_list) {
 		/* Initialize list of VF macvlans */
 		INIT_LIST_HEAD(&adapter->vf_mvs.l);
@@ -49,14 +50,15 @@ static int __rnpm_enable_sriov(struct rnpm_adapter *adapter)
 			mv_list->vf = -1;
 			mv_list->free = true;
 			mv_list->rar_entry = hw->mac.num_rar_entries -
-				(i + adapter->num_vfs + 1);
+					     (i + adapter->num_vfs + 1);
 			list_add(&mv_list->l, &adapter->vf_mvs.l);
 			mv_list++;
 		}
 	}
 
 	/* Initialize default switching mode VEB */
-	wr32(hw, RNPM_DMA_CONFIG, rd32(hw, RNPM_DMA_CONFIG) & (~DMA_VEB_BYPASS));
+	wr32(hw, RNPM_DMA_CONFIG,
+	     rd32(hw, RNPM_DMA_CONFIG) & (~DMA_VEB_BYPASS));
 	adapter->flags2 |= RNPM_FLAG2_BRIDGE_MODE_VEB;
 	dbg("%s:%d flags:0x%x\n", __func__, __LINE__, adapter->flags);
 
@@ -69,16 +71,15 @@ static int __rnpm_enable_sriov(struct rnpm_adapter *adapter)
 	v |= RNPM_IOV_ENABLED;
 	wr32(hw, RNPM_MRQC_IOV_EN, v);
 
-	wr32(hw, RNPM_ETH_DMAC_FCTRL, rd32(hw, RNPM_ETH_DMAC_FCTRL) |
-			RNPM_FCTRL_BROADCASE_BYPASS);
+	wr32(hw, RNPM_ETH_DMAC_FCTRL,
+	     rd32(hw, RNPM_ETH_DMAC_FCTRL) | RNPM_FCTRL_BROADCASE_BYPASS);
 	//wr32(hw, RNPM_ETH_DMAC_MCSTCTRL, v);
 
 	/* If call to enable VFs succeeded then allocate memory
 	 * for per VF control structures.
 	 */
-	adapter->vfinfo =
-		kcalloc(adapter->num_vfs,
-				sizeof(struct vf_data_storage), GFP_KERNEL);
+	adapter->vfinfo = kcalloc(adapter->num_vfs,
+				  sizeof(struct vf_data_storage), GFP_KERNEL);
 	if (adapter->vfinfo) {
 		/* limit trafffic classes based on VFs enabled */
 		/* TODO analyze VF need support pfc or traffic classes */
@@ -86,8 +87,8 @@ static int __rnpm_enable_sriov(struct rnpm_adapter *adapter)
 		adapter->ring_feature[RING_F_RSS].limit = 2;
 
 		/* Disable RSC when in SR-IOV mode */
-		adapter->flags2 &= ~(RNPM_FLAG2_RSC_CAPABLE |
-				RNPM_FLAG2_RSC_ENABLED);
+		adapter->flags2 &=
+			~(RNPM_FLAG2_RSC_CAPABLE | RNPM_FLAG2_RSC_ENABLED);
 
 		/* enable spoof checking for all VFs */
 		//for (i = 0; i < adapter->num_vfs; i++)
@@ -112,8 +113,9 @@ void rnpm_enable_sriov(struct rnpm_adapter *adapter)
 
 	dbg("%s:%d flags:0x%x\n", __func__, __LINE__, adapter->flags);
 	if (!pre_existing_vfs)
-		dev_warn(&adapter->pdev->dev,
-				"Enabling SR-IOV VFs using the module parameter is deprecated - please use the pci sysfs interface.\n");
+		dev_warn(
+			&adapter->pdev->dev,
+			"Enabling SR-IOV VFs using the module parameter is deprecated - please use the pci sysfs interface.\n");
 
 	dbg("%s:%d flags:0x%x\n", __func__, __LINE__, adapter->flags);
 	/* If there are pre-existing VFs then we have to force
@@ -124,8 +126,9 @@ void rnpm_enable_sriov(struct rnpm_adapter *adapter)
 	 */
 	if (pre_existing_vfs) {
 		adapter->num_vfs = pre_existing_vfs;
-		dev_warn(&adapter->pdev->dev,
-				"Virtual Functions already enabled for this device - Please reload all VF drivers to avoid spoofed packet errors\n");
+		dev_warn(
+			&adapter->pdev->dev,
+			"Virtual Functions already enabled for this device - Please reload all VF drivers to avoid spoofed packet errors\n");
 	} else {
 		int err;
 		/*
@@ -135,7 +138,8 @@ void rnpm_enable_sriov(struct rnpm_adapter *adapter)
 		 * physical function.  If the user requests greater than
 		 * 64 VFs then it is an error - reset to default of zero.
 		 */
-		adapter->num_vfs = min_t(unsigned int, adapter->num_vfs, RNPM_MAX_VF_CNT-1);
+		adapter->num_vfs = min_t(unsigned int, adapter->num_vfs,
+					 RNPM_MAX_VF_CNT - 1);
 
 		err = pci_enable_sriov(adapter->pdev, adapter->num_vfs);
 		if (err) {
@@ -155,9 +159,8 @@ void rnpm_enable_sriov(struct rnpm_adapter *adapter)
 	 * to manage the VF devices - print message and bail.
 	 */
 	e_err(probe, "Unable to allocate memory for VF Data Storage - "
-			"SRIOV disabled\n");
+		     "SRIOV disabled\n");
 	rnpm_disable_sriov(adapter);
-
 }
 
 static bool rnpm_vfs_are_assigned(struct rnpm_adapter *adapter)
@@ -166,7 +169,6 @@ static bool rnpm_vfs_are_assigned(struct rnpm_adapter *adapter)
 	struct pci_dev *vfdev;
 	int dev_id;
 	unsigned vendor_id;
-
 
 	if (adapter->pdev->device == RNPM_DEV_ID_N10_PF0) {
 		vendor_id = 0x1dab;
@@ -234,7 +236,8 @@ int rnpm_disable_sriov(struct rnpm_adapter *adapter)
 	 * available but disabled
 	 */
 	if (rnpm_vfs_are_assigned(adapter)) {
-		e_dev_warn("Unloading driver while VFs are assigned - VFs will not be deallocated\n");
+		e_dev_warn(
+			"Unloading driver while VFs are assigned - VFs will not be deallocated\n");
 		return -EPERM;
 	}
 	/* disable iov and allow time for transactions to clear */
@@ -260,7 +263,6 @@ int rnpm_disable_sriov(struct rnpm_adapter *adapter)
 	return 0;
 }
 
-
 static int rnpm_pci_sriov_enable(struct pci_dev *dev, int num_vfs)
 {
 #ifdef CONFIG_PCI_IOV
@@ -276,7 +278,6 @@ static int rnpm_pci_sriov_enable(struct pci_dev *dev, int num_vfs)
 		goto err_out;
 	}
 
-
 	if (pre_existing_vfs && pre_existing_vfs != num_vfs)
 		err = rnpm_disable_sriov(adapter);
 	else if (pre_existing_vfs && pre_existing_vfs == num_vfs)
@@ -291,7 +292,7 @@ static int rnpm_pci_sriov_enable(struct pci_dev *dev, int num_vfs)
 	 * PF.  The PCI bus driver already checks for other values out of
 	 * range.
 	 */
-	if (num_vfs > (RNPM_MAX_VF_FUNCTIONS-1)) {
+	if (num_vfs > (RNPM_MAX_VF_FUNCTIONS - 1)) {
 		err = -EPERM;
 		goto err_out;
 	}
@@ -342,12 +343,11 @@ static int rnpm_pci_sriov_disable(struct pci_dev *dev)
 	return err;
 }
 
-
-static int rnpm_set_vf_multicasts(struct rnpm_adapter *adapter,
-		u32 *msgbuf, u32 vf)
+static int rnpm_set_vf_multicasts(struct rnpm_adapter *adapter, u32 *msgbuf,
+				  u32 vf)
 {
-	int entries = (msgbuf[0] & RNPM_VT_MSGINFO_MASK)
-		>> RNPM_VT_MSGINFO_SHIFT;
+	int entries =
+		(msgbuf[0] & RNPM_VT_MSGINFO_MASK) >> RNPM_VT_MSGINFO_SHIFT;
 	u16 *hash_list = (u16 *)&msgbuf[1];
 	struct vf_data_storage *vfinfo = &adapter->vfinfo[vf];
 	struct rnpm_hw *hw = &adapter->hw;
@@ -361,7 +361,9 @@ static int rnpm_set_vf_multicasts(struct rnpm_adapter *adapter,
 
 	// enable multicast and unicast filter
 	mta_reg = rd32(hw, RNPM_ETH_DMAC_MCSTCTRL);
-	wr32(hw, RNPM_ETH_DMAC_MCSTCTRL, mta_reg | RNPM_MCSTCTRL_MULTICASE_TBL_EN | RNPM_MCSTCTRL_UNICASE_TBL_EN);
+	wr32(hw, RNPM_ETH_DMAC_MCSTCTRL,
+	     mta_reg | RNPM_MCSTCTRL_MULTICASE_TBL_EN |
+		     RNPM_MCSTCTRL_UNICASE_TBL_EN);
 
 	/*
 	 * salt away the number of multi cast addresses assigned
@@ -396,16 +398,15 @@ static void rnpm_restore_vf_macvlans(struct rnpm_adapter *adapter)
 
 	hw_dbg(hw, "%s Staring..\n", __func__);
 
-	list_for_each(pos, &adapter->vf_mvs.l) {
+	list_for_each (pos, &adapter->vf_mvs.l) {
 		entry = list_entry(pos, struct vf_macvlans, l);
 		if (!entry->free) {
-
 			hw_dbg(hw, "  vf:%d MACVLAN: RAR[%d] <= %pM\n",
-				entry->vf, entry->rar_entry, entry->vf_macvlan);
+			       entry->vf, entry->rar_entry, entry->vf_macvlan);
 
 			hw->mac.ops.set_rar(hw, entry->rar_entry,
-					entry->vf_macvlan,
-					entry->vf, RNPM_RAH_AV);
+					    entry->vf_macvlan, entry->vf,
+					    RNPM_RAH_AV);
 		}
 	}
 	hw_dbg(hw, "%s Done\n", __func__);
@@ -428,12 +429,14 @@ void rnpm_restore_vf_multicasts(struct rnpm_adapter *adapter)
 			hw->addr_ctrl.mta_in_use++;
 			vector_reg = (vfinfo->vf_mc_hashes[j] >> 5) & 0x7F;
 			vector_bit = vfinfo->vf_mc_hashes[j] & 0x1F;
-			mta_reg = rd32(hw, RNPM_ETH_MUTICAST_HASH_TABLE(vector_reg));
+			mta_reg = rd32(
+				hw, RNPM_ETH_MUTICAST_HASH_TABLE(vector_reg));
 			mta_reg |= (1 << vector_bit);
-			wr32(hw, RNPM_ETH_MUTICAST_HASH_TABLE(vector_reg), mta_reg);
+			wr32(hw, RNPM_ETH_MUTICAST_HASH_TABLE(vector_reg),
+			     mta_reg);
 
-			hw_dbg(hw, " VF:%2d mc_hash:0x%x, MTA[%2d][%2d]=1\n",
-					i, vfinfo->vf_mc_hashes[j], vector_reg, vector_bit);
+			hw_dbg(hw, " VF:%2d mc_hash:0x%x, MTA[%2d][%2d]=1\n", i,
+			       vfinfo->vf_mc_hashes[j], vector_reg, vector_bit);
 		}
 	}
 
@@ -442,7 +445,7 @@ void rnpm_restore_vf_multicasts(struct rnpm_adapter *adapter)
 }
 
 static int rnpm_set_vf_vlan(struct rnpm_adapter *adapter, int add, int vid,
-		u32 vf)
+			    u32 vf)
 {
 	/* VLAN 0 is a special case, don't allow it to be removed */
 	if (!vid && !add)
@@ -546,7 +549,7 @@ static void __maybe_unused rnpm_set_vmolr(struct rnpm_hw *hw, u32 vf, bool aupe)
 }
 
 static void __maybe_unused rnpm_clear_vmvir(struct rnpm_adapter *adapter,
-											u32 vf)
+					    u32 vf)
 {
 	// struct rnpm_hw *hw = &adapter->hw;
 
@@ -559,7 +562,6 @@ static inline void rnpm_vf_reset_event(struct rnpm_adapter *adapter, u32 vf)
 	int rar_entry = hw->mac.num_rar_entries - (vf + 1);
 	u8 num_tcs = netdev_get_num_tc(adapter->netdev);
 
-
 	/* add PF assigned VLAN or VLAN 0 */
 	//	rnpm_set_vf_vlan(adapter, true, vfinfo->pf_vlan, vf);
 
@@ -571,11 +573,11 @@ static inline void rnpm_vf_reset_event(struct rnpm_adapter *adapter, u32 vf)
 		//		rnpm_clear_vmvir(adapter, vf);
 	} else {
 		if (vfinfo->pf_qos || !num_tcs)
-			rnpm_set_vmvir(adapter, vfinfo->pf_vlan,
-					vfinfo->pf_qos, vf);
+			rnpm_set_vmvir(adapter, vfinfo->pf_vlan, vfinfo->pf_qos,
+				       vf);
 		else
 			rnpm_set_vmvir(adapter, vfinfo->pf_vlan,
-					adapter->default_up, vf);
+				       adapter->default_up, vf);
 
 		//if (vfinfo->spoofchk_enabled)
 		//	hw->mac.ops.set_vlan_anti_spoofing(hw, true, vf);
@@ -594,30 +596,30 @@ static inline void rnpm_vf_reset_event(struct rnpm_adapter *adapter, u32 vf)
 	adapter->vfinfo[vf].vf_api = 0;
 }
 
-static int rnpm_set_vf_mac(struct rnpm_adapter *adapter,
-		int vf, unsigned char *mac_addr)
+static int rnpm_set_vf_mac(struct rnpm_adapter *adapter, int vf,
+			   unsigned char *mac_addr)
 {
 	struct rnpm_hw *hw = &adapter->hw;
 	/* this rar_entry may be cofict with mac vlan with pf */
 	int rar_entry = hw->mac.num_rar_entries - (vf + 1);
-	int vf_ring = vf*2;  //FIXME
+	int vf_ring = vf * 2; //FIXME
 
 	memcpy(adapter->vfinfo[vf].vf_mac_addresses, mac_addr, 6);
 
-	hw->mac.ops.set_rar(hw, rar_entry, mac_addr, vf_ring/2, RNPM_RAH_AV);
+	hw->mac.ops.set_rar(hw, rar_entry, mac_addr, vf_ring / 2, RNPM_RAH_AV);
 
 	return 0;
 }
 
-static int rnpm_set_vf_macvlan(struct rnpm_adapter *adapter,
-		int vf, int index, unsigned char *mac_addr)
+static int rnpm_set_vf_macvlan(struct rnpm_adapter *adapter, int vf, int index,
+			       unsigned char *mac_addr)
 {
 	struct rnpm_hw *hw = &adapter->hw;
 	struct list_head *pos;
 	struct vf_macvlans *entry;
 #if 1
 	if (index <= 1) {
-		list_for_each(pos, &adapter->vf_mvs.l) {
+		list_for_each (pos, &adapter->vf_mvs.l) {
 			entry = list_entry(pos, struct vf_macvlans, l);
 			if (entry->vf == vf) {
 				entry->vf = -1;
@@ -637,7 +639,7 @@ static int rnpm_set_vf_macvlan(struct rnpm_adapter *adapter,
 
 	entry = NULL;
 
-	list_for_each(pos, &adapter->vf_mvs.l) {
+	list_for_each (pos, &adapter->vf_mvs.l) {
 		entry = list_entry(pos, struct vf_macvlans, l);
 		if (entry->free)
 			break;
@@ -664,7 +666,6 @@ static int rnpm_set_vf_macvlan(struct rnpm_adapter *adapter,
 	return 0;
 }
 
-
 int rnpm_vf_configuration(struct pci_dev *pdev, unsigned int event_mask)
 {
 	unsigned char vf_mac_addr[6];
@@ -676,7 +677,7 @@ int rnpm_vf_configuration(struct pci_dev *pdev, unsigned int event_mask)
 	if (enable) {
 		eth_zero_addr(vf_mac_addr);
 		memcpy(vf_mac_addr, adapter->hw.mac.perm_addr, 6);
-		vf_mac_addr[5] = vf_mac_addr[5] + (0x80 | vfn)  ;
+		vf_mac_addr[5] = vf_mac_addr[5] + (0x80 | vfn);
 
 		memcpy(adapter->vfinfo[vfn].vf_mac_addresses, vf_mac_addr, 6);
 	}
@@ -692,8 +693,8 @@ static int rnpm_vf_reset_msg(struct rnpm_adapter *adapter, u32 vf)
 	// u32 reg_offset, vf_shift;
 	u8 *addr = (u8 *)(&msgbuf[1]);
 
-	e_info(probe, "VF Reset msg received from vf %d. cmd:0x%x\n",
-			vf, msgbuf[0]);
+	e_info(probe, "VF Reset msg received from vf %d. cmd:0x%x\n", vf,
+	       msgbuf[0]);
 
 	/* reset the filters for the device */
 	rnpm_vf_reset_event(adapter, vf);
@@ -732,9 +733,10 @@ static int rnpm_vf_reset_msg(struct rnpm_adapter *adapter, u32 vf)
 		memcpy(addr, vf_mac, ETH_ALEN);
 	} else {
 		msgbuf[0] |= RNPM_VT_MSGTYPE_NACK;
-		dev_warn(&adapter->pdev->dev,
-				"VF %d has no MAC address assigned, you may have to assign one manually\n",
-				vf);
+		dev_warn(
+			&adapter->pdev->dev,
+			"VF %d has no MAC address assigned, you may have to assign one manually\n",
+			vf);
 	}
 
 	/*
@@ -748,7 +750,7 @@ static int rnpm_vf_reset_msg(struct rnpm_adapter *adapter, u32 vf)
 	// to-do
 	/* pause mode */
 	msgbuf[RNPM_VF_MC_TYPE_WORD] |= (0xff & hw->fc.current_mode) << 16;
-	if (adapter->priv_flags & RNPM_PRIV_FLAG_FT_PADDING) {
+	if (adapter->priv_flags & RNPM_PRIV_FLAG_PCIE_CACHE_ALIGN_PATCH) {
 		msgbuf[RNPM_VF_MC_TYPE_WORD] |= (0x01 << 8);
 	} else {
 		msgbuf[RNPM_VF_MC_TYPE_WORD] |= (0x00 << 8);
@@ -756,15 +758,16 @@ static int rnpm_vf_reset_msg(struct rnpm_adapter *adapter, u32 vf)
 	/* mc_type */
 	msgbuf[RNPM_VF_MC_TYPE_WORD] |= rd32(hw, RNPM_ETH_DMAC_MCSTCTRL) & 0x3;
 
-	msgbuf[RNPM_VF_DMA_VERSION_WORD] = rd32(hw, RNPM_DMA_VERSION);;
+	msgbuf[RNPM_VF_DMA_VERSION_WORD] = rd32(hw, RNPM_DMA_VERSION);
+	;
 	/* now vf maybe has no irq handler if it is the first reset*/
 	rnpm_write_mbx(hw, msgbuf, RNPM_VF_PERMADDR_MSG_LEN, vf);
 
 	return 0;
 }
 
-static int rnpm_set_vf_mac_addr(struct rnpm_adapter *adapter,
-		u32 *msgbuf, u32 vf)
+static int rnpm_set_vf_mac_addr(struct rnpm_adapter *adapter, u32 *msgbuf,
+				u32 vf)
 {
 	u8 *new_mac = ((u8 *)(&msgbuf[1]));
 
@@ -774,20 +777,19 @@ static int rnpm_set_vf_mac_addr(struct rnpm_adapter *adapter,
 	}
 
 	if (adapter->vfinfo[vf].pf_set_mac &&
-			memcmp(adapter->vfinfo[vf].vf_mac_addresses, new_mac,
-				ETH_ALEN)) {
+	    memcmp(adapter->vfinfo[vf].vf_mac_addresses, new_mac, ETH_ALEN)) {
 		e_warn(drv,
-				"VF %d attempted to override administratively set MAC address\n"
-				"Reload the VF driver to resume operations\n",
-				vf);
+		       "VF %d attempted to override administratively set MAC address\n"
+		       "Reload the VF driver to resume operations\n",
+		       vf);
 		return -1;
 	}
 
 	return rnpm_set_vf_mac(adapter, vf, new_mac) < 0;
 }
 
-static int rnpm_set_vf_vlan_msg(struct rnpm_adapter *adapter,
-		u32 *msgbuf, u32 vf)
+static int rnpm_set_vf_vlan_msg(struct rnpm_adapter *adapter, u32 *msgbuf,
+				u32 vf)
 {
 	// struct rnpm_hw *hw = &adapter->hw;
 	int add = ((msgbuf[0] & RNPM_VT_MSGINFO_MASK) >> RNPM_VT_MSGINFO_SHIFT);
@@ -797,9 +799,9 @@ static int rnpm_set_vf_vlan_msg(struct rnpm_adapter *adapter,
 
 	if (adapter->vfinfo[vf].pf_vlan) {
 		e_warn(drv,
-				"VF %d attempted to override administratively set VLAN configuration\n"
-				"Reload the VF driver to resume operations\n",
-				vf);
+		       "VF %d attempted to override administratively set VLAN configuration\n"
+		       "Reload the VF driver to resume operations\n",
+		       vf);
 		return -1;
 	}
 
@@ -813,38 +815,39 @@ static int rnpm_set_vf_vlan_msg(struct rnpm_adapter *adapter,
 	return err;
 }
 
-static int rnpm_set_vf_vlan_strip_msg(struct rnpm_adapter *adapter, u32 *msgbuf, u32 vf)
+static int rnpm_set_vf_vlan_strip_msg(struct rnpm_adapter *adapter, u32 *msgbuf,
+				      u32 vf)
 {
 	struct rnpm_hw *hw = &adapter->hw;
 	int vlan_strip_on = !!(msgbuf[1] >> 31);
 	int queue_cnt = msgbuf[1] & 0xffff;
 	int err = 0, i;
 
-	vf_dbg("strip_on:%d queeu_cnt:%d, %d %d\n", vlan_strip_on, queue_cnt, msgbuf[2], msgbuf[3]);
+	vf_dbg("strip_on:%d queeu_cnt:%d, %d %d\n", vlan_strip_on, queue_cnt,
+	       msgbuf[2], msgbuf[3]);
 
 	for (i = 0; i < queue_cnt; i++) {
 		if (vlan_strip_on) {
-			hw_queue_strip_rx_vlan(hw, msgbuf[2+i], true);
+			hw_queue_strip_rx_vlan(hw, msgbuf[2 + i], true);
 		} else {
-			hw_queue_strip_rx_vlan(hw, msgbuf[2+i], false);
+			hw_queue_strip_rx_vlan(hw, msgbuf[2 + i], false);
 		}
 	}
 
 	return err;
 }
 
-static int rnpm_set_vf_macvlan_msg(struct rnpm_adapter *adapter,
-		u32 *msgbuf, u32 vf)
+static int rnpm_set_vf_macvlan_msg(struct rnpm_adapter *adapter, u32 *msgbuf,
+				   u32 vf)
 {
 	u8 *new_mac = ((u8 *)(&msgbuf[1]));
-	int index = (msgbuf[0] & RNPM_VT_MSGINFO_MASK) >>
-		RNPM_VT_MSGINFO_SHIFT;
+	int index = (msgbuf[0] & RNPM_VT_MSGINFO_MASK) >> RNPM_VT_MSGINFO_SHIFT;
 	int err;
 
 	if (adapter->vfinfo[vf].pf_set_mac && index > 0) {
 		e_warn(drv,
-				"VF %d requested MACVLAN filter but is administratively denied\n",
-				vf);
+		       "VF %d requested MACVLAN filter but is administratively denied\n",
+		       vf);
 		return -1;
 	}
 
@@ -859,29 +862,28 @@ static int rnpm_set_vf_macvlan_msg(struct rnpm_adapter *adapter,
 	err = rnpm_set_vf_macvlan(adapter, vf, index, new_mac);
 	if (err == -ENOSPC)
 		e_warn(drv,
-				"VF %d has requested a MACVLAN filter but there is no space for it\n",
-				vf);
+		       "VF %d has requested a MACVLAN filter but there is no space for it\n",
+		       vf);
 
 	return err < 0;
 
 	return 0;
 }
 
-static int rnpm_negotiate_vf_api(struct rnpm_adapter *adapter,
-		u32 *msgbuf, u32 vf)
+static int rnpm_negotiate_vf_api(struct rnpm_adapter *adapter, u32 *msgbuf,
+				 u32 vf)
 {
 	adapter->vfinfo[vf].vf_api = 0;
 
 	return 0;
 }
 
-static int rnpm_get_vf_reg(struct rnpm_adapter *adapter,
-		u32 *msgbuf, u32 vf)
+static int rnpm_get_vf_reg(struct rnpm_adapter *adapter, u32 *msgbuf, u32 vf)
 {
 	// struct net_device *dev = adapter->netdev;
 	u32 reg = msgbuf[1];
 
-	if (reg == 0) {//FIXME check regs
+	if (reg == 0) { //FIXME check regs
 		return -1;
 	}
 
@@ -890,8 +892,7 @@ static int rnpm_get_vf_reg(struct rnpm_adapter *adapter,
 	return 0;
 }
 
-static int rnpm_get_vf_queues(struct rnpm_adapter *adapter,
-		u32 *msgbuf, u32 vf)
+static int rnpm_get_vf_queues(struct rnpm_adapter *adapter, u32 *msgbuf, u32 vf)
 {
 	struct net_device *dev = adapter->netdev;
 	// struct rnpm_ring_feature *vmdq = &adapter->ring_feature[RING_F_VMDQ];
@@ -922,7 +923,8 @@ static int rnpm_get_vf_queues(struct rnpm_adapter *adapter,
 	return 0;
 }
 
-static int __maybe_unused rnpm_rcv_msg_from_vf(struct rnpm_adapter *adapter, u32 vf)
+static int __maybe_unused rnpm_rcv_msg_from_vf(struct rnpm_adapter *adapter,
+					       u32 vf)
 {
 	u32 mbx_size = RNPM_VFMAILBOX_SIZE;
 	u32 msgbuf[RNPM_VFMAILBOX_SIZE];
@@ -1014,7 +1016,7 @@ static int __maybe_unused rnpm_rcv_msg_from_vf(struct rnpm_adapter *adapter, u32
 }
 
 static void __maybe_unused rnpm_rcv_ack_from_vf(struct rnpm_adapter *adapter,
-												u32 vf)
+						u32 vf)
 {
 	struct rnpm_hw *hw = &adapter->hw;
 	u32 msg = RNPM_VT_MSGTYPE_NACK;
@@ -1033,19 +1035,19 @@ void rnpm_msg_task(struct rnpm_pf_adapter *pf_adapter)
 	rnpm_fw_msg_handler(pf_adapter);
 
 	// fixme no support sriov now
-//    for (vf = 0; vf < adapter->num_vfs; vf++) {
-//        /* process any reset requests */
-//		//if (!rnpm_check_for_rst(hw, vf))
-//		//	rnpm_vf_reset_event(adapter, vf);
-//
-//		/* process any messages pending */
-//		if (!rnpm_check_for_msg(hw, vf))
-//			rnpm_rcv_msg_from_vf(adapter, vf);
-//
-//		/* process any acks */
-//		if (!rnpm_check_for_ack(hw, vf))
-//			rnpm_rcv_ack_from_vf(adapter, vf);
-//    }
+	//    for (vf = 0; vf < adapter->num_vfs; vf++) {
+	//        /* process any reset requests */
+	//		//if (!rnpm_check_for_rst(hw, vf))
+	//		//	rnpm_vf_reset_event(adapter, vf);
+	//
+	//		/* process any messages pending */
+	//		if (!rnpm_check_for_msg(hw, vf))
+	//			rnpm_rcv_msg_from_vf(adapter, vf);
+	//
+	//		/* process any acks */
+	//		if (!rnpm_check_for_ack(hw, vf))
+	//			rnpm_rcv_ack_from_vf(adapter, vf);
+	//    }
 }
 
 /* try to send mailbox to all active vf */
@@ -1075,7 +1077,8 @@ void rnpm_msg_post_status(struct rnpm_adapter *adapter, enum PF_STATUS status)
 				break;
 			case PF_FT_PADDING_STATUS:
 				msgbuf[0] = RNPM_PF_SET_FT_PADDING;
-				if (adapter->priv_flags & RNPM_PRIV_FLAG_FT_PADDING) {
+				if (adapter->priv_flags &
+				    RNPM_PRIV_FLAG_PCIE_CACHE_ALIGN_PATCH) {
 					msgbuf[1] = 1;
 				} else {
 					msgbuf[1] = 0;
@@ -1091,7 +1094,6 @@ void rnpm_msg_post_status(struct rnpm_adapter *adapter, enum PF_STATUS status)
 			mbx->ops.write(hw, msgbuf, 2, vf);
 		}
 	}
-
 }
 
 void rnpm_disable_tx_rx(struct rnpm_adapter *adapter)
@@ -1107,7 +1109,7 @@ void rnpm_ping_all_vfs(struct rnpm_adapter *adapter)
 	u32 ping;
 	int i;
 
-	for (i = 0 ; i < adapter->num_vfs; i++) {
+	for (i = 0; i < adapter->num_vfs; i++) {
 		ping = RNPM_PF_CONTROL_PRING_MSG;
 		/* only send to active vf */
 		//if (adapter->vfinfo[i].clear_to_send) {
@@ -1120,30 +1122,32 @@ void rnpm_ping_all_vfs(struct rnpm_adapter *adapter)
 int rnpm_get_vf_ringnum(int vf, int num)
 {
 	//fix me if ring alloc reset
+
 	return (vf * 2 + num);
 }
 
-int rnpm_setup_ring_maxrate(struct rnpm_adapter *adapter,
-		int ring, u64 max_rate)
+int rnpm_setup_ring_maxrate(struct rnpm_adapter *adapter, int ring,
+			    u64 max_rate)
 {
 	u64 x, y, result;
 #define RNPM_SAMPING_1SEC_INTERNAL (180000000)
 	/* set hardware samping internal 1S */
 	rnpm_wr_reg(adapter->hw.hw_addr + RNPM_DMA_REG_TX_FLOW_CTRL_TM(ring),
-			RNPM_SAMPING_1SEC_INTERNAL / 10);
+		    RNPM_SAMPING_1SEC_INTERNAL / 10);
 
 	x = max_rate;
 	y = do_div(x, 10);
 	result = x;
 	result = x * 3;
 	rnpm_wr_reg(adapter->hw.hw_addr + RNPM_DMA_REG_TX_FLOW_CTRL_TH(ring),
-			result);
+		    result);
+
 	return 0;
 }
 
 #ifdef HAVE_NDO_SET_VF_MIN_MAX_TX_RATE
 int rnpm_ndo_set_vf_bw(struct net_device *netdev, int vf,
-			int __always_unused min_tx_rate, int max_tx_rate)
+		       int __always_unused min_tx_rate, int max_tx_rate)
 #else
 int rnpm_ndo_set_vf_bw(struct net_device *netdev, int vf, int max_tx_rate)
 #endif /* HAVE_NDO_SET_VF_MIN_MAX_TX_RATE */
@@ -1161,8 +1165,7 @@ int rnpm_ndo_set_vf_bw(struct net_device *netdev, int vf, int max_tx_rate)
 	link_speed = 10000;
 	//link_speed = rnpm_link_mbps(adapter);
 	/* rate limit cannot be less than 10Mbs or greater than link speed */
-	if (max_tx_rate && ((max_tx_rate <= 10) ||
-				(max_tx_rate > link_speed)))
+	if (max_tx_rate && ((max_tx_rate <= 10) || (max_tx_rate > link_speed)))
 		return -EINVAL;
 
 	ring_max_rate = max_tx_rate / PF_RING_CNT_WHEN_IOV_ENABLED;
@@ -1174,7 +1177,6 @@ int rnpm_ndo_set_vf_bw(struct net_device *netdev, int vf, int max_tx_rate)
 	return 0;
 }
 
-
 int rnpm_ndo_set_vf_mac(struct net_device *netdev, int vf, u8 *mac)
 {
 	struct rnpm_adapter *adapter = netdev_priv(netdev);
@@ -1183,12 +1185,14 @@ int rnpm_ndo_set_vf_mac(struct net_device *netdev, int vf, u8 *mac)
 	adapter->vfinfo[vf].pf_set_mac = true;
 	dev_info(&adapter->pdev->dev, "setting MAC %pM on VF %d\n", mac, vf);
 	dev_info(&adapter->pdev->dev, "Reload the VF driver to make this"
-			" change effective.");
+				      " change effective.");
 	if (test_bit(__RNPM_DOWN, &adapter->state)) {
-		dev_warn(&adapter->pdev->dev, "The VF MAC address has been set,"
-				" but the PF device is not up.\n");
-		dev_warn(&adapter->pdev->dev, "Bring the PF device up before"
-				" attempting to use the VF device.\n");
+		dev_warn(&adapter->pdev->dev,
+			 "The VF MAC address has been set,"
+			 " but the PF device is not up.\n");
+		dev_warn(&adapter->pdev->dev,
+			 "Bring the PF device up before"
+			 " attempting to use the VF device.\n");
 	}
 	return rnpm_set_vf_mac(adapter, vf, mac);
 }
@@ -1315,8 +1319,8 @@ int rnpm_ndo_set_vf_ring_rate(struct net_device *netdev, int vf, int tx_rate)
 }
 #endif
 
-
-int rnpm_ndo_get_vf_config(struct net_device *netdev, int vf, struct ifla_vf_info *ivi)
+int rnpm_ndo_get_vf_config(struct net_device *netdev, int vf,
+			   struct ifla_vf_info *ivi)
 {
 	struct rnpm_adapter *adapter = netdev_priv(netdev);
 	if (vf >= adapter->num_vfs)
@@ -1326,14 +1330,14 @@ int rnpm_ndo_get_vf_config(struct net_device *netdev, int vf, struct ifla_vf_inf
 	//ivi->tx_rate = adapter->vfinfo[vf].tx_rate;
 	ivi->vlan = adapter->vfinfo[vf].pf_vlan;
 	ivi->qos = adapter->vfinfo[vf].pf_qos;
+#ifdef HAVE_VF_SPOOFCHK_CONFIGURE
 	ivi->spoofchk = adapter->vfinfo[vf].spoofchk_enabled;
-
+#endif
 	return 0;
 }
 int rnpm_pci_sriov_configure(struct pci_dev *dev, int num_vfs)
 {
-	vf_dbg("\n\n !!!! %s:%d num_vfs:%d\n",
-			__func__, __LINE__, num_vfs);
+	vf_dbg("\n\n !!!! %s:%d num_vfs:%d\n", __func__, __LINE__, num_vfs);
 	if (num_vfs == 0)
 		return rnpm_pci_sriov_disable(dev);
 	else

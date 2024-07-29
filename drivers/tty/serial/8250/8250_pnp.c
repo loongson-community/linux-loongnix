@@ -471,6 +471,16 @@ serial_pnp_probe(struct pnp_dev *dev, const struct pnp_device_id *dev_id)
 		uart.port.type = PORT_8250_CIR;
 	}
 
+	if ((uart.port.mapbase & (0xffff << 16)) == 0x1fe00000) {
+		uart.port.flags |= UPF_FIXED_PORT | UPF_FIXED_TYPE;
+		uart.port.type = PORT_LOONGSON_NODE;
+	}
+
+	if ((uart.port.mapbase & (0xffff << 16)) == 0x10080000) {
+		uart.port.flags |= UPF_FIXED_PORT | UPF_FIXED_TYPE;
+		uart.port.type = PORT_LOONGSON_MISC;
+	}
+
 	uart.port.flags |= UPF_SKIP_TEST | UPF_BOOT_AUTOCONF;
 	if (pnp_irq_flags(dev, 0) & IORESOURCE_IRQ_SHAREABLE)
 		uart.port.flags |= UPF_SHARE_IRQ;

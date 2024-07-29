@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-2.0
+/* Copyright(c) 2022 - 2023 Mucse Corporation. */
 #ifndef _RNPM_TYPE_H_
 #define _RNPM_TYPE_H_
 
@@ -5,94 +7,116 @@
 #include <linux/mdio.h>
 #include <linux/netdevice.h>
 
+#if IS_ENABLED(CONFIG_MXGBEM_OPTM_WITH_LPAGE)
+#ifndef RNPM_OPTM_WITH_LPAGE
+#define RNPM_OPTM_WITH_LPAGE
+#endif
+#endif
+#if (PAGE_SIZE < 8192)
+#ifdef RNPM_OPTM_WITH_LPAGE
+#undef RNPM_OPTM_WITH_LPAGE
+#endif
+#endif
+
+#if IS_ENABLED(CONFIG_MXGBEM_FIX_MAC_PADDING)
+#define RNPM_FIX_MAC_PADDING
+#endif
+
 #include "rnpm_regs.h"
 #include "rnpm_compat.h"
 
 /* Device IDs */
 #define PCI_VENDOR_ID_MUCSE 0x8848
-#define RNPM_DEV_ID_N10_PF0  0x7001
-#define RNPM_DEV_ID_N10_PF1  0x7002
+#define RNPM_DEV_ID_N10_PF0 0x7001
+#define RNPM_DEV_ID_N10_PF1 0x7002
 
-#define RNPM_DEV_ID_N10_PF0_N  0x1000
-#define RNPM_DEV_ID_N10_PF1_N  0x1001
-
+#define RNPM_DEV_ID_N10_PF0_N 0x1000
+#define RNPM_DEV_ID_N10_PF1_N 0x1001
 
 /* Wake Up Control */
-#define RNPM_WUC_PME_EN	0x00000002 /* PME Enable */
-#define RNPM_WUC_PME_STATUS	0x00000004 /* PME Status */
+#define RNPM_WUC_PME_EN		0x00000002 /* PME Enable */
+#define RNPM_WUC_PME_STATUS 0x00000004 /* PME Status */
 #define RNPM_WUC_WKEN		0x00000010 /* Enable PE_WAKE_N pin assertion  */
 
 /* Wake Up Filter Control */
-#define RNPM_WUFC_LNKC	0x00000001 /* Link Status Change Wakeup Enable */
-#define RNPM_WUFC_MAG	0x00000002 /* Magic Packet Wakeup Enable */
-#define RNPM_WUFC_EX	0x00000004 /* Directed Exact Wakeup Enable */
-#define RNPM_WUFC_MC	0x00000008 /* Directed Multicast Wakeup Enable */
-#define RNPM_WUFC_BC	0x00000010 /* Broadcast Wakeup Enable */
-#define RNPM_WUFC_ARP	0x00000020 /* ARP Request Packet Wakeup Enable */
-#define RNPM_WUFC_IPV4	0x00000040 /* Directed IPv4 Packet Wakeup Enable */
-#define RNPM_WUFC_IPV6	0x00000080 /* Directed IPv6 Packet Wakeup Enable */
-#define RNPM_WUFC_MNG	0x00000100 /* Directed Mgmt Packet Wakeup Enable */
+#define RNPM_WUFC_LNKC 0x00000001 /* Link Status Change Wakeup Enable */
+#define RNPM_WUFC_MAG  0x00000002 /* Magic Packet Wakeup Enable */
+#define RNPM_WUFC_EX   0x00000004 /* Directed Exact Wakeup Enable */
+#define RNPM_WUFC_MC   0x00000008 /* Directed Multicast Wakeup Enable */
+#define RNPM_WUFC_BC   0x00000010 /* Broadcast Wakeup Enable */
+#define RNPM_WUFC_ARP  0x00000020 /* ARP Request Packet Wakeup Enable */
+#define RNPM_WUFC_IPV4 0x00000040 /* Directed IPv4 Packet Wakeup Enable */
+#define RNPM_WUFC_IPV6 0x00000080 /* Directed IPv6 Packet Wakeup Enable */
+#define RNPM_WUFC_MNG  0x00000100 /* Directed Mgmt Packet Wakeup Enable */
 
 #define RNPM_WUFC_IGNORE_TCO	0x00008000 /* Ignore WakeOn TCO packets */
-#define RNPM_WUFC_FLX0	0x00010000 /* Flexible Filter 0 Enable */
-#define RNPM_WUFC_FLX1	0x00020000 /* Flexible Filter 1 Enable */
-#define RNPM_WUFC_FLX2	0x00040000 /* Flexible Filter 2 Enable */
-#define RNPM_WUFC_FLX3	0x00080000 /* Flexible Filter 3 Enable */
-#define RNPM_WUFC_FLX4	0x00100000 /* Flexible Filter 4 Enable */
-#define RNPM_WUFC_FLX5	0x00200000 /* Flexible Filter 5 Enable */
-#define RNPM_WUFC_FLX_FILTERS		0x000F0000 /* Mask for 4 flex filters */
-#define RNPM_WUFC_FLX_FILTERS_6	0x003F0000 /* Mask for 6 flex filters */
-#define RNPM_WUFC_FLX_FILTERS_8	0x00FF0000 /* Mask for 8 flex filters */
-#define RNPM_WUFC_FW_RST_WK	0x80000000 /* Ena wake on FW reset assertion */
+#define RNPM_WUFC_FLX0			0x00010000 /* Flexible Filter 0 Enable */
+#define RNPM_WUFC_FLX1			0x00020000 /* Flexible Filter 1 Enable */
+#define RNPM_WUFC_FLX2			0x00040000 /* Flexible Filter 2 Enable */
+#define RNPM_WUFC_FLX3			0x00080000 /* Flexible Filter 3 Enable */
+#define RNPM_WUFC_FLX4			0x00100000 /* Flexible Filter 4 Enable */
+#define RNPM_WUFC_FLX5			0x00200000 /* Flexible Filter 5 Enable */
+#define RNPM_WUFC_FLX_FILTERS	0x000F0000 /* Mask for 4 flex filters */
+#define RNPM_WUFC_FLX_FILTERS_6 0x003F0000 /* Mask for 6 flex filters */
+#define RNPM_WUFC_FLX_FILTERS_8 0x00FF0000 /* Mask for 8 flex filters */
+#define RNPM_WUFC_FW_RST_WK		0x80000000 /* Ena wake on FW reset assertion */
 /* Mask for Ext. flex filters */
-#define RNPM_WUFC_EXT_FLX_FILTERS	0x00300000
-#define RNPM_WUFC_ALL_FILTERS		0x000F00FF /* Mask all 4 flex filters */
-#define RNPM_WUFC_ALL_FILTERS_6	0x003F00FF /* Mask all 6 flex filters */
-#define RNPM_WUFC_ALL_FILTERS_8	0x00FF00FF /* Mask all 8 flex filters */
-#define RNPM_WUFC_FLX_OFFSET	16 /* Offset to the Flexible Filters bits */
+#define RNPM_WUFC_EXT_FLX_FILTERS 0x00300000
+#define RNPM_WUFC_ALL_FILTERS	  0x000F00FF /* Mask all 4 flex filters */
+#define RNPM_WUFC_ALL_FILTERS_6	  0x003F00FF /* Mask all 6 flex filters */
+#define RNPM_WUFC_ALL_FILTERS_8	  0x00FF00FF /* Mask all 8 flex filters */
+#define RNPM_WUFC_FLX_OFFSET	  16		 /* Offset to the Flexible Filters bits */
+
+#define RNPM_MAX_SENSORS 1
+struct rnpm_thermal_diode_data {
+	u8 location;
+	u8 temp;
+	u8 caution_thresh;
+	u8 max_op_thresh;
+};
+
+struct rnpm_thermal_sensor_data {
+	struct rnpm_thermal_diode_data sensor[RNPM_MAX_SENSORS];
+};
 
 /* Wake Up Status */
-#define RNPM_WUS_LNKC		RNPM_WUFC_LNKC
-#define RNPM_WUS_MAG		RNPM_WUFC_MAG
-#define RNPM_WUS_EX		RNPM_WUFC_EX
-#define RNPM_WUS_MC		RNPM_WUFC_MC
-#define RNPM_WUS_BC		RNPM_WUFC_BC
-#define RNPM_WUS_ARP		RNPM_WUFC_ARP
-#define RNPM_WUS_IPV4		RNPM_WUFC_IPV4
-#define RNPM_WUS_IPV6		RNPM_WUFC_IPV6
-#define RNPM_WUS_MNG		RNPM_WUFC_MNG
-#define RNPM_WUS_FLX0		RNPM_WUFC_FLX0
-#define RNPM_WUS_FLX1		RNPM_WUFC_FLX1
-#define RNPM_WUS_FLX2		RNPM_WUFC_FLX2
-#define RNPM_WUS_FLX3		RNPM_WUFC_FLX3
-#define RNPM_WUS_FLX4		RNPM_WUFC_FLX4
-#define RNPM_WUS_FLX5		RNPM_WUFC_FLX5
-#define RNPM_WUS_FLX_FILTERS	RNPM_WUFC_FLX_FILTERS
-#define RNPM_WUS_FW_RST_WK	RNPM_WUFC_FW_RST_WK
+#define RNPM_WUS_LNKC		 RNPM_WUFC_LNKC
+#define RNPM_WUS_MAG		 RNPM_WUFC_MAG
+#define RNPM_WUS_EX			 RNPM_WUFC_EX
+#define RNPM_WUS_MC			 RNPM_WUFC_MC
+#define RNPM_WUS_BC			 RNPM_WUFC_BC
+#define RNPM_WUS_ARP		 RNPM_WUFC_ARP
+#define RNPM_WUS_IPV4		 RNPM_WUFC_IPV4
+#define RNPM_WUS_IPV6		 RNPM_WUFC_IPV6
+#define RNPM_WUS_MNG		 RNPM_WUFC_MNG
+#define RNPM_WUS_FLX0		 RNPM_WUFC_FLX0
+#define RNPM_WUS_FLX1		 RNPM_WUFC_FLX1
+#define RNPM_WUS_FLX2		 RNPM_WUFC_FLX2
+#define RNPM_WUS_FLX3		 RNPM_WUFC_FLX3
+#define RNPM_WUS_FLX4		 RNPM_WUFC_FLX4
+#define RNPM_WUS_FLX5		 RNPM_WUFC_FLX5
+#define RNPM_WUS_FLX_FILTERS RNPM_WUFC_FLX_FILTERS
+#define RNPM_WUS_FW_RST_WK	 RNPM_WUFC_FW_RST_WK
 /* Proxy Status */
 #define RNPM_PROXYS_EX		0x00000004 /* Exact packet received */
-#define RNPM_PROXYS_ARP_DIR	0x00000020 /* ARP w/filter match received */
+#define RNPM_PROXYS_ARP_DIR 0x00000020 /* ARP w/filter match received */
 #define RNPM_PROXYS_NS		0x00000200 /* IPV6 NS received */
 #define RNPM_PROXYS_NS_DIR	0x00000400 /* IPV6 NS w/DA match received */
-#define RNPM_PROXYS_ARP	0x00000800 /* ARP request packet received */
-#define RNPM_PROXYS_MLD	0x00001000 /* IPv6 MLD packet received */
+#define RNPM_PROXYS_ARP		0x00000800 /* ARP request packet received */
+#define RNPM_PROXYS_MLD		0x00001000 /* IPv6 MLD packet received */
 
 /* Proxying Filter Control */
-#define RNPM_PROXYFC_ENABLE	0x00000001 /* Port Proxying Enable */
-#define RNPM_PROXYFC_EX	0x00000004 /* Directed Exact Proxy Enable */
-#define RNPM_PROXYFC_ARP_DIR	0x00000020 /* Directed ARP Proxy Enable */
-#define RNPM_PROXYFC_NS	0x00000200 /* IPv6 Neighbor Solicitation */
-#define RNPM_PROXYFC_ARP	0x00000800 /* ARP Request Proxy Enable */
-#define RNPM_PROXYFC_MLD	0x00000800 /* IPv6 MLD Proxy Enable */
-#define RNPM_PROXYFC_NO_TCO	0x00008000 /* Ignore TCO packets */
+#define RNPM_PROXYFC_ENABLE	 0x00000001 /* Port Proxying Enable */
+#define RNPM_PROXYFC_EX		 0x00000004 /* Directed Exact Proxy Enable */
+#define RNPM_PROXYFC_ARP_DIR 0x00000020 /* Directed ARP Proxy Enable */
+#define RNPM_PROXYFC_NS		 0x00000200 /* IPv6 Neighbor Solicitation */
+#define RNPM_PROXYFC_ARP	 0x00000800 /* ARP Request Proxy Enable */
+#define RNPM_PROXYFC_MLD	 0x00000800 /* IPv6 MLD Proxy Enable */
+#define RNPM_PROXYFC_NO_TCO	 0x00008000 /* Ignore TCO packets */
 
-#define RNPM_WUPL_LENGTH_MASK	0xFFFF
+#define RNPM_WUPL_LENGTH_MASK 0xFFFF
 
-
-
-
-
-#define RNPM_MAX_TRAFFIC_CLASS        4
+#define RNPM_MAX_TRAFFIC_CLASS	4
 #define TSRN10_TX_DEFAULT_BURST 8
 
 #ifndef TSRN10_RX_DEFAULT_LINE
@@ -101,10 +125,10 @@
 #ifndef TSRN10_RX_DEFAULT_BURST
 #define TSRN10_RX_DEFAULT_BURST 16
 #endif
-#define RNPM_TX_PKT_POLL_BUDGET		  128
+#define RNPM_TX_PKT_POLL_BUDGET 128
 
 #ifndef RNPM_RX_PKT_POLL_BUDGET
-#define RNPM_RX_PKT_POLL_BUDGET  64
+#define RNPM_RX_PKT_POLL_BUDGET 64
 #endif
 
 #ifndef RNPM_PKT_TIMEOUT
@@ -116,12 +140,11 @@
 #endif
 
 /* VF Device IDs */
-#define RNPM_DEV_ID_N10_PF0_VF   0x8001
-#define RNPM_DEV_ID_N10_PF1_VF   0x8002
+#define RNPM_DEV_ID_N10_PF0_VF 0x8001
+#define RNPM_DEV_ID_N10_PF1_VF 0x8002
 
-#define RNPM_DEV_ID_N10_PF0_VF_N   0x1010
-#define RNPM_DEV_ID_N10_PF1_VF_N  0x1011
-
+#define RNPM_DEV_ID_N10_PF0_VF_N 0x1010
+#define RNPM_DEV_ID_N10_PF1_VF_N 0x1011
 
 /* Transmit Descriptor - Advanced */
 struct rnpm_tx_desc {
@@ -138,11 +161,10 @@ struct rnpm_tx_desc {
 #define RNPM_TX_FLAGS_VLAN_PRIO_SHIFT 13
 #define RNPM_TX_FLAGS_VLAN_CFI_SHIFT  12
 
-
-#define RNPM_TXD_VLAN_VALID	(0x80000000)
-#define RNPM_TXD_VLAN_CTRL_NOP	(0x00 << 13)
-#define RNPM_TXD_VLAN_CTRL_RM_VLAN	(0x20000000)
-#define RNPM_TXD_VLAN_CTRL_INSERT_VLAN	(0x40000000)
+#define RNPM_TXD_VLAN_VALID			   (0x80000000)
+#define RNPM_TXD_VLAN_CTRL_NOP		   (0x00 << 13)
+#define RNPM_TXD_VLAN_CTRL_RM_VLAN	   (0x20000000)
+#define RNPM_TXD_VLAN_CTRL_INSERT_VLAN (0x40000000)
 
 #define RNPM_TXD_L4_CSUM		(0x10000000) /* udp tcp sctp csum */
 #define RNPM_TXD_IP_CSUM		(0x8000000)
@@ -174,7 +196,7 @@ struct rnpm_tx_ctx_desc {
 #define RNPM_TXD_CTX_VLAN_CTRL_NOP			(0x00 << 10)
 #define RNPM_TXD_CTX_VLAN_CTRL_RM_VLAN		(0x01 << 10)
 #define RNPM_TXD_CTX_VLAN_CTRL_INSERT_VLAN	(0x02 << 10)
-#define RNPM_TXD_MTI_CRC_PAD_CTRL			(0x00 << 8)
+#define RNPM_TXD_MTI_CRC_PAD_CTRL			(0x01000000)
 #define RNPM_TXD_CTX_CTRL_DESC				(0x080000)
 #define RNPM_TXD_CMD_RS						(0x040000)
 #define RNPM_TXD_STAT_DD					(0x020000)
@@ -203,20 +225,22 @@ union rnpm_rx_desc {
 		__le16 padding_len;
 		__le16 vlan;
 		__le16 cmd;
-#define RNPM_RXD_STAT_VLAN_VALID     (1 << 15)
-#define RNPM_RXD_STAT_TUNNEL_NVGRE   (0x02 << 13)
-#define RNPM_RXD_STAT_TUNNEL_VXLAN   (0x01 << 13)
-#define RNPM_RXD_STAT_TUNNEL_MASK    (0x03 << 13)
-#define RNPM_RXD_STAT_ERR_MASK       (0x1f << 8)
-#define RNPM_RXD_STAT_SCTP_MASK      (0x04 << 8)
-#define RNPM_RXD_STAT_L4_SCTP        (0x02 << 6)
-#define RNPM_RXD_STAT_L4_TCP         (0x01 << 6)
-#define RNPM_RXD_STAT_L4_UDP         (0x03 << 6)
-#define RNPM_RXD_STAT_IPV6           (1 << 5)
-#define RNPM_RXD_STAT_IPV4           (0 << 5)
-#define RNPM_RXD_STAT_PTP            (1 << 4)
-#define RNPM_RXD_STAT_DD             (1 << 1)
-#define RNPM_RXD_STAT_EOP            (1 << 0)
+#define RNPM_RX_L3_TYPE_MASK	   (1 << 15) // 1 is ipv4
+#define RNPM_RXD_STAT_L4_MASK	   (0x02 << 8)
+#define RNPM_RXD_STAT_VLAN_VALID   (1 << 15)
+#define RNPM_RXD_STAT_TUNNEL_NVGRE (0x02 << 13)
+#define RNPM_RXD_STAT_TUNNEL_VXLAN (0x01 << 13)
+#define RNPM_RXD_STAT_TUNNEL_MASK  (0x03 << 13)
+#define RNPM_RXD_STAT_ERR_MASK	   (0x1f << 8)
+#define RNPM_RXD_STAT_SCTP_MASK	   (0x04 << 8)
+#define RNPM_RXD_STAT_L4_SCTP	   (0x02 << 6)
+#define RNPM_RXD_STAT_L4_TCP	   (0x01 << 6)
+#define RNPM_RXD_STAT_L4_UDP	   (0x03 << 6)
+#define RNPM_RXD_STAT_IPV6		   (1 << 5)
+#define RNPM_RXD_STAT_IPV4		   (0 << 5)
+#define RNPM_RXD_STAT_PTP		   (1 << 4)
+#define RNPM_RXD_STAT_DD		   (1 << 1)
+#define RNPM_RXD_STAT_EOP		   (1 << 0)
 	} wb;
 } __attribute__((packed));
 
@@ -238,10 +262,9 @@ struct rnpm_hic_drv_info {
 	u8 ver_build;
 	u8 ver_min;
 	u8 ver_maj;
-	u8 pad; /* end spacing to ensure length is mult. of dword */
+	u8 pad;	  /* end spacing to ensure length is mult. of dword */
 	u16 pad2; /* end spacing to ensure length is mult. of dword2 */
 };
-
 
 /* Context descriptors */
 struct rnpm_adv_tx_context_desc {
@@ -252,59 +275,77 @@ struct rnpm_adv_tx_context_desc {
 };
 
 /* RAH */
-#define RNPM_RAH_VIND_MASK     0x003C0000
-#define RNPM_RAH_VIND_SHIFT    18
-#define RNPM_RAH_AV            0x80000000
-#define RNPM_CLEAR_VMDQ_ALL    0xFFFFFFFF
+#define RNPM_RAH_VIND_MASK	0x003C0000
+#define RNPM_RAH_VIND_SHIFT 18
+#define RNPM_RAH_AV			0x80000000
+#define RNPM_CLEAR_VMDQ_ALL 0xFFFFFFFF
 
 /* Autonegotiation advertised speeds */
 typedef u32 rnpm_autoneg_advertised;
 /* Link speed */
 typedef u32 rnpm_link_speed;
-#define RNPM_LINK_SPEED_UNKNOWN	  0
-#define RNPM_LINK_SPEED_10_FULL	  BIT(2)
-#define RNPM_LINK_SPEED_100_FULL   BIT(3)
-#define RNPM_LINK_SPEED_1GB_FULL   BIT(4)
-#define RNPM_LINK_SPEED_10GB_FULL  BIT(5)
-#define RNPM_LINK_SPEED_40GB_FULL  BIT(6)
-#define RNPM_LINK_SPEED_25GB_FULL  BIT(7)
-#define RNPM_LINK_SPEED_50GB_FULL  BIT(8)
-#define RNPM_LINK_SPEED_100GB_FULL BIT(9)
-#define RNPM_LINK_SPEED_10_HALF	   BIT(10)
-#define RNPM_LINK_SPEED_100_HALF   BIT(11)
-#define RNPM_LINK_SPEED_1GB_HALF   BIT(12)
+#define RNPM_LINK_SPEED_UNKNOWN			  0
+#define RNPM_LINK_SPEED_10_FULL			  BIT(2)
+#define RNPM_LINK_SPEED_100_FULL		  BIT(3)
+#define RNPM_LINK_SPEED_1GB_FULL		  BIT(4)
+#define RNPM_LINK_SPEED_10GB_FULL		  BIT(5)
+#define RNPM_LINK_SPEED_40GB_FULL		  BIT(6)
+#define RNPM_LINK_SPEED_25GB_FULL		  BIT(7)
+#define RNPM_LINK_SPEED_50GB_FULL		  BIT(8)
+#define RNPM_LINK_SPEED_100GB_FULL		  BIT(9)
+#define RNPM_LINK_SPEED_10_HALF			  BIT(10)
+#define RNPM_LINK_SPEED_100_HALF		  BIT(11)
+#define RNPM_LINK_SPEED_1GB_HALF		  BIT(12)
+#define RNPM_SFP_MODE_10G_LR			  BIT(13)
+#define RNPM_SFP_MODE_10G_SR			  BIT(14)
+#define RNPM_SFP_MODE_10G_LRM			  BIT(15)
+#define RNPM_SFP_MODE_1G_T				  BIT(16)
+#define RNPM_SFP_MODE_1G_KX				  BIT(17)
+#define RNPM_SFP_MODE_1G_SX				  BIT(18)
+#define RNPM_SFP_MODE_1G_LX				  BIT(19)
+#define RNPM_SFP_MODE_40G_SR4			  BIT(20)
+#define RNPM_SFP_MODE_40G_CR4			  BIT(21)
+#define RNPM_SFP_MODE_40G_LR4			  BIT(22)
+#define RNPM_SFP_MODE_1G_CX				  BIT(23)
+#define RNPM_SFP_MODE_10G_BASE_T		  BIT(24)
+#define RNPM_SFP_MODE_FIBER_CHANNEL_SPEED BIT(25) // sfp-a0-10 != 0
+#define RNPM_SFP_CONNECTOR_DAC			  BIT(26)
+#define RNPM_SFP_TO_SGMII				  BIT(27)
 
-#define RNPM_LINK_SPEED_n10_AUTONEG                       \
-	(RNPM_LINK_SPEED_10_FULL | RNPM_LINK_SPEED_100_FULL | \
-	 RNPM_LINK_SPEED_1GB_FULL | RNPM_LINK_SPEED_10GB_FULL)
+#define RNPM_MODULE_QSFP_MAX_LEN 640
+
+/* PHY ID */
+#define RNPM_YT8614_PHY_ID 0x4f51e91a
+
+#define RNPM_LINK_SPEED_n10_AUTONEG \
+	(RNPM_LINK_SPEED_10_FULL | RNPM_LINK_SPEED_100_FULL | RNPM_LINK_SPEED_1GB_FULL | RNPM_LINK_SPEED_10GB_FULL)
 
 /* Flow Control Data Sheet defined values
  * Calculation and defines taken from 802.1bb Annex O
  */
 
 enum rnpm_atr_flow_type {
-	RNPM_ATR_FLOW_TYPE_IPV4   = 0x0,
-	RNPM_ATR_FLOW_TYPE_UDPV4  = 0x1,
-	RNPM_ATR_FLOW_TYPE_TCPV4  = 0x2,
+	RNPM_ATR_FLOW_TYPE_IPV4 = 0x0,
+	RNPM_ATR_FLOW_TYPE_UDPV4 = 0x1,
+	RNPM_ATR_FLOW_TYPE_TCPV4 = 0x2,
 	RNPM_ATR_FLOW_TYPE_SCTPV4 = 0x3,
-	RNPM_ATR_FLOW_TYPE_IPV6   = 0x4,
-	RNPM_ATR_FLOW_TYPE_UDPV6  = 0x5,
-	RNPM_ATR_FLOW_TYPE_TCPV6  = 0x6,
+	RNPM_ATR_FLOW_TYPE_IPV6 = 0x4,
+	RNPM_ATR_FLOW_TYPE_UDPV6 = 0x5,
+	RNPM_ATR_FLOW_TYPE_TCPV6 = 0x6,
 	RNPM_ATR_FLOW_TYPE_SCTPV6 = 0x7,
-	RNPM_ATR_FLOW_TYPE_TUNNELED_IPV4        = 0x10,
-	RNPM_ATR_FLOW_TYPE_TUNNELED_UDPV4       = 0x11,
-	RNPM_ATR_FLOW_TYPE_TUNNELED_TCPV4       = 0x12,
-	RNPM_ATR_FLOW_TYPE_TUNNELED_SCTPV4      = 0x13,
-	RNPM_ATR_FLOW_TYPE_TUNNELED_IPV6        = 0x14,
-	RNPM_ATR_FLOW_TYPE_TUNNELED_UDPV6       = 0x15,
-	RNPM_ATR_FLOW_TYPE_TUNNELED_TCPV6       = 0x16,
-	RNPM_ATR_FLOW_TYPE_TUNNELED_SCTPV6      = 0x17,
-	RNPM_ATR_FLOW_TYPE_ETHER            = 0x18,
-	RNPM_ATR_FLOW_TYPE_USERDEF          = 0x19,
+	RNPM_ATR_FLOW_TYPE_TUNNELED_IPV4 = 0x10,
+	RNPM_ATR_FLOW_TYPE_TUNNELED_UDPV4 = 0x11,
+	RNPM_ATR_FLOW_TYPE_TUNNELED_TCPV4 = 0x12,
+	RNPM_ATR_FLOW_TYPE_TUNNELED_SCTPV4 = 0x13,
+	RNPM_ATR_FLOW_TYPE_TUNNELED_IPV6 = 0x14,
+	RNPM_ATR_FLOW_TYPE_TUNNELED_UDPV6 = 0x15,
+	RNPM_ATR_FLOW_TYPE_TUNNELED_TCPV6 = 0x16,
+	RNPM_ATR_FLOW_TYPE_TUNNELED_SCTPV6 = 0x17,
+	RNPM_ATR_FLOW_TYPE_ETHER = 0x18,
+	RNPM_ATR_FLOW_TYPE_USERDEF = 0x19,
 };
 
 #define RNPM_FDIR_DROP_QUEUE (200)
-
 
 enum {
 	fdir_mode_tcam = 0,
@@ -356,40 +397,52 @@ union rnpm_atr_input {
 		__be32 nouse[12];
 	} layer2_formate;
 	__be32 dword_stream[14];
-
 };
-
 
 /* BitTimes (BT) conversion */
 #define RNPM_BT2KB(BT) ((BT + (8 * 1024 - 1)) / (8 * 1024))
-#define RNPM_B2BT(BT) (BT * 8)
+#define RNPM_B2BT(BT)  (BT * 8)
 
 /* Calculate Delay to respond to PFC */
-#define RNPM_PFC_D	672
+#define RNPM_PFC_D 672
 
 /* Calculate Cable Delay */
-#define RNPM_CABLE_DC	5556 /* Delay Copper */
-#define RNPM_CABLE_DO	5000 /* Delay Optical */
+#define RNPM_CABLE_DC 5556 /* Delay Copper */
+#define RNPM_CABLE_DO 5000 /* Delay Optical */
 
 /* Calculate Interface Delay X540 */
-#define RNPM_PHY_DC	25600	/* Delay 10G BASET */
-#define RNPM_MAC_DC	8192	/* Delay Copper XAUI interface */
-#define RNPM_XAUI_DC	(2 * 2048) /* Delay Copper Phy */
+#define RNPM_PHY_DC	 25600		/* Delay 10G BASET */
+#define RNPM_MAC_DC	 8192		/* Delay Copper XAUI interface */
+#define RNPM_XAUI_DC (2 * 2048) /* Delay Copper Phy */
 
-#define RNPM_ID_X540	(RNPM_MAC_DC + RNPM_XAUI_DC + RNPM_PHY_DC)
+#define RNPM_ID_X540 (RNPM_MAC_DC + RNPM_XAUI_DC + RNPM_PHY_DC)
 
 /* Calculate Interface Delay 82598, n10 */
 #define RNPM_PHY_D	12800
 #define RNPM_MAC_D	4096
-#define RNPM_XAUI_D	(2 * 1024)
+#define RNPM_XAUI_D (2 * 1024)
 
-#define RNPM_ID	(RNPM_MAC_D + RNPM_XAUI_D + RNPM_PHY_D)
+/* PHY MDI STANDARD CONFIG */
+#define RNPM_PHY_MAX_BASIC_REGISTER_NUM (0x16)
+#define RNPM_MDI_PHY_ID1_OFFSET			2
+#define RNPM_MDI_PHY_ID2_OFFSET			3
+#define RNPM_MDI_PHY_ID_MASK			0xFFFFFC00U
+#define RNPM_MDI_PHY_SPEED_SELECT1		0x0040
+#define RNPM_MDI_PHY_DUPLEX				0x0100
+#define RNPM_MDI_PHY_RESTART_AN			0x0200
+#define RNPM_MDI_PHY_ANE				0x1000
+#define RNPM_MDI_PHY_SPEED_SELECT0		0x2000
+#define RNPM_MDI_PHY_RESET				0x8000
+
+#define NGBE_PHY_RST_WAIT_PERIOD 50
+
+#define RNPM_ID (RNPM_MAC_D + RNPM_XAUI_D + RNPM_PHY_D)
 
 /* Calculate Delay incurred from higher layer */
-#define RNPM_HD	6144
+#define RNPM_HD 6144
 
 /* Calculate PCI Bus delay for low thresholds */
-#define RNPM_PCI_DELAY	10000
+#define RNPM_PCI_DELAY 10000
 
 /* Flow Director compressed ATR hash input struct */
 union rnpm_atr_hash_dword {
@@ -415,24 +468,13 @@ enum rnpm_eeprom_type {
 };
 
 enum rnpm_mac_type {
-    rnpm_mac_unknown = 0,
-#if 0
-	rnpm_mac_2port_10G,
-	rnpm_mac_2port_40G,
-	rnpm_mac_4port_10G,
-	rnpm_mac_8port_10G,
-#endif
-
-    rnp_mac_n10g_x8_40G,
-    rnp_mac_n10g_x2_10G,
-    rnp_mac_n10g_x4_10G,
-    rnp_mac_n10g_x8_10G,
-    rnp_mac_n10l_x8_1G,
-    rnp_mac_n10l_x4_1G,
-
-    rnpm_num_macs
+	rnp_mac_unknown = -1,
+	rnpm_mac_4lane_40G,
+	rnpm_mac_1lane_10_1G,
+	rnpm_mac_2lanes,
+	rnpm_mac_4lanes,
+	rnpm_num_macs,
 };
-
 enum rnpm_rss_type {
 	rnpm_rss_uv440 = 0,
 	rnpm_rss_uv3p,
@@ -471,6 +513,10 @@ enum rnpm_media_type {
 	rnpm_media_type_unknown = 0,
 	rnpm_media_type_fiber,
 	rnpm_media_type_copper,
+	rnpm_media_type_backplane,
+	rnpm_media_type_cx4,
+	rnpm_media_type_da,
+	rnpm_media_type_virtual
 };
 
 /* Flow Control Settings */
@@ -500,14 +546,14 @@ struct rnpm_bus_info {
 /* Flow control parameters */
 struct rnpm_fc_info {
 	u32 high_water[RNPM_MAX_TRAFFIC_CLASS]; /* Flow Control High-water */
-	u32 low_water[RNPM_MAX_TRAFFIC_CLASS]; /* Flow Control Low-water */
-	u16 pause_time; /* Flow Control Pause timer */
-	bool send_xon; /* Flow control send XON */
-	bool strict_ieee; /* Strict IEEE mode */
-	bool disable_fc_autoneg; /* Do not autonegotiate FC */
-	bool fc_was_autonegged; /* Is current_mode the result of autonegging? */
-	enum rnpm_fc_mode current_mode; /* FC mode in effect */
-	enum rnpm_fc_mode requested_mode; /* FC mode requested by caller */
+	u32 low_water[RNPM_MAX_TRAFFIC_CLASS];	/* Flow Control Low-water */
+	u16 pause_time;							/* Flow Control Pause timer */
+	bool send_xon;							/* Flow control send XON */
+	bool strict_ieee;						/* Strict IEEE mode */
+	bool disable_fc_autoneg;				/* Do not autonegotiate FC */
+	bool fc_was_autonegged;					/* Is current_mode the result of autonegging? */
+	enum rnpm_fc_mode current_mode;			/* FC mode in effect */
+	enum rnpm_fc_mode requested_mode;		/* FC mode requested by caller */
 };
 
 /* Statistics counters collected by the MAC */
@@ -553,13 +599,15 @@ struct rnpm_hw_stats {
 	//=== mac rx ===
 	u64 mac_rx_broadcast;
 	u64 mac_rx_multicast;
+	u64 mac_tx_pause_cnt;
+	u64 mac_rx_pause_cnt;
 };
 
 /* forward declaration */
 struct rnpm_hw;
 
 /* iterator type for walking multicast address lists */
-typedef u8* (*rnpm_mc_addr_itr) (struct rnpm_hw *hw, u8 **mc_addr_ptr, u32 *vmdq);
+typedef u8 *(*rnpm_mc_addr_itr)(struct rnpm_hw *hw, u8 **mc_addr_ptr, u32 *vmdq);
 
 /* Function pointer table */
 struct rnpm_eeprom_operations {
@@ -601,8 +649,7 @@ struct rnpm_mac_operations {
 	void (*flap_tx_laser)(struct rnpm_hw *);
 	s32 (*setup_link)(struct rnpm_hw *, rnpm_link_speed, bool);
 	s32 (*check_link)(struct rnpm_hw *, rnpm_link_speed *, bool *, bool);
-	s32 (*get_link_capabilities)(struct rnpm_hw *, rnpm_link_speed *,
-			bool *, u32 *);
+	s32 (*get_link_capabilities)(struct rnpm_hw *, rnpm_link_speed *, bool *, u32 *);
 
 	/* Packet Buffer Manipulation */
 	void (*set_rxpba)(struct rnpm_hw *, int, u32, int);
@@ -633,7 +680,7 @@ struct rnpm_mac_operations {
 
 	/* Flow Control */
 	s32 (*fc_enable)(struct rnpm_hw *);
-
+	s32 (*setup_fc)(struct rnpm_hw *);
 	/* Manageability interface */
 	s32 (*set_fw_drv_ver)(struct rnpm_hw *, u8, u8, u8, u8);
 	s32 (*get_thermal_sensor_data)(struct rnpm_hw *);
@@ -661,18 +708,18 @@ struct rnpm_phy_operations {
 };
 
 struct rnpm_eeprom_info {
-	struct rnpm_eeprom_operations  ops;
-	enum rnpm_eeprom_type          type;
-	u32                             semaphore_delay;
-	u16                             word_size;
-	u16                             address_bits;
-	u16                             word_page_size;
+	struct rnpm_eeprom_operations ops;
+	enum rnpm_eeprom_type type;
+	u32 semaphore_delay;
+	u16 word_size;
+	u16 address_bits;
+	u16 word_page_size;
 };
 
-#define RNPM_FLAGS_DOUBLE_RESET_REQUIRED	0x01
-#define RNPM_FLAGS_INIT_MAC_ADDRESS      0x02
+#define RNPM_FLAGS_DOUBLE_RESET_REQUIRED 0x01
+#define RNPM_FLAGS_INIT_MAC_ADDRESS		 0x02
 
-enum mc_filter_type{
+enum mc_filter_type {
 	rnpm_mc_filter_type0, /* nic hash table mode 0 */
 	rnpm_mc_filter_type1, /* nic hash table mode 1 */
 	rnpm_mc_filter_type2, /* nic hash table mode 2 */
@@ -689,50 +736,60 @@ enum vlan_location_type {
 	rnpm_vlan_location_mac,
 };
 struct rnpm_mac_info {
-	struct rnpm_mac_operations     ops;
-	enum rnpm_mac_type             type;
-	u8              addr[ETH_ALEN];
-	u8              perm_addr[ETH_ALEN];
+	struct rnpm_mac_operations ops;
+	// enum rnpm_mac_type             type;
+	u8 addr[ETH_ALEN];
+	u8 perm_addr[ETH_ALEN];
 	/* prefix for World Wide Node Name (WWNN) */
-	u16             wwnn_prefix;
+	u16 wwnn_prefix;
 	/* prefix for World Wide Port Name (WWPN) */
-	u16             wwpn_prefix;
-	u16				max_msix_vectors;
-#define RNPM_MAX_MTA			128
-	u32				mta_shadow[RNPM_MAX_MTA];
-	s32             mc_filter_type;
-	u32 		mc_location;
-	u32             mcft_size;
-	u32             vft_size;
-	u32             vlan_location;
-	u32             num_rar_entries;
-	u32             rar_highwater;
-	u32		rx_pb_size;
-	u32             max_tx_queues;
-	u32             max_rx_queues;
-	u32             reg_off;
-	u32             orig_autoc;
-	u32             cached_autoc;
-	u32             orig_autoc2;
-	bool            orig_link_settings_stored;
-	bool            autotry_restart;
-	u8              mac_flags;
+	u16 wwpn_prefix;
+	u16 max_msix_vectors;
+#define RNPM_MAX_MTA 128
+	u32 mta_shadow[RNPM_MAX_MTA];
+	s32 mc_filter_type;
+	u32 mc_location;
+	u32 mcft_size;
+	u32 vft_size;
+	u32 vlan_location;
+	u32 num_rar_entries;
+	u32 rar_highwater;
+	u32 rx_pb_size;
+	u32 max_tx_queues;
+	u32 max_rx_queues;
+	u32 reg_off;
+	u32 orig_autoc;
+	u32 cached_autoc;
+	u32 orig_autoc2;
+	bool orig_link_settings_stored;
+	bool autotry_restart;
+	u8 mac_flags;
+	bool autoneg;
+	struct rnpm_thermal_sensor_data thermal_sensor_data;
+	bool thermal_sensor_enabled;
+	bool duplex;
 };
 
 struct rnpm_phy_info {
-	struct rnpm_phy_operations     ops;
-	struct mdio_if_info		mdio;
-	enum rnpm_phy_type             type;
-	u32                             id;
-	enum rnpm_sfp_type             sfp_type;
-	bool                            sfp_setup_needed;
-	u32                             revision;
-	enum rnpm_media_type           media_type;
-	bool                            reset_disable;
-	rnpm_autoneg_advertised        autoneg_advertised;
-	bool                            smart_speed_active;
-	bool                            multispeed_fiber;
-	bool                            reset_if_overtemp;
+	struct rnpm_phy_operations ops;
+	struct mdio_if_info mdio;
+	enum rnpm_phy_type type;
+	u32 id;
+	u32 phy_addr;
+	bool is_mdix;
+	bool an;
+	u8 mdix;
+	/* Phy register */
+	u32 vb_r[RNPM_PHY_MAX_BASIC_REGISTER_NUM];
+	enum rnpm_sfp_type sfp_type;
+	bool sfp_setup_needed;
+	u32 revision;
+	enum rnpm_media_type media_type;
+	bool reset_disable;
+	rnpm_autoneg_advertised autoneg_advertised;
+	bool smart_speed_active;
+	bool multispeed_fiber;
+	bool reset_if_overtemp;
 };
 
 #include "rnpm_mbx.h"
@@ -744,13 +801,13 @@ struct rnpm_pcs_operations {
 
 struct rnpm_mbx_operations {
 	s32 (*init_params)(struct rnpm_hw *hw);
-	s32 (*read)(struct rnpm_hw *, u32 *, u16,  enum MBX_ID);
+	s32 (*read)(struct rnpm_hw *, u32 *, u16, enum MBX_ID);
 	s32 (*write)(struct rnpm_hw *, u32 *, u16, enum MBX_ID);
-	s32 (*read_posted)(struct rnpm_hw *, u32 *, u16,  enum MBX_ID);
+	s32 (*read_posted)(struct rnpm_hw *, u32 *, u16, enum MBX_ID);
 	s32 (*write_posted)(struct rnpm_hw *, u32 *, u16, enum MBX_ID);
 	s32 (*check_for_msg)(struct rnpm_hw *, enum MBX_ID);
 	s32 (*check_for_ack)(struct rnpm_hw *, enum MBX_ID);
-//	s32 (*check_for_rst)(struct rnpm_hw *, enum MBX_ID);
+	//	s32 (*check_for_rst)(struct rnpm_hw *, enum MBX_ID);
 	s32 (*configure)(struct rnpm_hw *hw, int nr_vec, bool enable);
 };
 
@@ -766,6 +823,20 @@ struct rnpm_mbx_stats {
 struct rnpm_pcs_info {
 	struct rnpm_pcs_operations ops;
 	int pcs_count;
+};
+
+struct rnpm_err_pkts_init_info {
+	u64 wdt[4];
+	u64 csum[4];
+	u64 code[4];
+	u64 crc[4];
+	u64 slen[4];
+	u64 glen[4];
+	u64 iph[4];
+	u64 len[4];
+	u64 cut[4];
+	u64 drop[4];
+	u64 scsum[4]; /* Software record csum count*/
 };
 
 struct rnpm_mbx_info {
@@ -790,27 +861,69 @@ struct rnpm_mbx_info {
 	bool irq_enabled;
 };
 
+#define RNPM_MBX_VF_CPU_SHM_PF_BASE (0xA8000)
+#define RNPM_NCSI_MC_COUNT			(11)
+#define RNPM_NCSI_VLAN_COUNT		(1)
+
+// 0x500a8fc0,0x501adfc0: #63 cpu<->vf shm
+#define RNPM_VF_CPU_SHM_BASE_NR62 (RNPM_MBX_VF_CPU_SHM_PF_BASE + 62 * 64)
+/*
+	max size=64bytes
+*/
+struct ncsi_shm_info {
+	u32 valid;
+#define RNPM_NCSI_SHM_VALID		 0xa5000000
+#define RNPM_NCSI_SHM_VALID_MASK 0xff000000
+#define RNPM_MC_VALID			 BIT(0)
+#define RNPM_UC_VALID			 BIT(1)
+#define RNPM_VLAN_VALID			 BIT(2)
+
+	struct {
+		u32 uc_addr_lo;
+		u32 uc_addr_hi;
+	} uc;
+
+	struct {
+		u32 mc_addr_lo;
+		u32 mc_addr_hi;
+	} mc[RNPM_NCSI_MC_COUNT];
+	u32 ncsi_vlan;
+};
+
 struct rnpm_hw {
 	void *back;
 	u8 __iomem *hw_addr;
 	u8 __iomem *ring_msix_base;
+	u8 __iomem *rpu_addr;
+	spinlock_t *pf_setup_lock;
 
 	u8 pfvfnum; // fun
 	u8 num;
 	u8 nr_lane;
 	int speed;
+	int ablity_speed;
 	u8 link; // up/down
+
+	u8 ncsi_en;
+	u8 ncsi_rar_entries;
+	u16 ncsi_mc_count;
+	u16 ncsi_vlan_count;
+	u32 ncsi_vf_cpu_shm_pf_base;
+	u8	rpu_en;
+	u8	rpu_availble;
+	u8	max_speed_1g;
 
 	u8 pci_gen;
 	u8 pci_lanes;
 	struct pci_dev *pdev;
 
+	u32	 ccode;
 	u16 device_id;
 	u16 vendor_id;
 	u16 subsystem_device_id;
 	u16 subsystem_vendor_id;
 	char lane_mask;
-	u16 mac_type;
+	// u16 mac_type;
 	u16 phy_type;
 
 	u32 fw_version;
@@ -820,11 +933,20 @@ struct rnpm_hw {
 		u8 port_id[4];
 		u32 port_ids;
 	};
-	u8 is_backplane		   : 1;
-	u8 is_sgmii			   : 1;
+	u8 is_backplane						: 1;
+	u8 is_sgmii : 1;
+	u8 force_speed_stat : 2;
+#define FORCE_SPEED_STAT_DISABLED 0
+#define FORCE_SPEED_STAT_1G 1
+#define FORCE_SPEED_STAT_10G 2
+	u8 duplex							: 1;
+	u8 single_lane_link_evt_ctrl_ablity : 1;
+	u8	fw_lldp_ablity					 : 1;
 	u32 supported_link;
 
 	u32 dma_version;
+	u32 wol;
+	int dma_split_size;
 	enum rnpm_rss_type rss_type;
 	struct rnpm_mac_info mac;
 	struct rnpm_addr_filter_info addr_ctrl;
@@ -834,19 +956,20 @@ struct rnpm_hw {
 	struct rnpm_bus_info bus;
 	struct rnpm_mbx_info mbx;
 	struct rnpm_pcs_info pcs;
+	struct rnpm_err_pkts_init_info err_pkts_init;
 	bool adapter_stopped;
 	bool force_full_reset;
 	bool mng_fw_enabled;
 	bool wol_enabled;
-
+	unsigned long wol_supported;
 	int mode;
 	int default_rx_queue;
 	int usecstocount;
 
-#define RNPM_NET_FEATURE_SG				  (u32)(1 << 0)
-#define RNPM_NET_FEATURE_TX_CHECKSUM	  (u32)(1 << 1)
-#define RNPM_NET_FEATURE_RX_CHECKSUM	  (u32)(1 << 2)
-#define RNPM_NET_FEATURE_TSO			  (u32)(1 << 3)
+#define RNPM_NET_FEATURE_SG ((u32)(1 << 0))
+#define RNPM_NET_FEATURE_TX_CHECKSUM ((u32)(1 << 1))
+#define RNPM_NET_FEATURE_RX_CHECKSUM ((u32)(1 << 2))
+#define RNPM_NET_FEATURE_TSO ((u32)(1 << 3))
 #define RNPM_NET_FEATURE_TX_UDP_TUNNEL	  (1 << 4)
 #define RNPM_NET_FEATURE_VLAN_FILTER	  (1 << 5)
 #define RNPM_NET_FEATURE_VLAN_OFFLOAD	  (1 << 6)
@@ -864,13 +987,13 @@ struct rnpm_hw {
 };
 
 struct rnpm_info {
-	enum rnpm_mac_type		mac;
-	enum rnpm_rss_type               rss_type;
-	s32				(*get_invariants)(struct rnpm_hw *);
-	struct rnpm_mac_operations	*mac_ops;
-	struct rnpm_eeprom_operations	*eeprom_ops;
-	struct rnpm_phy_operations	*phy_ops;
-	struct rnpm_mbx_operations	*mbx_ops;
+	// enum rnpm_mac_type		mac;
+	enum rnpm_rss_type rss_type;
+	s32 (*get_invariants)(struct rnpm_hw *);
+	struct rnpm_mac_operations *mac_ops;
+	struct rnpm_eeprom_operations *eeprom_ops;
+	struct rnpm_phy_operations *phy_ops;
+	struct rnpm_mbx_operations *mbx_ops;
 	struct rnpm_pcs_operations *pcs_ops;
 
 	bool one_pf_with_two_dma;
@@ -878,64 +1001,71 @@ struct rnpm_info {
 	int adapter_cnt;
 	int hi_dma;
 	int total_queue_pair_cnts;
+	int queue_depth;
 	int total_msix_table;
 	int total_layer2_count;
 	int total_tuple5_count;
-
+	bool mac_padding;
 	int dma2_in_1pf;
 	char *hw_addr;
+	struct {
+		u16 tx_work_limit;
+		u32 rx_usecs;
+		u32 rx_frames;
+		u32 tx_usecs;
+		u32 tx_frames;
+	} coalesce;
 };
 
-
 /* Error Codes */
-#define RNPM_ERR_EEPROM                        -1
-#define RNPM_ERR_EEPROM_CHECKSUM               -2
-#define RNPM_ERR_PHY                           -3
-#define RNPM_ERR_CONFIG                        -4
-#define RNPM_ERR_PARAM                         -5
-#define RNPM_ERR_MAC_TYPE                      -6
-#define RNPM_ERR_UNKNOWN_PHY                   -7
-#define RNPM_ERR_LINK_SETUP                    -8
-#define RNPM_ERR_ADAPTER_STOPPED               -9
-#define RNPM_ERR_INVALID_MAC_ADDR              -10
-#define RNPM_ERR_DEVICE_NOT_SUPPORTED          -11
-#define RNPM_ERR_MASTER_REQUESTS_PENDING       -12
-#define RNPM_ERR_INVALID_LINK_SETTINGS         -13
-#define RNPM_ERR_AUTONEG_NOT_COMPLETE          -14
-#define RNPM_ERR_RESET_FAILED                  -15
-#define RNPM_ERR_SWFW_SYNC                     -16
-#define RNPM_ERR_PHY_ADDR_INVALID              -17
-#define RNPM_ERR_I2C                           -18
-#define RNPM_ERR_SFP_NOT_SUPPORTED             -19
-#define RNPM_ERR_SFP_NOT_PRESENT               -20
-#define RNPM_ERR_SFP_NO_INIT_SEQ_PRESENT       -21
-#define RNPM_ERR_FDIR_REINIT_FAILED            -23
-#define RNPM_ERR_EEPROM_VERSION                -24
-#define RNPM_ERR_NO_SPACE                      -25
-#define RNPM_ERR_OVERTEMP                      -26
-#define RNPM_ERR_FC_NOT_NEGOTIATED             -27
-#define RNPM_ERR_FC_NOT_SUPPORTED              -28
-#define RNPM_ERR_SFP_SETUP_NOT_COMPLETE        -30
-#define RNPM_ERR_PBA_SECTION                   -31
-#define RNPM_ERR_INVALID_ARGUMENT              -32
-#define RNPM_ERR_HOST_INTERFACE_COMMAND        -33
-#define RNPM_NOT_IMPLEMENTED                   0x7FFFFFFF
+#define RNPM_ERR_EEPROM					 -1
+#define RNPM_ERR_EEPROM_CHECKSUM		 -2
+#define RNPM_ERR_PHY					 -3
+#define RNPM_ERR_CONFIG					 -4
+#define RNPM_ERR_PARAM					 -5
+#define RNPM_ERR_MAC_TYPE				 -6
+#define RNPM_ERR_UNKNOWN_PHY			 -7
+#define RNPM_ERR_LINK_SETUP				 -8
+#define RNPM_ERR_ADAPTER_STOPPED		 -9
+#define RNPM_ERR_INVALID_MAC_ADDR		 -10
+#define RNPM_ERR_DEVICE_NOT_SUPPORTED	 -11
+#define RNPM_ERR_MASTER_REQUESTS_PENDING -12
+#define RNPM_ERR_INVALID_LINK_SETTINGS	 -13
+#define RNPM_ERR_AUTONEG_NOT_COMPLETE	 -14
+#define RNPM_ERR_RESET_FAILED			 -15
+#define RNPM_ERR_SWFW_SYNC				 -16
+#define RNPM_ERR_PHY_ADDR_INVALID		 -17
+#define RNPM_ERR_I2C					 -18
+#define RNPM_ERR_SFP_NOT_SUPPORTED		 -19
+#define RNPM_ERR_SFP_NOT_PRESENT		 -20
+#define RNPM_ERR_SFP_NO_INIT_SEQ_PRESENT -21
+#define RNPM_ERR_FDIR_REINIT_FAILED		 -23
+#define RNPM_ERR_EEPROM_VERSION			 -24
+#define RNPM_ERR_NO_SPACE				 -25
+#define RNPM_ERR_OVERTEMP				 -26
+#define RNPM_ERR_FC_NOT_NEGOTIATED		 -27
+#define RNPM_ERR_FC_NOT_SUPPORTED		 -28
+#define RNPM_ERR_SFP_SETUP_NOT_COMPLETE	 -30
+#define RNPM_ERR_PBA_SECTION			 -31
+#define RNPM_ERR_INVALID_ARGUMENT		 -32
+#define RNPM_ERR_HOST_INTERFACE_COMMAND	 -33
+#define RNPM_NOT_IMPLEMENTED			 0x7FFFFFFF
 
-#define RNPM_RAH_AV                           0x80000000
+#define RNPM_RAH_AV 0x80000000
 /* eth fix code */
-#define RNPM_FCTRL_BPE                            BIT(10)
-#define RNPM_FCTRL_UPE                            BIT(9)
-#define RNPM_FCTRL_MPE                            BIT(8)
+#define RNPM_FCTRL_BPE BIT(10)
+#define RNPM_FCTRL_UPE BIT(9)
+#define RNPM_FCTRL_MPE BIT(8)
 
-#define RNPM_MCSTCTRL_MTA                         BIT(2)
-#define RNPM_MCSTCTRL_UTA                         BIT(3)
+#define RNPM_MCSTCTRL_MTA BIT(2)
+#define RNPM_MCSTCTRL_UTA BIT(3)
 
 #define RNPM_MAX_LAYER2_FILTERS (16)
 #define RNPM_MAX_TUPLE5_FILTERS (128)
-#define RNPM_MAX_TCAM_FILTERS (4096)
+#define RNPM_MAX_TCAM_FILTERS	(4096)
 
-#define RNPM_SRC_IP_MASK  BIT(0)
-#define RNPM_DST_IP_MASK  BIT(1)
+#define RNPM_SRC_IP_MASK   BIT(0)
+#define RNPM_DST_IP_MASK   BIT(1)
 #define RNPM_SRC_PORT_MASK BIT(2)
 #define RNPM_DST_PORT_MASK BIT(3)
 #define RNPM_L4_PROTO_MASK BIT(4)

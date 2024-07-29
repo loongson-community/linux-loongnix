@@ -197,7 +197,7 @@ static int gsgpufb_create(struct drm_fb_helper *helper,
 	}
 
 	info->par = rfbdev;
-	info->skip_vt_switch = true;
+	info->skip_vt_switch = false;
 
 	ret = gsgpu_display_framebuffer_init(adev->ddev, &rfbdev->rfb,
 					      &mode_cmd, gobj);

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0
+/* Copyright(c) 2022 - 2023 Mucse Corporation. */
+/* ethtool support for N10M */
 #include <linux/interrupt.h>
 #include <linux/types.h>
 #include <linux/module.h>
@@ -9,19 +12,20 @@
 #include <linux/firmware.h>
 #include <linux/highmem.h>
 #include <linux/uaccess.h>
+
 #include "rnpm.h"
+#include "rnpm_mpe.h"
 #include "rnpm_mbx.h"
 #include "rnpm_phy.h"
 #include "rnpm_sriov.h"
 #include "rnpm_mbx_fw.h"
 
-#ifdef SIOCETHTOOL
+// #ifdef SIOCETHTOOL
 #define RNPM_ALL_RAR_ENTRIES 16
 
-enum {
-	NETDEV_STATS,
-	RNPM_STATS
-};
+// #ifdef ETHTOOL_TEST
+
+enum { NETDEV_STATS, RNPM_STATS };
 
 struct rnpm_stats {
 	char stat_string[ETH_GSTRING_LEN];
@@ -34,32 +38,32 @@ struct rnpm_stats {
  * used because we do not have a good way to get the max number of
  * rx queues with CONFIG_RPS disabled.
  */
-
 #ifdef HAVE_TX_MQ
 #ifdef HAVE_NETDEV_SELECT_QUEUE
 #ifdef NO_REAL_QUEUE_NUM
-#define RNPM_NUM_RX_QUEUES netdev->num_tx_queues
-#define RNPM_NUM_TX_QUEUES netdev->num_tx_queues
+#define RNPM_NUM_RX_QUEUES adapter->num_tx_queues
+#define RNPM_NUM_TX_QUEUES adapter->num_tx_queues
 #else
 #define RNPM_NUM_RX_QUEUES netdev->real_num_rx_queues
 #define RNPM_NUM_TX_QUEUES netdev->real_num_tx_queues
 
-#endif
+#endif /* NO_REAL_QUEUE_NUM */
 #else
 #define RNPM_NUM_RX_QUEUES adapter->indices
 #define RNPM_NUM_TX_QUEUES adapter->indices
 #endif /* HAVE_NETDEV_SELECT_QUEUE */
-#else  /* HAVE_TX_MQ */
+#else /* HAVE_TX_MQ */
 #define RNPM_NUM_TX_QUEUES 1
-#define RNPM_NUM_RX_QUEUES \
+#define RNPM_NUM_RX_QUEUES                                                     \
 	(((struct rnpm_adapter *)netdev_priv(netdev))->num_rx_queues)
 #endif /* HAVE_TX_MQ */
 
-#define RNPM_NETDEV_STAT(_net_stat)                                      \
-	{                                                                    \
-		.stat_string = #_net_stat,                                       \
-		.sizeof_stat = sizeof_field(struct net_device_stats, _net_stat), \
-		.stat_offset = offsetof(struct net_device_stats, _net_stat)      \
+#define RNPM_NETDEV_STAT(_net_stat)                                            \
+	{                                                                      \
+		.stat_string = #_net_stat,                                     \
+		.sizeof_stat =                                                 \
+			sizeof_field(struct net_device_stats, _net_stat),      \
+		.stat_offset = offsetof(struct net_device_stats, _net_stat)    \
 	}
 static const struct rnpm_stats rnpm_gstrings_net_stats[] = {
 	RNPM_NETDEV_STAT(rx_packets),
@@ -84,11 +88,11 @@ static const struct rnpm_stats rnpm_gstrings_net_stats[] = {
 };
 #define RNPM_GLOBAL_STATS_LEN ARRAY_SIZE(rnpm_gstrings_net_stats)
 
-#define RNPM_HW_STAT(_name, _stat)                               \
-	{                                                            \
-		.stat_string = _name,                                    \
-		.sizeof_stat = sizeof_field(struct rnpm_adapter, _stat), \
-		.stat_offset = offsetof(struct rnpm_adapter, _stat)      \
+#define RNPM_HW_STAT(_name, _stat)                                             \
+	{                                                                      \
+		.stat_string = _name,                                          \
+		.sizeof_stat = sizeof_field(struct rnpm_adapter, _stat),       \
+		.stat_offset = offsetof(struct rnpm_adapter, _stat)            \
 	}
 static struct rnpm_stats rnpm_hwstrings_stats[] = {
 	RNPM_HW_STAT("dma_to_eth", hw_stats.dma_to_eth),
@@ -117,6 +121,8 @@ static struct rnpm_stats rnpm_hwstrings_stats[] = {
 	RNPM_HW_STAT("rx_csum_offload_good", hw_csum_rx_good),
 	RNPM_HW_STAT("rx_broadcast_count", hw_stats.mac_rx_broadcast),
 	RNPM_HW_STAT("rx_multicast_count", hw_stats.mac_rx_multicast),
+	RNPM_HW_STAT("mac_rx_pause_cnt", hw_stats.mac_rx_pause_cnt),
+	RNPM_HW_STAT("mac_tx_pause_cnt", hw_stats.mac_tx_pause_cnt),
 };
 #define RNPM_HWSTRINGS_STATS_LEN ARRAY_SIZE(rnpm_hwstrings_stats)
 
@@ -134,28 +140,28 @@ struct rnpm_rx_queue_ring_stat {
 	u64 sw_to_clean;
 };
 
-#define RNPM_QUEUE_STATS_LEN                                      \
-	(RNPM_NUM_TX_QUEUES *                                         \
-		 (sizeof(struct rnpm_tx_queue_stats) / sizeof(u64) +      \
-		  sizeof(struct rnpm_queue_stats) / sizeof(u64) +         \
-		  sizeof(struct rnpm_tx_queue_ring_stat) / sizeof(u64)) + \
-	 RNPM_NUM_RX_QUEUES *                                         \
-		 (sizeof(struct rnpm_rx_queue_stats) / sizeof(u64) +      \
-		  sizeof(struct rnpm_queue_stats) / sizeof(u64) +         \
+#define RNPM_QUEUE_STATS_LEN                                                   \
+	(RNPM_NUM_TX_QUEUES *                                                  \
+		 (sizeof(struct rnpm_tx_queue_stats) / sizeof(u64) +           \
+		  sizeof(struct rnpm_queue_stats) / sizeof(u64) +              \
+		  sizeof(struct rnpm_tx_queue_ring_stat) / sizeof(u64)) +      \
+	 RNPM_NUM_RX_QUEUES *                                                  \
+		 (sizeof(struct rnpm_rx_queue_stats) / sizeof(u64) +           \
+		  sizeof(struct rnpm_queue_stats) / sizeof(u64) +              \
 		  sizeof(struct rnpm_rx_queue_ring_stat) / sizeof(u64)))
 
-#define RNPM_STATS_LEN \
-	(RNPM_GLOBAL_STATS_LEN + RNPM_HWSTRINGS_STATS_LEN + RNPM_QUEUE_STATS_LEN)
-#define CLOST_SELF_TEST
+#define RNPM_STATS_LEN                                                         \
+	(RNPM_GLOBAL_STATS_LEN + RNPM_HWSTRINGS_STATS_LEN +                    \
+	 RNPM_QUEUE_STATS_LEN)
+// #define CLOST_SELF_TEST
 
 #ifndef CLOST_SELF_TEST
 #ifdef ETHTOOL_TEST
 static const char rnpm_gstrings_test[][ETH_GSTRING_LEN] = {
-	"Register test  (offline)",
-	"Eeprom test    (offline)",
-	"Interrupt test (offline)",
-	"Loopback test  (offline)",
-	"Link test   (on/offline)"};
+	"Register test  (offline)", "Eeprom test    (offline)",
+	"Interrupt test (offline)", "Loopback test  (offline)",
+	"Link test   (on/offline)"
+};
 
 #define RNPM_TEST_LEN (sizeof(rnpm_gstrings_test) / ETH_GSTRING_LEN)
 #else
@@ -167,14 +173,13 @@ static const char rnpm_gstrings_test[][ETH_GSTRING_LEN] = {
 
 static int rnpm_get_regs_len(struct net_device *netdev)
 {
-
-//#define RNPM_REGS_LEN 1129
+// #define RNPM_REGS_LEN 1129
 #define RNPM_REGS_LEN 1
 	return RNPM_REGS_LEN * sizeof(u32);
 }
 
-static void
-rnpm_get_regs(struct net_device *netdev, struct ethtool_regs *regs, void *p)
+static void rnpm_get_regs(struct net_device *netdev, struct ethtool_regs *regs,
+			  void *p)
 {
 	struct rnpm_adapter *adapter = netdev_priv(netdev);
 	struct rnpm_hw *hw = &adapter->hw;
@@ -184,81 +189,67 @@ rnpm_get_regs(struct net_device *netdev, struct ethtool_regs *regs, void *p)
 	memset(p, 0, RNPM_REGS_LEN * sizeof(u32));
 
 	for (i = 0; i < RNPM_REGS_LEN; i++)
-		regs_buff[i] = rd32(hw, i * 4);
+		regs_buff[i] = rd32(hw, i * sizeof(u32));
 }
 
 #ifdef HAVE_ETHTOOL_GET_SSET_COUNT
 
 static const char rnpm_priv_flags_strings[][ETH_GSTRING_LEN] = {
-#define RNPM_MAC_LOOPBACK	 BIT(0)
+#define RNPM_MAC_LOOPBACK BIT(0)
 #define RNPM_SWITCH_LOOPBACK BIT(1)
-#define RNPM_VEB_ENABLE		 BIT(2)
-#define RNPM_FT_PADDING		 BIT(3)
-#define RNPM_PADDING_DEBUG	 BIT(4)
-#define RNPM_PTP_FEATURE	 BIT(5)
-#define RNPM_SIMULATE_DOWN	 BIT(6)
-#define RNPM_TO_RPU			 BIT(7)
-#define RNPM_LEN_ERR		 BIT(8)
-	"mac_loopback",
-	"switch_loopback",
-	"veb_enable",
-	"ft_padding",
-	"padding_debug",
-	"ptp_performance_debug",
-	"simulate_link_down",
-	"to_rpu",
-	"mask_len_err",
-};
+#define RNPM_VEB_ENABLE BIT(2)
+#define RNPM_PCIE_CACHE_ALIGN_PATCH BIT(3)
+#define RNPM_PADDING_DEBUG BIT(4)
+#define RNPM_PTP_FEATURE BIT(5)
+#define RNPM_SIMULATE_DOWN BIT(6)
+#define RNPM_TO_RPU BIT(7)
+#define RNPM_LEN_ERR BIT(8)
+#define RNPM_FW_10G_1G_SFP_AUTO_DET_EN BIT(9)
+#define RNPM_MPE_RELOAD BIT(10)
+#define RNPM_FORCE_SPEED_ABLITY BIT(11)
+#define RNPM_LLDP_EN_STAT			   BIT(12)
+	"mac_loopback",	 "switch_loopback",		  "veb_enable",			"pcie_patch",
+	"padding_debug", "ptp_performance_debug", "simulate_link_down", "to_rpu",
+	"mask_len_err",	 "fw_10g_1g_auto_det",	  "mpe_reload",			"force_speed_ablity",
+	"lldp_en"};
 
 #define RNPM_PRIV_FLAGS_STR_LEN ARRAY_SIZE(rnpm_priv_flags_strings)
 #endif
 
 #ifdef HAVE_ETHTOOL_PHY_STATISTICS
 static const char rnpm_phy_statistics_strings[][ETH_GSTRING_LEN] = {
-	"RX crc good (64~1518)",
-	"RX crc good (>1518)",
-	"RX crc good (<64)",
-	"RX crc wrong (64~1518)",
-	"RX crc wrong (>1518)",
-	"RX crc wrong (<64)",
-	"RX SFD missed (nosfd)",
-	"TX crc good (64~1518)",
-	"TX crc good (>1518)",
-	"TX crc good (<64)",
-	"TX crc wrong (64~1518)",
-	"TX crc wrong (>1518)",
-	"TX crc wrong (<64)",
-	"TX SFD missed (nosfd)",
+	"RX crc good (64~1518)",  "RX crc good (>1518)",
+	"RX crc good (<64)",	  "RX crc wrong (64~1518)",
+	"RX crc wrong (>1518)",	  "RX crc wrong (<64)",
+	"RX SFD missed (nosfd)",  "TX crc good (64~1518)",
+	"TX crc good (>1518)",	  "TX crc good (<64)",
+	"TX crc wrong (64~1518)", "TX crc wrong (>1518)",
+	"TX crc wrong (<64)",	  "TX SFD missed (nosfd)",
 };
 
 #define RNPM_PHY_STATISTICS_STR_LEN ARRAY_SIZE(rnpm_phy_statistics_strings)
 #endif
 
 static void rnpm_get_drvinfo(struct net_device *netdev,
-							 struct ethtool_drvinfo *drvinfo)
+			     struct ethtool_drvinfo *drvinfo)
 {
 	struct rnpm_adapter *adapter = netdev_priv(netdev);
 	struct rnpm_hw *hw = &adapter->hw;
 
 	strlcpy(drvinfo->driver, rnpm_driver_name, sizeof(drvinfo->driver));
-	strlcpy(drvinfo->version, rnpm_driver_version, sizeof(drvinfo->version));
-#ifdef N10
-	snprintf(drvinfo->fw_version,
-			 sizeof(drvinfo->fw_version),
-			 "%d.%d.%d.%d 0x%08x",
-			 ((char *)&(hw->fw_version))[3],
-			 ((char *)&(hw->fw_version))[2],
-			 ((char *)&(hw->fw_version))[1],
-			 ((char *)&(hw->fw_version))[0], hw->fw_uid);
-#else
-	snprintf(drvinfo->fw_version,
-			 sizeof(drvinfo->fw_version),
-			 "dma:0x%x nic:0x%x",
-			 rd32(hw, RNPM_DMA_VERSION),
-			 rd32(hw, RNPM_TOP_NIC_VERSION));
-#endif
-	strlcpy(
-		drvinfo->bus_info, pci_name(adapter->pdev), sizeof(drvinfo->bus_info));
+	snprintf(drvinfo->version, sizeof(drvinfo->version), "%s-%x", rnpm_driver_version, hw->ccode);
+	//#ifndef CONFIG_RNPM_FPGA
+	snprintf(drvinfo->fw_version, sizeof(drvinfo->fw_version),
+		 "%d.%d.%d.%d 0x%08x", ((char *)&(hw->fw_version))[3],
+		 ((char *)&(hw->fw_version))[2], ((char *)&(hw->fw_version))[1],
+		 ((char *)&(hw->fw_version))[0], hw->fw_uid);
+	//#else
+	//	snprintf(drvinfo->fw_version, sizeof(drvinfo->fw_version),
+	//		 "dma:0x%x nic:0x%x", rd32(hw, RNPM_DMA_VERSION),
+	//		 rd32(hw, RNPM_TOP_NIC_VERSION));
+	//#endif
+	strlcpy(drvinfo->bus_info, pci_name(adapter->pdev),
+		sizeof(drvinfo->bus_info));
 	drvinfo->n_stats = RNPM_STATS_LEN;
 	drvinfo->testinfo_len = RNPM_TEST_LEN;
 	drvinfo->regdump_len = rnpm_get_regs_len(netdev);
@@ -267,359 +258,838 @@ static void rnpm_get_drvinfo(struct net_device *netdev,
 #endif
 }
 
-#ifdef HAVE_ETHTOOL_CONVERT_U32_AND_LINK_MODE
-
-#define ADVERTISED_MASK_10G                                    \
-	(SUPPORTED_10000baseT_Full | SUPPORTED_10000baseKX4_Full | \
-	 SUPPORTED_10000baseKR_Full)
-
-static int rnpm_get_link_ksettings(struct net_device *netdev,
-								   struct ethtool_link_ksettings *cmd)
+static int rnpm_set_autoneg_adv_from_hw(struct rnpm_hw *hw,
+					struct ethtool_link_ksettings *ks)
 {
-	struct rnpm_adapter *adapter = netdev_priv(netdev);
-	struct rnpm_hw *hw = &adapter->hw;
-	rnpm_link_speed supported_link;
-	bool autoneg = false;
-	// bool link_up;
-	u32 supported, advertising;
-	// u32 link_speed = 0;
+	/* Read autoneg state from phy */
+	if (hw->phy_type == PHY_TYPE_SGMII) {
+		/* Not support AN, return directly */
+		if (!(hw->phy.vb_r[0] & BIT(12)) || !hw->link)
+			return 0;
 
-	ethtool_convert_link_mode_to_legacy_u32(&supported,
-											cmd->link_modes.supported);
+		if (hw->phy.vb_r[4] & 0x100)
+			ethtool_link_ksettings_add_link_mode(ks, advertising,
+							     100baseT_Full);
+		if (hw->phy.vb_r[4] & 0x80)
+			ethtool_link_ksettings_add_link_mode(ks, advertising,
+							     100baseT_Half);
+		if (hw->phy.vb_r[4] & 0x40)
+			ethtool_link_ksettings_add_link_mode(ks, advertising,
+							     10baseT_Full);
+		if (hw->phy.vb_r[4] & 0x20)
+			ethtool_link_ksettings_add_link_mode(ks, advertising,
+							     10baseT_Half);
 
-	rnpm_mbx_get_lane_stat(hw);
-
-	supported_link = hw->supported_link;
-
-	/* set the supported link speeds */
-	if (supported_link & RNPM_LINK_SPEED_10GB_FULL)
-		supported |= SUPPORTED_10000baseT_Full;
-	if (supported_link & RNPM_LINK_SPEED_1GB_FULL)
-		supported |= SUPPORTED_1000baseT_Full;
-	if (supported_link & RNPM_LINK_SPEED_25GB_FULL)
-		supported |= SUPPORTED_40000baseKR4_Full;
-	if (supported_link & RNPM_LINK_SPEED_40GB_FULL)
-		supported |= SUPPORTED_40000baseCR4_Full | SUPPORTED_40000baseSR4_Full |
-					 SUPPORTED_40000baseLR4_Full;
-	if (supported_link & RNPM_LINK_SPEED_100_FULL) {
-		supported |= SUPPORTED_100baseT_Full;
+		if (hw->phy.vb_r[9] & 0x200)
+			ethtool_link_ksettings_add_link_mode(ks, advertising,
+							     1000baseT_Full);
+		if (hw->phy.vb_r[9] & 0x100)
+			ethtool_link_ksettings_add_link_mode(ks, advertising,
+							     1000baseT_Half);
 	}
-	if (supported_link & RNPM_LINK_SPEED_10_FULL) {
-		supported |= SUPPORTED_10baseT_Full;
-	}
-
-	advertising = supported;
-	if (hw->is_sgmii) {
-		supported |= SUPPORTED_TP;
-		advertising |= ADVERTISED_TP;
-		cmd->base.port = PORT_TP;
-		// ecmd->transceiver = XCVR_EXTERNAL;
-		cmd->base.phy_address = adapter->phyid;
-		cmd->base.duplex = adapter->duplex;
-		cmd->base.eth_tp_mdix = ETH_TP_MDI;
-		cmd->base.eth_tp_mdix_ctrl = ETH_TP_MDI_AUTO;
-		autoneg = true;
-	} else {
-		supported |= SUPPORTED_FIBRE;
-		advertising |= ADVERTISED_FIBRE;
-		cmd->base.port = PORT_FIBRE;
-		// ecmd->transceiver = XCVR_INTERNAL;
-	}
-
-	if (autoneg) {
-		supported |= SUPPORTED_Autoneg;
-		advertising |= ADVERTISED_Autoneg;
-		cmd->base.autoneg = adapter->an ? AUTONEG_ENABLE : AUTONEG_DISABLE;
-		if (hw->is_sgmii) {
-			cmd->base.autoneg = AUTONEG_ENABLE;
-		}
-	} else
-		cmd->base.autoneg = AUTONEG_DISABLE;
-
-	/* Indicate pause support */
-	supported |= SUPPORTED_Pause;
-
-	switch (hw->fc.current_mode) {
-	case rnpm_fc_full:
-		advertising |= ADVERTISED_Pause;
-		break;
-	case rnpm_fc_rx_pause:
-		advertising |= ADVERTISED_Pause | ADVERTISED_Asym_Pause;
-		break;
-	case rnpm_fc_tx_pause:
-		advertising |= ADVERTISED_Asym_Pause;
-		break;
-	default:
-		advertising &= ~(ADVERTISED_Pause | ADVERTISED_Asym_Pause);
-	}
-
-	if (hw->link) {
-		cmd->base.speed = adapter->speed;
-		cmd->base.duplex = DUPLEX_FULL;
-	} else {
-		cmd->base.speed = SPEED_UNKNOWN;
-		cmd->base.duplex = DUPLEX_UNKNOWN;
-	}
-
-	ethtool_convert_legacy_u32_to_link_mode(cmd->link_modes.supported,
-											supported);
-	ethtool_convert_legacy_u32_to_link_mode(cmd->link_modes.advertising,
-											supported);
 
 	return 0;
 }
 
-static int rnpm_set_link_ksettings(struct net_device *netdev,
-								   const struct ethtool_link_ksettings *cmd)
+/**
+ * rnpm_phy_type_to_ethtool - convert the phy_types to ethtool link modes
+ * @adapter: adapter struct with hw->phy_type
+ * @ks: ethtool link ksettings struct to fill out
+ *
+ **/
+static void rnpm_phy_type_to_ethtool(struct rnpm_adapter *adapter,
+				     struct ethtool_link_ksettings *ks)
 {
-	struct rnpm_adapter *adapter = netdev_priv(netdev);
 	struct rnpm_hw *hw = &adapter->hw;
-	u32 advertised, old;
-	s32 err = 0;
-	u32 supported, advertising;
+	u32 supported_link = hw->supported_link;
+	u8 phy_type = hw->phy_type;
 
-	ethtool_convert_link_mode_to_legacy_u32(&supported,
-											cmd->link_modes.supported);
-	ethtool_convert_link_mode_to_legacy_u32(&advertising,
-											cmd->link_modes.advertising);
+	ethtool_link_ksettings_add_link_mode(ks, supported, Autoneg);
+	ethtool_link_ksettings_add_link_mode(ks, advertising, Autoneg);
+	rnpm_logd(LOG_ETHTOOL,
+		  "phy_type_to_ethtool name=%s link=%d speed=%d phy-type=0x%x "
+		  "sopport-link=0x%x "
+		  "media=0x%x priv_flags=0x%x \n ",
+		  adapter->netdev->name, hw->link, hw->speed, phy_type,
+		  supported_link, hw->phy.media_type,
+		  adapter->pf_adapter->priv_flags);
 
-	rnpm_mbx_get_lane_stat(hw);
-
-	if ((hw->phy_type == rnpm_media_type_copper) ||
-		(hw->phy.multispeed_fiber)) {
-		/*
-		 * this function does not support duplex forcing, but can
-		 * limit the advertising of the adapter to the specified speed
-		 */
-		if (advertising & ~supported)
-			return -EINVAL;
-
-		/* only allow one speed at a time if no autoneg */
-		if (!cmd->base.autoneg && hw->phy.multispeed_fiber) {
-			if (advertising ==
-				(ADVERTISED_10000baseT_Full | ADVERTISED_1000baseT_Full))
-				return -EINVAL;
+	/* ethtool show all support fiber type when media is unknown */
+	if (hw->phy.media_type == rnpm_media_type_unknown) {
+		if (hw->speed == SPEED_10000) {
+			ethtool_link_ksettings_add_link_mode(ks, supported,
+							     10000baseT_Full);
+			ethtool_link_ksettings_add_link_mode(ks, advertising,
+							     10000baseT_Full);
+#ifdef HAVE_ETHTOOL_NEW_10G_BITS
+			ethtool_link_ksettings_add_link_mode(ks, supported,
+							     10000baseSR_Full);
+			ethtool_link_ksettings_add_link_mode(ks, advertising,
+							     10000baseSR_Full);
+			ethtool_link_ksettings_add_link_mode(ks, supported,
+							     10000baseLR_Full);
+			ethtool_link_ksettings_add_link_mode(ks, advertising,
+							     10000baseLR_Full);
+			ethtool_link_ksettings_add_link_mode(ks, supported,
+							     10000baseER_Full);
+			ethtool_link_ksettings_add_link_mode(ks, advertising,
+							     10000baseER_Full);
+#endif /* HAVE_ETHTOOL_NEW_10G_BITS */
+			if (adapter->pf_adapter->priv_flags &
+			    RNPM_PRIV_FLAG_FW_10G_1G_AUTO_DETCH_EN) {
+#ifdef HAVE_ETHTOOL_NEW_10G_BITS
+				ethtool_link_ksettings_add_link_mode(
+					ks, supported, 1000baseX_Full);
+				ethtool_link_ksettings_add_link_mode(
+					ks, advertising, 1000baseX_Full);
+#endif /* HAVE_ETHTOOL_NEW_10G_BITS */
+				ethtool_link_ksettings_add_link_mode(
+					ks, supported, 1000baseT_Full);
+				ethtool_link_ksettings_add_link_mode(
+					ks, advertising, 1000baseT_Full);
+				ethtool_link_ksettings_add_link_mode(
+					ks, supported, 1000baseKX_Full);
+				ethtool_link_ksettings_add_link_mode(
+					ks, advertising, 1000baseKX_Full);
+			}
+		} else {
+#ifdef HAVE_ETHTOOL_NEW_10G_BITS
+			ethtool_link_ksettings_add_link_mode(ks, supported,
+							     1000baseX_Full);
+			ethtool_link_ksettings_add_link_mode(ks, advertising,
+							     1000baseX_Full);
+#endif /* HAVE_ETHTOOL_NEW_10G_BITS */
+			ethtool_link_ksettings_add_link_mode(ks, supported,
+							     1000baseT_Full);
+			ethtool_link_ksettings_add_link_mode(ks, advertising,
+							     1000baseT_Full);
+			ethtool_link_ksettings_add_link_mode(ks, supported,
+							     1000baseKX_Full);
+			ethtool_link_ksettings_add_link_mode(ks, advertising,
+							     1000baseKX_Full);
 		}
+		/* when media type is unknown, return directly */
+		return;
+	}
 
-		old = hw->phy.autoneg_advertised;
-		advertised = 0;
-		if (advertising & ADVERTISED_10000baseT_Full)
-			advertised |= RNPM_LINK_SPEED_10GB_FULL;
+	if (phy_type == PHY_TYPE_SGMII) {
+		ethtool_link_ksettings_add_link_mode(ks, supported,
+						     1000baseT_Full);
+		ethtool_link_ksettings_add_link_mode(ks, supported,
+						     100baseT_Full);
+		ethtool_link_ksettings_add_link_mode(ks, supported,
+						     10baseT_Full);
+		ethtool_link_ksettings_add_link_mode(ks, supported,
+						     100baseT_Half);
+		ethtool_link_ksettings_add_link_mode(ks, supported,
+						     10baseT_Half);
 
-		if (advertising & ADVERTISED_1000baseT_Full)
-			advertised |= RNPM_LINK_SPEED_1GB_FULL;
+		rnpm_set_autoneg_adv_from_hw(hw, ks);
+	}
 
-		if (advertising & ADVERTISED_100baseT_Full)
-			advertised |= RNPM_LINK_SPEED_100_FULL;
+	if (rnpm_fw_is_old_ethtool(hw) &&
+	    (supported_link & RNPM_LINK_SPEED_40GB_FULL)) {
+		supported_link |= RNPM_SFP_MODE_40G_CR4 |
+				  RNPM_SFP_MODE_40G_SR4 | PHY_TYPE_40G_BASE_LR4;
+	}
 
-		if (advertising & ADVERTISED_10baseT_Full)
-			advertised |= RNPM_LINK_SPEED_10_FULL;
+	if (supported_link & RNPM_SFP_MODE_40G_CR4) {
+		ethtool_link_ksettings_add_link_mode(ks, supported,
+						     40000baseCR4_Full);
+		ethtool_link_ksettings_add_link_mode(ks, advertising,
+						     40000baseCR4_Full);
+	}
+	if (supported_link & RNPM_SFP_MODE_40G_SR4) {
+		ethtool_link_ksettings_add_link_mode(ks, supported,
+						     40000baseSR4_Full);
+		ethtool_link_ksettings_add_link_mode(ks, advertising,
+						     40000baseSR4_Full);
+	}
+	if (supported_link & RNPM_SFP_MODE_40G_LR4) {
+		ethtool_link_ksettings_add_link_mode(ks, supported,
+						     40000baseLR4_Full);
+		ethtool_link_ksettings_add_link_mode(ks, advertising,
+						     40000baseLR4_Full);
+	}
 
-		if (old == advertised)
-			return err;
-		/* this sets the link speed and restarts auto-neg */
-		while (test_and_set_bit(__RNPM_IN_SFP_INIT, &adapter->state))
-			usleep_range(1000, 2000);
-
-		hw->mac.autotry_restart = true;
-		err = hw->mac.ops.setup_link(hw, advertised, true);
-		if (err) {
-			e_info(probe, "setup link failed with code %d\n", err);
-			hw->mac.ops.setup_link(hw, old, true);
+	if (hw->is_backplane) {
+		if (phy_type == RNPM_LINK_SPEED_40GB_FULL) {
+			ethtool_link_ksettings_add_link_mode(ks, supported,
+							     40000baseKR4_Full);
+			ethtool_link_ksettings_add_link_mode(ks, advertising,
+							     40000baseKR4_Full);
 		}
-		clear_bit(__RNPM_IN_SFP_INIT, &adapter->state);
-	} else {
-		/* in this case we currently only support 10Gb/FULL */
-		// u32 speed = cmd->base.speed;
-
-		if (cmd->base.duplex == DUPLEX_HALF) {
-			return -EINVAL;
+		if (phy_type == PHY_TYPE_10G_BASE_KR) {
+			ethtool_link_ksettings_add_link_mode(ks, supported,
+							     10000baseKR_Full);
+			if (supported_link & RNPM_LINK_SPEED_10GB_FULL)
+				ethtool_link_ksettings_add_link_mode(
+					ks, advertising, 10000baseKR_Full);
 		}
 	}
 
-	return err;
+#if 1
+	if (phy_type == PHY_TYPE_1G_BASE_KX) {
+		if (hw->is_backplane) {
+			ethtool_link_ksettings_add_link_mode(ks, supported,
+							     1000baseKX_Full);
+			if (supported_link & RNPM_LINK_SPEED_1GB_FULL)
+				ethtool_link_ksettings_add_link_mode(
+					ks, advertising, 1000baseKX_Full);
+		} else if (supported_link & RNPM_SFP_MODE_1G_T) {
+			ethtool_link_ksettings_add_link_mode(ks, supported,
+							     1000baseT_Full);
+			if (supported_link & RNPM_LINK_SPEED_1GB_FULL)
+				ethtool_link_ksettings_add_link_mode(
+					ks, advertising, 1000baseT_Full);
+		} else {
+#ifdef HAVE_ETHTOOL_NEW_10G_BITS
+			ethtool_link_ksettings_add_link_mode(ks, supported,
+							     1000baseX_Full);
+			if (supported_link & RNPM_LINK_SPEED_1GB_FULL)
+				ethtool_link_ksettings_add_link_mode(
+					ks, advertising, 1000baseX_Full);
+#else
+			ethtool_link_ksettings_add_link_mode(ks, supported,
+							     1000baseT_Full);
+			if (supported_link & RNPM_LINK_SPEED_1GB_FULL)
+				ethtool_link_ksettings_add_link_mode(
+					ks, advertising, 1000baseT_Full);
+#endif /* HAVE_ETHTOOL_NEW_10G_BITS */
+		}
+	}
+
+#else
+	if (phy_type == PHY_TYPE_1G_BASE_KX) {
+		switch (hw->phy.media_type) {
+		case rnpm_media_type_backplane:
+			ethtool_link_ksettings_add_link_mode(ks, supported,
+							     1000baseKX_Full);
+			if (supported_link & RNPM_LINK_SPEED_1GB_FULL)
+				ethtool_link_ksettings_add_link_mode(
+					ks, advertising, 1000baseKX_Full);
+			break;
+		case rnpm_media_type_copper:
+			ethtool_link_ksettings_add_link_mode(ks, supported,
+							     1000baseT_Full);
+			if (supported_link & RNPM_LINK_SPEED_1GB_FULL)
+				ethtool_link_ksettings_add_link_mode(
+					ks, advertising, 1000baseT_Full);
+			break;
+		case rnpm_media_type_fiber:
+#ifdef HAVE_ETHTOOL_NEW_10G_BITS
+			ethtool_link_ksettings_add_link_mode(ks, supported,
+							     1000baseX_Full);
+			if (supported_link & RNPM_LINK_SPEED_1GB_FULL)
+				ethtool_link_ksettings_add_link_mode(
+					ks, advertising, 1000baseX_Full);
+#else
+			ethtool_link_ksettings_add_link_mode(ks, supported,
+							     1000baseT_Full);
+			if (supported_link & RNPM_LINK_SPEED_1GB_FULL)
+				ethtool_link_ksettings_add_link_mode(
+					ks, advertising, 1000baseT_Full);
+#endif /* HAVE_ETHTOOL_NEW_10G_BITS */
+			break;
+		default:
+			break;
+		}
+	}
+#endif
+#ifdef HAVE_ETHTOOL_NEW_10G_BITS
+	/* need to add new 10G PHY types */
+	if (phy_type == PHY_TYPE_10G_BASE_SR) {
+		ethtool_link_ksettings_add_link_mode(ks, supported,
+						     10000baseSR_Full);
+		if (supported_link & RNPM_LINK_SPEED_10GB_FULL)
+			ethtool_link_ksettings_add_link_mode(ks, advertising,
+							     10000baseSR_Full);
+	}
+	if (phy_type == PHY_TYPE_10G_BASE_ER) {
+		ethtool_link_ksettings_add_link_mode(ks, supported,
+						     10000baseER_Full);
+		if (supported_link & RNPM_LINK_SPEED_10GB_FULL)
+			ethtool_link_ksettings_add_link_mode(ks, advertising,
+							     10000baseER_Full);
+	}
+	if (phy_type == PHY_TYPE_10G_BASE_LR) {
+		ethtool_link_ksettings_add_link_mode(ks, supported,
+						     10000baseLR_Full);
+		if (supported_link & RNPM_LINK_SPEED_10GB_FULL)
+			ethtool_link_ksettings_add_link_mode(ks, advertising,
+							     10000baseLR_Full);
+	}
+
+	if (phy_type == PHY_TYPE_10G_BASE_SR ||
+	    phy_type == PHY_TYPE_10G_BASE_ER ||
+	    phy_type == PHY_TYPE_10G_BASE_LR) {
+		if ((hw->speed == SPEED_1000) ||
+		    (supported_link & RNPM_LINK_SPEED_1GB_FULL)) {
+			ethtool_link_ksettings_add_link_mode(ks, supported,
+							     1000baseX_Full);
+			if (supported_link & RNPM_LINK_SPEED_10GB_FULL)
+				ethtool_link_ksettings_add_link_mode(
+					ks, advertising, 1000baseX_Full);
+		}
+	}
+
+#else
+	/* need to keep backward compatibility with older kernels */
+	if (phy_type == PHY_TYPE_10G_BASE_SR ||
+	    phy_type == PHY_TYPE_10G_BASE_ER ||
+	    phy_type == PHY_TYPE_10G_BASE_LR) {
+		ethtool_link_ksettings_add_link_mode(ks, supported,
+						     10000baseT_Full);
+		if (supported_link & RNPM_LINK_SPEED_10GB_FULL)
+			ethtool_link_ksettings_add_link_mode(ks, advertising,
+							     10000baseT_Full);
+		if (supported_link & RNPM_LINK_SPEED_1GB_FULL) {
+			ethtool_link_ksettings_add_link_mode(ks, supported,
+							     1000baseT_Full);
+			ethtool_link_ksettings_add_link_mode(ks, advertising,
+							     1000baseT_Full);
+		}
+	}
+#endif /* HAVE_ETHTOOL_NEW_10G_BITS */
 }
-#else /* !HAVE_ETHTOOL_CONVERT_U32_AND_LINK_MODE */
 
-static int rnpm_get_settings(struct net_device *netdev,
-							 struct ethtool_cmd *ecmd)
+/**
+ * rnpm_get_settings_link_up - Get Link settings for when link is up
+ * @hw: hw structure
+ * @ks: ethtool ksettings to fill in
+ * @netdev: network interface device structure
+ **/
+static void rnpm_get_settings_link_up(struct rnpm_hw *hw,
+				      struct ethtool_link_ksettings *ks,
+				      struct net_device *netdev)
+{
+	struct rnpm_adapter *adapter = netdev_priv(netdev);
+	struct ethtool_link_ksettings cap_ksettings;
+	u32 supported_link = hw->supported_link;
+
+	/* Initialize supported and advertised settings based on phy settings */
+	switch (hw->phy_type) {
+	case PHY_TYPE_40G_BASE_CR4:
+		ethtool_link_ksettings_add_link_mode(ks, supported, Autoneg);
+		ethtool_link_ksettings_add_link_mode(ks, supported,
+						     40000baseCR4_Full);
+		ethtool_link_ksettings_add_link_mode(ks, advertising, Autoneg);
+		ethtool_link_ksettings_add_link_mode(ks, advertising,
+						     40000baseCR4_Full);
+		break;
+
+	case PHY_TYPE_40G_BASE_SR4:
+		ethtool_link_ksettings_add_link_mode(ks, supported,
+						     40000baseSR4_Full);
+		ethtool_link_ksettings_add_link_mode(ks, advertising,
+						     40000baseSR4_Full);
+		break;
+	case PHY_TYPE_40G_BASE_LR4:
+		ethtool_link_ksettings_add_link_mode(ks, supported,
+						     40000baseLR4_Full);
+		ethtool_link_ksettings_add_link_mode(ks, advertising,
+						     40000baseLR4_Full);
+		break;
+	case PHY_TYPE_10G_BASE_SR:
+	case PHY_TYPE_10G_BASE_LR:
+	case PHY_TYPE_10G_BASE_ER:
+		ethtool_link_ksettings_add_link_mode(ks, supported, Autoneg);
+		ethtool_link_ksettings_add_link_mode(ks, advertising, Autoneg);
+#ifdef HAVE_ETHTOOL_NEW_10G_BITS
+		ethtool_link_ksettings_add_link_mode(ks, supported,
+						     10000baseSR_Full);
+		ethtool_link_ksettings_add_link_mode(ks, advertising,
+						     10000baseSR_Full);
+		ethtool_link_ksettings_add_link_mode(ks, supported,
+						     10000baseLR_Full);
+		ethtool_link_ksettings_add_link_mode(ks, advertising,
+						     10000baseLR_Full);
+		ethtool_link_ksettings_add_link_mode(ks, supported,
+						     10000baseER_Full);
+		ethtool_link_ksettings_add_link_mode(ks, advertising,
+						     10000baseER_Full);
+		// ethtool_link_ksettings_add_link_mode(ks, supported,
+		// 1000baseX_Full); ethtool_link_ksettings_add_link_mode( 	ks,
+		// advertising, 1000baseX_Full);
+#endif /* HAVE_ETHTOOL_NEW_10G_BITS */
+		ethtool_link_ksettings_add_link_mode(ks, supported,
+						     10000baseT_Full);
+		if (hw->speed == SPEED_10000)
+			ethtool_link_ksettings_add_link_mode(ks, advertising,
+							     10000baseT_Full);
+
+		// if (adapter->pf_adapter->priv_flags &
+		//	RNPM_PRIV_FLAG_FW_10G_1G_AUTO_DETCH_EN) {
+		if ((hw->speed == SPEED_1000) ||
+		    (supported_link & RNPM_LINK_SPEED_1GB_FULL)) {
+#ifdef HAVE_ETHTOOL_NEW_10G_BITS
+			ethtool_link_ksettings_add_link_mode(ks, supported,
+							     1000baseX_Full);
+			ethtool_link_ksettings_add_link_mode(ks, advertising,
+							     1000baseX_Full);
+#endif /* HAVE_ETHTOOL_NEW_10G_BITS */
+			ethtool_link_ksettings_add_link_mode(ks, supported,
+							     1000baseT_Full);
+			ethtool_link_ksettings_add_link_mode(ks, advertising,
+							     1000baseT_Full);
+		}
+		//}
+
+		break;
+
+	case PHY_TYPE_1G_BASE_KX:
+		ethtool_link_ksettings_add_link_mode(ks, supported, Autoneg);
+		ethtool_link_ksettings_add_link_mode(ks, advertising, Autoneg);
+		if (!!hw->is_backplane) {
+			ethtool_link_ksettings_add_link_mode(ks, supported,
+							     1000baseKX_Full);
+			ethtool_link_ksettings_add_link_mode(ks, advertising,
+							     1000baseKX_Full);
+		}
+#ifdef HAVE_ETHTOOL_NEW_10G_BITS
+		ethtool_link_ksettings_add_link_mode(ks, supported,
+						     1000baseX_Full);
+		ethtool_link_ksettings_add_link_mode(ks, advertising,
+						     1000baseX_Full);
+#endif
+		ethtool_link_ksettings_add_link_mode(ks, supported,
+						     1000baseT_Full);
+		ethtool_link_ksettings_add_link_mode(ks, advertising,
+						     1000baseT_Full);
+		break;
+
+	case PHY_TYPE_SGMII:
+		ethtool_link_ksettings_add_link_mode(ks, supported, Autoneg);
+		ethtool_link_ksettings_add_link_mode(ks, advertising, Autoneg);
+		ethtool_link_ksettings_add_link_mode(ks, supported,
+						     1000baseT_Full);
+		ethtool_link_ksettings_add_link_mode(ks, supported,
+						     100baseT_Full);
+		ethtool_link_ksettings_add_link_mode(ks, supported,
+						     10baseT_Full);
+		ethtool_link_ksettings_add_link_mode(ks, supported,
+						     1000baseT_Half);
+		ethtool_link_ksettings_add_link_mode(ks, supported,
+						     100baseT_Half);
+		ethtool_link_ksettings_add_link_mode(ks, supported,
+						     10baseT_Half);
+		ethtool_link_ksettings_add_link_mode(ks, advertising,
+						     1000baseT_Full);
+		ethtool_link_ksettings_add_link_mode(ks, advertising,
+						     100baseT_Full);
+		ethtool_link_ksettings_add_link_mode(ks, advertising,
+						     10baseT_Full);
+		ethtool_link_ksettings_add_link_mode(ks, advertising,
+						     1000baseT_Half);
+		ethtool_link_ksettings_add_link_mode(ks, advertising,
+						     100baseT_Half);
+		ethtool_link_ksettings_add_link_mode(ks, advertising,
+						     10baseT_Half);
+#if 0
+			if (hw->speed == SPEED_1000)
+				ethtool_link_ksettings_add_link_mode(
+					ks, advertising, 1000baseT_Full);
+			if (hw->speed == SPEED_100)
+				ethtool_link_ksettings_add_link_mode(
+					ks, advertising, 100baseT_Full);
+			if (hw->speed == SPEED_10)
+				ethtool_link_ksettings_add_link_mode(
+					ks, advertising, 10baseT_Full);
+#endif
+		break;
+
+	case PHY_TYPE_40G_BASE_KR4:
+	case PHY_TYPE_10G_BASE_KR:
+		ethtool_link_ksettings_add_link_mode(ks, supported, Autoneg);
+		ethtool_link_ksettings_add_link_mode(ks, advertising, Autoneg);
+		ethtool_link_ksettings_add_link_mode(ks, supported,
+						     40000baseKR4_Full);
+		ethtool_link_ksettings_add_link_mode(ks, supported,
+						     10000baseKR_Full);
+		ethtool_link_ksettings_add_link_mode(ks, supported,
+						     1000baseKX_Full);
+		ethtool_link_ksettings_add_link_mode(ks, supported,
+						     10000baseKX4_Full);
+		ethtool_link_ksettings_add_link_mode(ks, advertising,
+						     40000baseKR4_Full);
+		ethtool_link_ksettings_add_link_mode(ks, advertising,
+						     10000baseKR_Full);
+		ethtool_link_ksettings_add_link_mode(ks, advertising,
+						     10000baseKX4_Full);
+		ethtool_link_ksettings_add_link_mode(ks, advertising,
+						     1000baseKX_Full);
+		break;
+
+	default:
+		/* if we got here and link is up something bad is afoot */
+		netdev_info(netdev,
+			    "WARNING: Link is up but PHY type 0x%x is not "
+			    "recognized, or incorrect cable is in use\n",
+			    hw->phy_type);
+	}
+
+	/* Now that we've worked out everything that could be supported by the
+	 * current PHY type, get what is supported by the NVM and intersect
+	 * them to get what is truly supported
+	 */
+	memset(&cap_ksettings, 0, sizeof(struct ethtool_link_ksettings));
+	rnpm_phy_type_to_ethtool(adapter, &cap_ksettings);
+	ethtool_intersect_link_masks(ks, &cap_ksettings);
+
+	/* Set speed and duplex */
+	ks->base.speed = adapter->speed;
+	ks->base.duplex = hw->duplex;
+}
+
+/**
+ * rnpm_get_settings_link_down - Get the Link settings when link is down
+ * @hw: hw structure
+ * @ks: ethtool ksettings to fill in
+ * @netdev: network interface device structure
+ *
+ * Reports link settings that can be determined when link is down
+ **/
+static void rnpm_get_settings_link_down(struct rnpm_hw *hw,
+					struct ethtool_link_ksettings *ks,
+					struct net_device *netdev)
+{
+	struct rnpm_adapter *adapter = netdev_priv(netdev);
+
+	/* link is down and the driver needs to fall back on
+	 * supported phy types to figure out what info to display
+	 */
+	rnpm_phy_type_to_ethtool(adapter, ks);
+
+	/* With no link speed and duplex are unknown */
+	ks->base.speed = SPEED_UNKNOWN;
+	ks->base.duplex = hw->duplex;
+}
+
+/**
+ * rnpm_set_autoneg_state_from_hw - Set the autoneg state from hardware
+ * @hw: hw structure
+ * @ks: ethtool ksettings to fill in
+ *
+ * Set the autoneg state from hardware, like PHY
+ **/
+static int rnpm_set_autoneg_state_from_hw(struct rnpm_hw *hw,
+					  struct ethtool_link_ksettings *ks)
+{
+	struct rnpm_adapter *adapter = hw->back;
+
+	ks->base.autoneg = (adapter->an ? AUTONEG_ENABLE : AUTONEG_DISABLE);
+
+	/* Read autoneg state from phy */
+	if (hw->phy_type == PHY_TYPE_SGMII) {
+		ks->base.autoneg = hw->phy.an;
+	}
+
+	return 0;
+}
+
+__maybe_unused static int rnpm_get_phy_mdix_from_hw(struct rnpm_hw *hw)
+{
+	return 0;
+}
+__maybe_unused static bool fiber_unsupport(u32 supported_link, u8 phy_type)
+{
+	if ((phy_type == PHY_TYPE_10G_BASE_KR) ||
+	    (phy_type == PHY_TYPE_10G_BASE_SR) ||
+	    (phy_type == PHY_TYPE_10G_BASE_LR) ||
+	    (phy_type == PHY_TYPE_10G_BASE_ER)) {
+		if (!(supported_link & RNPM_LINK_SPEED_10GB_FULL))
+			return true;
+	}
+
+	if ((phy_type == PHY_TYPE_40G_BASE_KR4) ||
+	    (phy_type == PHY_TYPE_40G_BASE_SR4) ||
+	    (phy_type == PHY_TYPE_40G_BASE_CR4) ||
+	    (phy_type == PHY_TYPE_40G_BASE_LR4)) {
+		if (!(supported_link & RNPM_LINK_SPEED_40GB_FULL))
+			return true;
+	}
+
+	if (phy_type == PHY_TYPE_1G_BASE_KX) {
+		if (!(supported_link & RNPM_LINK_SPEED_1GB_FULL))
+			return true;
+	}
+
+	return false;
+}
+
+static bool rnpm_is_unknown_media(struct rnpm_hw *hw)
+{
+	/*
+		u8 phy_type = hw->phy_type;
+
+		if ((hw->speed == SPEED_1000) && ((phy_type == PHY_TYPE_10G_BASE_KR) ||
+										  (phy_type == PHY_TYPE_10G_BASE_SR) ||
+										  (phy_type == PHY_TYPE_10G_BASE_LR) ||
+										  (phy_type == PHY_TYPE_10G_BASE_ER))) {
+			return true;
+		}
+
+		if ((hw->speed == SPEED_10000) &&
+			((phy_type == PHY_TYPE_1G_BASE_KX) || (phy_type == PHY_TYPE_SGMII)))
+	   { return true;
+		}
+
+		if (phy_type == PHY_TYPE_NONE)
+			return true;
+	*/
+	return false;
+}
+
+static void rnpm_redefine_phy_type(struct rnpm_adapter *adapter)
+{
+	struct rnpm_hw *hw = &adapter->hw;
+
+	if (adapter->pf_adapter->priv_flags &
+	    RNPM_PRIV_FLAG_FW_10G_1G_AUTO_DETCH_EN) {
+		// if (hw->phy_type == PHY_TYPE_1G_BASE_KX) {
+		if ((hw->speed == SPEED_1000) ||
+		    ((hw->phy_type == PHY_TYPE_1G_BASE_KX) ||
+		     (hw->phy_type == PHY_TYPE_SGMII))) {
+			if (hw->supported_link & RNPM_LINK_SPEED_10GB_FULL) {
+				if (hw->supported_link & RNPM_SFP_MODE_10G_LR)
+					hw->phy_type = PHY_TYPE_10G_BASE_LR;
+				if (hw->supported_link & RNPM_SFP_MODE_10G_SR)
+					hw->phy_type = PHY_TYPE_10G_BASE_SR;
+				if (hw->supported_link & RNPM_SFP_MODE_10G_LRM)
+					hw->phy_type = PHY_TYPE_10G_BASE_LR;
+				if (hw->supported_link &
+				    RNPM_SFP_MODE_10G_BASE_T)
+					hw->phy_type = PHY_TYPE_10G_BASE_KR;
+			}
+		} else {
+			// if (hw->speed == SPEED_1000)
+			//	hw->phy_type = PHY_TYPE_1G_BASE_KX;
+		}
+	}
+}
+
+static void rnpm_get_media_type(struct rnpm_hw *hw)
+{
+	switch (hw->phy_type) {
+	case PHY_TYPE_NONE:
+		hw->phy.media_type = rnpm_media_type_unknown;
+		break;
+	case PHY_TYPE_1G_BASE_KX:
+		if (hw->is_backplane)
+			hw->phy.media_type = rnpm_media_type_backplane;
+		else if (hw->is_sgmii)
+			hw->phy.media_type = rnpm_media_type_copper;
+		else {
+			if ((hw->supported_link & RNPM_LINK_SPEED_1GB_FULL) ||
+			    (hw->supported_link & RNPM_SFP_MODE_1G_LX))
+				hw->phy.media_type = rnpm_media_type_fiber;
+			else
+				hw->phy.media_type = rnpm_media_type_unknown;
+		}
+		break;
+	case PHY_TYPE_SGMII:
+		hw->phy.media_type = rnpm_media_type_copper;
+		// ks->base.phy_address = adapter->phy_addr;
+		break;
+	case PHY_TYPE_10G_BASE_KR:
+	case PHY_TYPE_25G_BASE_KR:
+	case PHY_TYPE_40G_BASE_KR4:
+		hw->phy.media_type = rnpm_media_type_backplane;
+		break;
+	case PHY_TYPE_10G_BASE_SR:
+	case PHY_TYPE_40G_BASE_SR4:
+	case PHY_TYPE_40G_BASE_CR4:
+	case PHY_TYPE_40G_BASE_LR4:
+	case PHY_TYPE_10G_BASE_LR:
+	case PHY_TYPE_10G_BASE_ER:
+		hw->phy.media_type = rnpm_media_type_fiber;
+		break;
+	default:
+		hw->phy.media_type = rnpm_media_type_unknown;
+		break;
+	}
+
+	if (hw->supported_link & RNPM_SFP_CONNECTOR_DAC) {
+		hw->phy.media_type = rnpm_media_type_da;
+	}
+
+	if ((hw->supported_link & RNPM_SFP_TO_SGMII) ||
+	    (hw->supported_link & RNPM_SFP_MODE_1G_T)) {
+		hw->phy.media_type = rnpm_media_type_copper;
+	}
+}
+
+/**
+ * rnpm_get_link_ksettings - Get Link Speed and Duplex settings
+ * @netdev: network interface device structure
+ * @ks: ethtool ksettings
+ *
+ * Reports speed/duplex settings based on media_type
+ **/
+static int rnpm_get_link_ksettings(struct net_device *netdev,
+				   struct ethtool_link_ksettings *ks)
 {
 	struct rnpm_adapter *adapter = netdev_priv(netdev);
 	struct rnpm_hw *hw = &adapter->hw;
-	rnpm_link_speed supported_link;
-	// u32 link_speed = 0;
-	// u32 media_type;
-	bool autoneg = false;
-	// bool link_up;
+	bool link_up;
 
-	//  hw->mac.ops.get_link_capabilities(hw, &supported_link, &autoneg,
-	//  &media_type);
+	if (test_bit(__RNPM_REMOVING, &adapter->pf_adapter->state))
+		return -1;
 
-	rnpm_mbx_get_lane_stat(hw);
+	ethtool_link_ksettings_zero_link_mode(ks, supported);
+	ethtool_link_ksettings_zero_link_mode(ks, advertising);
+	/* update hw from firmware */
 
-	supported_link = hw->supported_link;
+	if (test_bit(__RNPM_DOWN, &adapter->pf_adapter->state) ||
+	    test_bit(__RNPM_RESETTING, &adapter->pf_adapter->state))
+		return -1;
 
-	/* set the supported link speeds */
-	if (supported_link & RNPM_LINK_SPEED_10GB_FULL)
-		ecmd->supported |= SUPPORTED_10000baseT_Full;
-	if (supported_link & RNPM_LINK_SPEED_1GB_FULL)
-		ecmd->supported |= SUPPORTED_1000baseKX_Full;
-	if (supported_link & RNPM_LINK_SPEED_100_FULL)
-		ecmd->supported |= SUPPORTED_100baseT_Full;
-	if (supported_link & RNPM_LINK_SPEED_10_FULL)
-		ecmd->supported |= SUPPORTED_10baseT_Full;
+	/* when turn on auto speed, the phy_type equal 1G is unreliable */
+	rnpm_redefine_phy_type(adapter);
+	/* update hw->phy.media_type by hw->phy_type */
+	rnpm_get_media_type(hw);
 
-	ecmd->advertising = ecmd->supported;
-	if (hw->is_sgmii) {
-		ecmd->supported |= ADVERTISED_1000baseT_Full |
-						   ADVERTISED_100baseT_Full | ADVERTISED_10baseT_Full;
-		ecmd->supported |= SUPPORTED_TP;
-		ecmd->advertising |= ADVERTISED_TP;
-		ecmd->port = PORT_TP;
-		ecmd->transceiver = XCVR_EXTERNAL;
-		ecmd->phy_address = adapter->phyid;
-		ecmd->duplex = adapter->duplex;
-		ecmd->eth_tp_mdix = ETH_TP_MDI;
-		ecmd->eth_tp_mdix_ctrl = ETH_TP_MDI_AUTO;
-		autoneg = true;
-	} else {
-		ecmd->supported |= SUPPORTED_FIBRE;
-		ecmd->advertising |= ADVERTISED_FIBRE;
-		ecmd->port = PORT_FIBRE;
-		ecmd->transceiver = XCVR_INTERNAL;
+	if (hw->phy_type == PHY_TYPE_SGMII)
+		ks->base.phy_address = adapter->phy_addr;
+	/* Check Whether there is media on port */
+	if (hw->phy.media_type == rnpm_media_type_fiber) {
+		/* If adapter->sfp.mod_abs is 0, there is no media on port. */
+		if (!adapter->sfp.mod_abs) {
+			hw->phy.media_type = rnpm_media_type_unknown;
+			rnpm_logd(LOG_ETHTOOL,
+				  "%s absent, set media type is unknown\n",
+				  adapter->netdev->name);
+		}
 	}
 
-	if (autoneg) {
-		ecmd->supported |= SUPPORTED_Autoneg;
-		ecmd->advertising |= ADVERTISED_Autoneg;
-		ecmd->autoneg = adapter->an ? AUTONEG_ENABLE : AUTONEG_DISABLE;
-		if (hw->phy_type == PHY_TYPE_RGMII) {
-			ecmd->autoneg = AUTONEG_ENABLE;
-		}
-	} else
-		ecmd->autoneg = AUTONEG_DISABLE;
+	if (rnpm_is_unknown_media(hw)) {
+		hw->phy.media_type = rnpm_media_type_unknown;
+	}
 
-	/* Indicate pause support */
-	ecmd->supported |= SUPPORTED_Pause;
+	/* Now set the settings that don't rely on link being up/down */
+	/* Set autoneg settings */
+	rnpm_set_autoneg_state_from_hw(hw, ks);
+
+	link_up = hw->link;
+	if (link_up)
+		rnpm_get_settings_link_up(hw, ks, netdev);
+	else
+		rnpm_get_settings_link_down(hw, ks, netdev);
+
+	/* Set media type settings */
+	switch (hw->phy.media_type) {
+	case rnpm_media_type_backplane:
+		ethtool_link_ksettings_add_link_mode(ks, supported, Backplane);
+		ethtool_link_ksettings_add_link_mode(ks, advertising,
+						     Backplane);
+		ethtool_link_ksettings_add_link_mode(ks, supported, Autoneg);
+		ethtool_link_ksettings_add_link_mode(ks, advertising, Autoneg);
+		ks->base.port = PORT_NONE;
+		break;
+	case rnpm_media_type_copper:
+		ethtool_link_ksettings_add_link_mode(ks, supported, TP);
+		ethtool_link_ksettings_add_link_mode(ks, advertising, TP);
+		if (PHY_TYPE_SGMII == hw->phy_type)
+			ethtool_link_ksettings_add_link_mode(ks, supported,
+							     Autoneg);
+		if (AUTONEG_ENABLE == ks->base.autoneg)
+			ethtool_link_ksettings_add_link_mode(ks, advertising,
+							     Autoneg);
+		else
+			ethtool_link_ksettings_del_link_mode(ks, advertising,
+							     Autoneg);
+		ks->base.port = PORT_TP;
+		break;
+	case rnpm_media_type_da:
+	case rnpm_media_type_cx4:
+		ethtool_link_ksettings_add_link_mode(ks, supported, FIBRE);
+		ethtool_link_ksettings_add_link_mode(ks, advertising, FIBRE);
+		ks->base.port = PORT_DA;
+		break;
+	case rnpm_media_type_fiber:
+		ethtool_link_ksettings_add_link_mode(ks, supported, FIBRE);
+		ethtool_link_ksettings_add_link_mode(ks, advertising, FIBRE);
+		ks->base.port = PORT_FIBRE;
+		break;
+	case rnpm_media_type_unknown:
+	default:
+		ethtool_link_ksettings_add_link_mode(ks, supported, Autoneg);
+		ethtool_link_ksettings_add_link_mode(ks, advertising, Autoneg);
+		ks->base.port = PORT_OTHER;
+		break;
+	}
+
+	/* Set flow control settings */
+	ethtool_link_ksettings_add_link_mode(ks, supported, Pause);
+	ethtool_link_ksettings_add_link_mode(ks, supported, Asym_Pause);
 
 	switch (hw->fc.requested_mode) {
 	case rnpm_fc_full:
-		ecmd->advertising |= ADVERTISED_Pause;
-		break;
-	case rnpm_fc_rx_pause:
-		ecmd->advertising |= ADVERTISED_Pause | ADVERTISED_Asym_Pause;
+		ethtool_link_ksettings_add_link_mode(ks, advertising, Pause);
 		break;
 	case rnpm_fc_tx_pause:
-		ecmd->advertising |= ADVERTISED_Asym_Pause;
+		ethtool_link_ksettings_add_link_mode(ks, advertising,
+						     Asym_Pause);
+		break;
+	case rnpm_fc_rx_pause:
+		ethtool_link_ksettings_add_link_mode(ks, advertising, Pause);
+		ethtool_link_ksettings_add_link_mode(ks, advertising,
+						     Asym_Pause);
 		break;
 	default:
-		ecmd->advertising &= ~(ADVERTISED_Pause | ADVERTISED_Asym_Pause);
+		ethtool_link_ksettings_del_link_mode(ks, advertising, Pause);
+		ethtool_link_ksettings_del_link_mode(ks, advertising,
+						     Asym_Pause);
+		break;
+	}
+#ifdef ETHTOOL_GLINKSETTINGS
+#ifdef ETH_TP_MDI_X
+	/* MDI-X => 2; MDI =>1; Invalid =>0 */
+	if (hw->phy_type == PHY_TYPE_SGMII) {
+		if (rnpm_get_phy_mdix_from_hw(hw) < 0) {
+			ks->base.eth_tp_mdix = ETH_TP_MDI_INVALID;
+		} else {
+			ks->base.eth_tp_mdix =
+				hw->phy.is_mdix ? ETH_TP_MDI_X : ETH_TP_MDI;
+		}
 	}
 
-	if (hw->link) {
-		ethtool_cmd_speed_set(ecmd, adapter->speed);
-		ecmd->duplex = DUPLEX_FULL;
-	} else {
-		ethtool_cmd_speed_set(ecmd, -1);
-		ecmd->duplex = DUPLEX_UNKNOWN;
-	}
+#ifdef ETH_TP_MDI_AUTO
+	if (hw->phy.mdix == AUTO_ALL_MODES)
+		ks->base.eth_tp_mdix_ctrl = ETH_TP_MDI_AUTO;
+	else
+		ks->base.eth_tp_mdix_ctrl = hw->phy.mdix;
 
+#endif
+#endif /* ETH_TP_MDI_X */
+#endif
+#ifdef ETHTOOL_GLINKSETTINGS
+	rnpm_logd(LOG_ETHTOOL,
+		  "%s %s set link: speed=%d port=%d duplex=%d autoneg=%d "
+		  "phy_address=%d mdix_ctrl=%d\n",
+		  __func__, netdev->name, ks->base.speed, ks->base.port,
+		  ks->base.duplex, ks->base.autoneg, ks->base.phy_address,
+		  ks->base.eth_tp_mdix_ctrl);
+#endif
+	// ks->base.transceiver = XCVR_INTERNAL;
+	// transceiver
 	return 0;
 }
 
-static int rnpm_set_settings(struct net_device *netdev,
-							 struct ethtool_cmd *ecmd)
-{
-	struct rnpm_adapter *adapter = netdev_priv(netdev);
-	struct rnpm_hw *hw = &adapter->hw;
-	u32 advertised, old;
-	s32 err = 0;
-
-#if 0
-	printk("%p, %s  type:%d speed:%d\n",
-		   hw,
-		   adapter->name,
-		   hw->phy_type,
-		   ecmd->speed);
-	printk("%s: cmd:0x%x, supported:%x, adv:%x speed:%d,duplex:%d, port:%d\n",
-		   __func__,
-		   ecmd->cmd,
-		   ecmd->supported,
-		   ecmd->advertising,
-		   ecmd->speed,
-		   ecmd->duplex,
-		   ecmd->port);
-#endif
-	rnpm_mbx_get_lane_stat(hw);
-
-	if ((hw->phy_type == rnpm_media_type_copper) ||
-		(hw->phy.multispeed_fiber)) {
-		/*
-		 * this function does not support duplex forcing, but can
-		 * limit the advertising of the adapter to the specified speed
-		 */
-		if (ecmd->autoneg == AUTONEG_DISABLE) {
-			printk("%s: Error. not supported to disable AutoNeg\n",
-				   adapter->name);
-			return -EINVAL;
-		}
-
-		if (ecmd->advertising & ~ecmd->supported) {
-			return -EINVAL;
-		}
-
-		old = hw->phy.autoneg_advertised;
-		advertised = 0;
-		if (ecmd->advertising & ADVERTISED_10000baseT_Full)
-			advertised |= RNPM_LINK_SPEED_10GB_FULL;
-
-		if (ecmd->advertising & ADVERTISED_1000baseT_Full)
-			advertised |= RNPM_LINK_SPEED_1GB_FULL;
-
-		if (ecmd->advertising & ADVERTISED_100baseT_Full)
-			advertised |= RNPM_LINK_SPEED_100_FULL;
-
-		if (ecmd->advertising & ADVERTISED_10baseT_Full) {
-			advertised |= RNPM_LINK_SPEED_10_FULL;
-		}
-
-		if (old == advertised) {
-			return err;
-		}
-		/* this sets the link speed and restarts auto-neg */
-		hw->mac.autotry_restart = true;
-		err = hw->mac.ops.setup_link(hw, advertised, true);
-		if (err) {
-			e_info(probe, "setup link failed with code %d\n", err);
-			hw->mac.ops.setup_link(hw, old, true);
-		}
-	} else {
-		/* in this case we currently only support 10Gb/FULL */
-		// u32 speed = ethtool_cmd_speed(ecmd);
-
-		if ((ecmd->autoneg == AUTONEG_ENABLE) != adapter->an) {
-			rnpm_set_lane_fun(
-				hw, LANE_FUN_AN, ecmd->autoneg == AUTONEG_ENABLE, 0, 0, 0);
-			adapter->an = (ecmd->autoneg == AUTONEG_ENABLE);
-		}
-
-		if (ecmd->duplex == DUPLEX_HALF) {
-			return -EINVAL;
-		}
-	}
-
-	return err;
-}
-
-#endif
 static int rnpm_wol_exclusion(struct rnpm_adapter *adapter,
-							  struct ethtool_wolinfo *wol)
+			      struct ethtool_wolinfo *wol)
 {
 	struct rnpm_hw *hw = &adapter->hw;
 	int retval = 0;
 
+	// if (hw->pfvfnum) {
+	//	retval = 1;
+	//	wol->supported = 0;
+	// }
+
 	/* WOL not supported for all devices */
-	if (!rnpm_wol_supported(adapter, hw->device_id, hw->subsystem_device_id)) {
+	if (!rnpm_wol_supported(adapter, hw->device_id,
+				hw->subsystem_device_id)) {
 		retval = 1;
 		wol->supported = 0;
 	}
@@ -630,47 +1100,64 @@ static int rnpm_wol_exclusion(struct rnpm_adapter *adapter,
 static void rnpm_get_wol(struct net_device *netdev, struct ethtool_wolinfo *wol)
 {
 	struct rnpm_adapter *adapter = netdev_priv(netdev);
+	struct rnpm_hw *hw = &adapter->hw;
 
-	wol->supported = WAKE_UCAST | WAKE_MCAST | WAKE_BCAST | WAKE_MAGIC;
 	wol->wolopts = 0;
 
 	/* we now can't wol */
 	if (rnpm_wol_exclusion(adapter, wol) ||
-		!device_can_wakeup(&adapter->pdev->dev))
+	    !device_can_wakeup(&adapter->pdev->dev))
 		return;
 
-	if (adapter->wol & RNPM_WUFC_EX)
-		wol->wolopts |= WAKE_UCAST;
-	if (adapter->wol & RNPM_WUFC_MC)
-		wol->wolopts |= WAKE_MCAST;
-	if (adapter->wol & RNPM_WUFC_BC)
-		wol->wolopts |= WAKE_BCAST;
-	if (adapter->wol & RNPM_WUFC_MAG)
-		wol->wolopts |= WAKE_MAGIC;
+	/* Only support magic */
+	if (RNPM_WOL_GET_SUPPORTED(adapter))
+		wol->supported = hw->wol_supported;
+	else
+		wol->supported = 0;
+
+	if (RNPM_WOL_GET_STATUS(adapter))
+		wol->wolopts |= hw->wol_supported;
+	// printk("DEBUG: rnpm_get_wol wolopts=0x%x wol=0x%x lane=%d\n",
+	//	   wol->wolopts,
+	//	   adapter->wol,
+	//	   adapter->port);
 }
 
+/**
+ * rnpm_set_wol - set the WakeOnLAN configuration
+ * @netdev: the netdev in question
+ * @wol: the ethtool WoL setting data
+ **/
 static int rnpm_set_wol(struct net_device *netdev, struct ethtool_wolinfo *wol)
 {
 	struct rnpm_adapter *adapter = netdev_priv(netdev);
+	struct rnpm_hw *hw = &adapter->hw;
 
-	if (wol->wolopts & (WAKE_PHY | WAKE_ARP | WAKE_MAGICSECURE))
-		return -EOPNOTSUPP;
+	// printk("DEBUG: rnp_set_wol wolopts=0x%x wol_supported=0x%x "
+	//	   "fw_wol_support=0x%x hw->wol=0x%x\n",
+	//	   wol->wolopts,
+	//	   hw->wol_supported,
+	//	   RNPM_WOL_GET_SUPPORTED(adapter),
+	//	   adapter->wol);
 
-	if (rnpm_wol_exclusion(adapter, wol))
-		return wol->wolopts ? -EOPNOTSUPP : 0;
+	if (!!wol->wolopts) {
+		if ((wol->wolopts & (~hw->wol_supported)) ||
+		    !RNPM_WOL_GET_SUPPORTED(adapter))
+			return -EOPNOTSUPP;
+	}
 
-	adapter->wol = 0;
-
-	if (wol->wolopts & WAKE_UCAST)
-		adapter->wol |= RNPM_WUFC_EX;
-	if (wol->wolopts & WAKE_MCAST)
-		adapter->wol |= RNPM_WUFC_MC;
-	if (wol->wolopts & WAKE_BCAST)
-		adapter->wol |= RNPM_WUFC_BC;
-	if (wol->wolopts & WAKE_MAGIC)
-		adapter->wol |= RNPM_WUFC_MAG;
-
-	device_set_wakeup_enable(&adapter->pdev->dev, adapter->wol);
+	RNPM_WOL_SET_SUPPORTED(adapter);
+	if (wol->wolopts & WAKE_MAGIC) {
+		RNPM_WOL_SET_SUPPORTED(adapter);
+		RNPM_WOL_SET_STATUS(adapter);
+	} else {
+		RNPM_WOL_CLEAR_STATUS(adapter);
+	}
+	rnpm_mbx_wol_set(hw, RNPM_WOL_GET_STATUS(adapter));
+	// printk("DEBUG: set wol=0x%x status=%d\n",
+	//	   adapter->wol,
+	//	   RNPM_WOL_GET_STATUS(adapter));
+	device_set_wakeup_enable(&adapter->pdev->dev, !!wol->wolopts);
 
 	return 0;
 }
@@ -694,16 +1181,16 @@ struct rnpm_reg_test {
  * registers to be written without any read-back testing.
  */
 
-#define PATTERN_TEST	1
-#define SET_READ_TEST	2
-#define WRITE_NO_TEST	3
-#define TABLE32_TEST	4
+#define PATTERN_TEST 1
+#define SET_READ_TEST 2
+#define WRITE_NO_TEST 3
+#define TABLE32_TEST 4
 #define TABLE64_TEST_LO 5
 #define TABLE64_TEST_HI 6
 
 /* default n10 register test */
 static struct rnpm_reg_test reg_test_n10[] = {
-	{RNPM_DMA_CONFIG, 1, PATTERN_TEST, 0xFFFFFFFF, 0xFFFFFFFF},
+	//{RNPM_DMA_CONFIG, 1, PATTERN_TEST, 0xFFFFFFFF, 0xFFFFFFFF},
 	/*
 	{ RNPM_FCRTL_n10(0), 1, PATTERN_TEST, 0x8007FFF0, 0x8007FFF0 },
 	{ RNPM_FCRTH_n10(0), 1, PATTERN_TEST, 0x8007FFF0, 0x8007FFF0 },
@@ -725,27 +1212,27 @@ static struct rnpm_reg_test reg_test_n10[] = {
 	{ RNPM_RAL(0), 16, TABLE64_TEST_HI, 0x8001FFFF, 0x800CFFFF },
 	{ RNPM_MTA(0), 128, TABLE32_TEST, 0xFFFFFFFF, 0xFFFFFFFF },
 	*/
-	{.reg = 0} };
+	{ .reg = 0 }
+};
 
 /* write and read check */
-static bool reg_pattern_test(
-	struct rnpm_adapter *adapter, u64 *data, int reg, u32 mask, u32 write)
+static bool reg_pattern_test(struct rnpm_adapter *adapter, u64 *data, int reg,
+			     u32 mask, u32 write)
 {
 	u32 pat, val, before;
-	static const u32 test_pattern[] = {
-		0x5A5A5A5A, 0xA5A5A5A5, 0x00000000, 0xFFFFFFFF};
+	static const u32 test_pattern[] = { 0x5A5A5A5A, 0xA5A5A5A5, 0x00000000,
+					    0xFFFFFFFF };
 
 	for (pat = 0; pat < ARRAY_SIZE(test_pattern); pat++) {
 		before = readl(adapter->hw.hw_addr + reg);
-		writel((test_pattern[pat] & write), (adapter->hw.hw_addr + reg));
+		writel((test_pattern[pat] & write),
+		       (adapter->hw.hw_addr + reg));
 		val = readl(adapter->hw.hw_addr + reg);
 		if (val != (test_pattern[pat] & write & mask)) {
 			e_err(drv,
-				  "pattern test reg %04X failed: got "
-				  "0x%08X expected 0x%08X\n",
-				  reg,
-				  val,
-				  (test_pattern[pat] & write & mask));
+			      "pattern test reg %04X failed: got "
+			      "0x%08X expected 0x%08X\n",
+			      reg, val, (test_pattern[pat] & write & mask));
 			*data = reg;
 			writel(before, adapter->hw.hw_addr + reg);
 			return 1;
@@ -755,8 +1242,8 @@ static bool reg_pattern_test(
 	return 0;
 }
 
-static bool reg_set_and_check(
-	struct rnpm_adapter *adapter, u64 *data, int reg, u32 mask, u32 write)
+static bool reg_set_and_check(struct rnpm_adapter *adapter, u64 *data, int reg,
+			      u32 mask, u32 write)
 {
 	u32 val, before;
 
@@ -765,11 +1252,9 @@ static bool reg_set_and_check(
 	val = readl(adapter->hw.hw_addr + reg);
 	if ((write & mask) != (val & mask)) {
 		e_err(drv,
-			  "set/check reg %04X test failed: got 0x%08X "
-			  "expected 0x%08X\n",
-			  reg,
-			  (val & mask),
-			  (write & mask));
+		      "set/check reg %04X test failed: got 0x%08X "
+		      "expected 0x%08X\n",
+		      reg, (val & mask), (write & mask));
 		*data = reg;
 		writel(before, (adapter->hw.hw_addr + reg));
 		return 1;
@@ -779,7 +1264,7 @@ static bool reg_set_and_check(
 }
 
 __maybe_unused static bool rnpm_reg_test(struct rnpm_adapter *adapter,
-										 u64 *data)
+					 u64 *data)
 {
 	struct rnpm_reg_test *test;
 	struct rnpm_hw *hw = &adapter->hw;
@@ -803,42 +1288,32 @@ __maybe_unused static bool rnpm_reg_test(struct rnpm_adapter *adapter,
 
 			switch (test->test_type) {
 			case PATTERN_TEST:
-				b = reg_pattern_test(adapter,
-				data,
-				test->reg + (i * 0x40),
-				test->mask,
-				test->write);
+				b = reg_pattern_test(adapter, data,
+						     test->reg + (i * 0x40),
+						     test->mask, test->write);
 				break;
 			case SET_READ_TEST:
-				b = reg_set_and_check(adapter,
-				data,
-				test->reg + (i * 0x40),
-				test->mask,
-				test->write);
+				b = reg_set_and_check(adapter, data,
+						      test->reg + (i * 0x40),
+						      test->mask, test->write);
 				break;
 			case WRITE_NO_TEST:
 				wr32(hw, test->reg + (i * 0x40), test->write);
 				break;
 			case TABLE32_TEST:
-				b = reg_pattern_test(adapter,
-				data,
-				test->reg + (i * 4),
-				test->mask,
-				test->write);
+				b = reg_pattern_test(adapter, data,
+						     test->reg + (i * 4),
+						     test->mask, test->write);
 				break;
 			case TABLE64_TEST_LO:
-				b = reg_pattern_test(adapter,
-				data,
-				test->reg + (i * 8),
-				test->mask,
-				test->write);
+				b = reg_pattern_test(adapter, data,
+						     test->reg + (i * 8),
+						     test->mask, test->write);
 				break;
 			case TABLE64_TEST_HI:
-				b = reg_pattern_test(adapter,
-				data,
-				(test->reg + 4) + (i * 8),
-				test->mask,
-				test->write);
+				b = reg_pattern_test(adapter, data,
+						     (test->reg + 4) + (i * 8),
+						     test->mask, test->write);
 				break;
 			}
 			if (b)
@@ -852,10 +1327,10 @@ __maybe_unused static bool rnpm_reg_test(struct rnpm_adapter *adapter,
 }
 
 #ifndef CLOST_SELF_TEST
-static int rnpm_link_test(struct rnpm_adapter *adapter, u64 *data)
+static u64 rnpm_link_test(struct rnpm_adapter *adapter, u64 *data)
 {
 	struct rnpm_hw *hw = &adapter->hw;
-	bool link_up;
+	bool link_up = false;
 	u32 link_speed = 0;
 	*data = 0;
 
@@ -867,9 +1342,16 @@ static int rnpm_link_test(struct rnpm_adapter *adapter, u64 *data)
 	return *data;
 }
 
+#ifndef HAVE_ETHTOOL_GET_SSET_COUNT
+static int rnpm_diag_test_count(struct net_device *netdev)
+{
+	return 0;
+}
+
+#endif /* HAVE_ETHTOOL_GET_SSET_COUNT */
+
 static void rnpm_diag_test(struct net_device *netdev,
-						   struct ethtool_test *eth_test,
-						   u64 *data)
+			   struct ethtool_test *eth_test, u64 *data)
 {
 	struct rnpm_adapter *adapter = netdev_priv(netdev);
 	struct rnpm_hw *hw = &adapter->hw;
@@ -882,17 +1364,17 @@ static void rnpm_diag_test(struct net_device *netdev,
 
 			for (i = 0; i < adapter->num_vfs; i++) {
 				if (adapter->vfinfo[i].clear_to_send) {
-					netdev_warn(netdev,
-								"%s",
-								"offline diagnostic is not "
-								"supported when VFs are "
-								"present\n");
+					netdev_warn(netdev, "%s",
+						    "offline diagnostic is not "
+						    "supported when VFs are "
+						    "present\n");
 					data[0] = 1;
 					data[1] = 1;
 					data[2] = 1;
 					data[3] = 1;
 					eth_test->flags |= ETH_TEST_FL_FAILED;
-					clear_bit(__RNPM_TESTING, &adapter->state);
+					clear_bit(__RNPM_TESTING,
+						  &adapter->state);
 					goto skip_ol_tests;
 				}
 			}
@@ -901,8 +1383,8 @@ static void rnpm_diag_test(struct net_device *netdev,
 		/* Offline tests */
 		e_info(hw, "offline testing starting\n");
 
-		if (if_running)
-			rnpm_close(netdev);
+		// if (if_running)
+		//	rnpm_close(netdev);
 
 		/* bringing adapter down disables SFP+ optics */
 		if (hw->mac.ops.enable_tx_laser)
@@ -937,9 +1419,8 @@ static void rnpm_diag_test(struct net_device *netdev,
 		/* If SRIOV or VMDq is enabled then skip MAC
 		 * loopback diagnostic. */
 		if (adapter->flags &
-			(RNPM_FLAG_SRIOV_ENABLED | RNPM_FLAG_VMDQ_ENABLED)) {
-			e_info(hw,
-				   "Skip MAC loopback diagnostic in VT "
+		    (RNPM_FLAG_SRIOV_ENABLED | RNPM_FLAG_VMDQ_ENABLED)) {
+			e_info(hw, "Skip MAC loopback diagnostic in VT "
 				   "mode\n");
 			data[3] = 0;
 			goto skip_loopback;
@@ -956,11 +1437,11 @@ static void rnpm_diag_test(struct net_device *netdev,
 
 		*/
 	skip_loopback:
-		rnpm_reset(adapter);
+		// rnpm_reset(adapter);
 		/* clear testing bit and return adapter to previous state */
 		clear_bit(__RNPM_TESTING, &adapter->state);
-		if (if_running)
-			rnpm_open(netdev);
+		// if (if_running)
+		//	rnpm_open(netdev);
 	} else {
 		e_info(hw, "online testing starting\n");
 
@@ -987,22 +1468,563 @@ static void rnpm_diag_test(struct net_device *netdev,
 skip_ol_tests:
 	msleep_interruptible(4 * 1000);
 }
+
+#endif // CLOST_SELF_TEST
+
+#ifdef ETHTOOL_GLINKSETTINGS
+/**
+ * rnpm_set_link_ksettings - Set Speed and Duplex
+ * @netdev: network interface device structure
+ * @ks: ethtool ksettings
+ *
+ * Set speed/duplex per media_types advertised/forced
+ **/
+static int rnpm_set_link_ksettings(struct net_device *netdev,
+				   const struct ethtool_link_ksettings *ks)
+{
+	struct rnpm_adapter *adapter = netdev_priv(netdev);
+	struct rnpm_hw *hw = &adapter->hw;
+	struct ethtool_link_ksettings safe_ks;
+	struct ethtool_link_ksettings copy_ks;
+	bool autoneg_changed = false, duplex_changed = false;
+	int timeout = 50;
+	int err = 0;
+	u8 autoneg;
+	u32 advertising_link_speed;
+
+	/* copy the ksettings to copy_ks to avoid modifying the origin */
+	memcpy(&copy_ks, ks, sizeof(struct ethtool_link_ksettings));
+	/* save autoneg out of ksettings */
+	autoneg = copy_ks.base.autoneg;
+	rnpm_logd(LOG_ETHTOOL,
+		  "%s %s set link: speed=%d port=%d duplex=%d autoneg=%d "
+		  "phy_address=%d mdix_ctrl=%d\n",
+		  __func__, netdev->name, copy_ks.base.speed, copy_ks.base.port,
+		  copy_ks.base.duplex, copy_ks.base.autoneg,
+		  copy_ks.base.phy_address, copy_ks.base.eth_tp_mdix_ctrl);
+	/* get our own copy of the bits to check against */
+	memset(&safe_ks, 0, sizeof(struct ethtool_link_ksettings));
+	safe_ks.base.cmd = copy_ks.base.cmd;
+	safe_ks.base.link_mode_masks_nwords =
+		copy_ks.base.link_mode_masks_nwords;
+
+	if (rnpm_get_link_ksettings(netdev, &safe_ks)) {
+		/* return err */
+		return 0;
+	}
+
+	if (!adapter->pf_adapter->force_10g_1g_speed_ablity) {
+		/* Checkout the media_type */
+		if (hw->phy.media_type != rnpm_media_type_fiber &&
+		    hw->phy.media_type != rnpm_media_type_copper &&
+		    hw->phy.media_type != rnpm_media_type_backplane &&
+		    hw->phy.media_type != rnpm_media_type_cx4 &&
+		    hw->phy.media_type != rnpm_media_type_da)
+			return -EOPNOTSUPP;
+	}
+
+	/* Get link modes supported by hardware and check against modes
+	 * requested by user.  Return an error if unsupported mode was set.
+	 */
+	if (!bitmap_subset(copy_ks.link_modes.advertising,
+			   safe_ks.link_modes.supported,
+			   __ETHTOOL_LINK_MODE_MASK_NBITS))
+		return -EINVAL;
+
+#ifdef ETH_TP_MDI_AUTO
+	/* MDI setting is only allowed when autoneg enabled because
+	 * some hardware doesn't allow MDI setting when speed or
+	 * duplex is forced.
+	 */
+	if (copy_ks.base.eth_tp_mdix_ctrl && hw->is_sgmii) {
+		if (hw->phy.media_type != rnpm_media_type_copper)
+			return -EOPNOTSUPP;
+
+		if (copy_ks.base.eth_tp_mdix_ctrl != ETH_TP_MDI_AUTO &&
+		    copy_ks.base.autoneg != AUTONEG_ENABLE) {
+			netdev_info(
+				netdev,
+				"forcing MDI/MDI-X state is not supported when link "
+				"speed and/or duplex are forced\n");
+			return -EINVAL;
+		}
+	}
+#endif /* ETH_TP_MDI_AUTO */
+	/* set autoneg back to what it currently is */
+	copy_ks.base.autoneg = safe_ks.base.autoneg;
+	memset(&advertising_link_speed, 0, sizeof(u32));
+
+	/* Check autoneg */
+	if (autoneg == AUTONEG_ENABLE) {
+		/* If autoneg was not already enabled */
+		if (!(adapter->an)) {
+			/* If autoneg is not supported, return error */
+			if (!ethtool_link_ksettings_test_link_mode(
+				    &safe_ks, supported, Autoneg)) {
+				netdev_info(
+					netdev,
+					"Autoneg not supported on this phy\n");
+				err = -EINVAL;
+
+				goto done;
+			}
+			/* Autoneg is allowed to change */
+			autoneg_changed = true;
+		}
+
+		if (ethtool_link_ksettings_test_link_mode(ks, advertising,
+							  10baseT_Full))
+			advertising_link_speed |= RNPM_LINK_SPEED_10_FULL;
+		if (ethtool_link_ksettings_test_link_mode(ks, advertising,
+							  100baseT_Full))
+			advertising_link_speed |= RNPM_LINK_SPEED_100_FULL;
+		if (ethtool_link_ksettings_test_link_mode(ks, advertising,
+							  1000baseT_Full) ||
+#ifdef HAVE_ETHTOOL_NEW_10G_BITS
+		    ethtool_link_ksettings_test_link_mode(ks, advertising,
+							  1000baseX_Full) ||
+#endif
+		    ethtool_link_ksettings_test_link_mode(ks, advertising,
+							  1000baseKX_Full))
+			advertising_link_speed |= RNPM_LINK_SPEED_1GB_FULL;
+
+		if (ethtool_link_ksettings_test_link_mode(ks, advertising,
+							  10baseT_Half))
+			advertising_link_speed |= RNPM_LINK_SPEED_10_HALF;
+		if (ethtool_link_ksettings_test_link_mode(ks, advertising,
+							  100baseT_Half))
+			advertising_link_speed |= RNPM_LINK_SPEED_100_HALF;
+		if (ethtool_link_ksettings_test_link_mode(ks, advertising,
+							  1000baseT_Half))
+			advertising_link_speed |= RNPM_LINK_SPEED_1GB_HALF;
+		if (ethtool_link_ksettings_test_link_mode(ks, advertising,
+							  10000baseT_Full) ||
+		    ethtool_link_ksettings_test_link_mode(ks, advertising,
+							  10000baseKX4_Full) ||
+		    ethtool_link_ksettings_test_link_mode(ks, advertising,
+							  10000baseKR_Full) ||
+#ifdef HAVE_ETHTOOL_NEW_10G_BITS
+		    ethtool_link_ksettings_test_link_mode(ks, advertising,
+							  10000baseCR_Full) ||
+		    ethtool_link_ksettings_test_link_mode(ks, advertising,
+							  10000baseSR_Full) ||
+		    ethtool_link_ksettings_test_link_mode(ks, advertising,
+							  10000baseLR_Full))
+#else
+		    0)
+#endif /* HAVE_ETHTOOL_NEW_10G_BITS */
+			advertising_link_speed |= RNPM_LINK_SPEED_10GB_FULL;
+
+		if (ethtool_link_ksettings_test_link_mode(ks, advertising,
+							  40000baseKR4_Full) ||
+		    ethtool_link_ksettings_test_link_mode(ks, advertising,
+							  40000baseCR4_Full) ||
+		    ethtool_link_ksettings_test_link_mode(ks, advertising,
+							  40000baseSR4_Full) ||
+		    ethtool_link_ksettings_test_link_mode(ks, advertising,
+							  40000baseLR4_Full))
+			advertising_link_speed |= RNPM_LINK_SPEED_40GB_FULL;
+
+		if (advertising_link_speed) {
+			hw->phy.autoneg_advertised = advertising_link_speed;
+		} else {
+			// err = -EINVAL;
+			// RNPM_LINK_SPEED_UNKNOWN
+			// goto done;
+		}
+		if (hw->is_sgmii && hw->mac.autoneg == false)
+			autoneg_changed = true;
+		hw->mac.autoneg = true;
+	} else {
+		if (!hw->is_sgmii &&
+		    !adapter->pf_adapter->force_10g_1g_speed_ablity) {
+			err = -EOPNOTSUPP;
+			goto done;
+		}
+		/* If autoneg is currently enabled */
+		if (adapter->an) {
+			/* If autoneg is supported 10GBASE_T is the only PHY
+			 * that can disable it, so otherwise return error
+			 */
+			if (ethtool_link_ksettings_test_link_mode(
+				    &safe_ks, supported, Autoneg) &&
+			    hw->phy.media_type != rnpm_media_type_copper) {
+				netdev_info(
+					netdev,
+					"Autoneg cannot be disabled on this phy\n");
+				err = -EINVAL;
+
+				goto done;
+			}
+			/* Autoneg is allowed to change */
+			autoneg_changed = true;
+		}
+
+		/* Only allow one speed at a time when autoneg is AUTONEG_DISABLE. */
+		switch (ks->base.speed) {
+		case SPEED_10:
+			advertising_link_speed = RNPM_LINK_SPEED_10_FULL;
+			break;
+		case SPEED_100:
+			advertising_link_speed = RNPM_LINK_SPEED_100_FULL;
+			break;
+		case SPEED_1000:
+			advertising_link_speed = RNPM_LINK_SPEED_1GB_FULL;
+			break;
+		case SPEED_10000:
+			advertising_link_speed = RNPM_LINK_SPEED_10GB_FULL;
+			break;
+		default:
+			netdev_info(netdev, "unsupported speed\n");
+			err = -EINVAL;
+
+			goto done;
+		}
+
+		hw->mac.autoneg = false;
+	}
+
+	hw->phy.autoneg_advertised = RNPM_LINK_SPEED_UNKNOWN;
+	/* If speed didn't get set, set it to what it currently is.
+	 * This is needed because if advertise is 0 (as it is when autoneg
+	 * is disabled) then speed won't get set.
+	 */
+	// old_link_speed = hw->phy.autoneg_advertised;
+	// if (!advertising_link_speed)
+	//	advertising_link_speed = old_link_speed;
+	if (hw->is_sgmii) {
+		// duplex_changed = !!(hw->mac.duplex != ks->base.duplex);
+		hw->mac.duplex = ks->base.duplex;
+		duplex_changed = true;
+	}
+
+	/* If the unsupported speed is set, return -EOPNOTSUPP error. */
+	// if ((advertising_link_speed | hw->supported_link) != hw->supported_link)
+	//	return -EOPNOTSUPP;
+
+	// if (autoneg_changed || duplex_changed ||
+	//	(hw->phy.autoneg_advertised != advertising_link_speed)) {
+	/* this sets the link speed and restarts auto-neg */
+	while (test_and_set_bit(__RNPM_IN_SFP_INIT, &adapter->state)) {
+		timeout--;
+		if (!timeout)
+			return -EBUSY;
+		usleep_range(1000, 2000);
+	}
+
+#ifdef ETH_TP_MDI_AUTO
+	/* MDI-X => 2; MDI => 1; Auto => 3 */
+	if (copy_ks.base.eth_tp_mdix_ctrl) {
+		/* fix up the value for auto (3 => 0) as zero is mapped
+		 * internally to auto
+		 */
+		if (copy_ks.base.eth_tp_mdix_ctrl == ETH_TP_MDI_AUTO)
+			hw->phy.mdix = AUTO_ALL_MODES;
+		else
+			hw->phy.mdix = copy_ks.base.eth_tp_mdix_ctrl;
+	}
+
+#endif /* ETH_TP_MDI_AUTO */
+
+	hw->mac.autotry_restart = true;
+	/* set speed */
+	err = hw->mac.ops.setup_link(hw, advertising_link_speed, true);
+	if (err) {
+		e_info(probe, "setup link failed with code %d\n", err);
+		// hw->mac.ops.setup_link(hw, old_link_speed, true);
+	}
+	clear_bit(__RNPM_IN_SFP_INIT, &adapter->state);
+	//}
+
+done:
+	return err;
+}
+
 #endif
 
+#if !defined(ETHTOOL_GLINKSETTINGS) || defined(KYLIN_V4_ETHTOOL_FIX_BOND)
+/**
+ * rnpm_get_settings - Get Link Speed and Duplex settings
+ * @netdev: network interface device structure
+ * @ecmd: ethtool command
+ *
+ * Reports speed/duplex settings based on media_type.  Since we've backported
+ * the new API constructs to use in the old API, this ends up just being a
+ * wrapper to rnpm_get_link_ksettings.
+ **/
+static int rnpm_get_settings(struct net_device *netdev,
+			     struct ethtool_cmd *ecmd)
+{
+	struct ethtool_link_ksettings ks;
+
+	if (rnpm_get_link_ksettings(netdev, &ks)) {
+		/* return err */
+		return 0;
+	}
+	_kc_ethtool_ksettings_to_cmd(&ks, ecmd);
+	// ecmd->transceiver = XCVR_EXTERNAL;
+	return 0;
+}
+
+/**
+ * rnpm_set_settings - Set Speed and Duplex
+ * @netdev: network interface device structure
+ * @ecmd: ethtool command
+ *
+ * Set speed/duplex per media_types advertised/forced
+ **/
+static int rnpm_set_settings(struct net_device *netdev,
+			     struct ethtool_cmd *ecmd)
+{
+	struct rnpm_adapter *adapter = netdev_priv(netdev);
+	struct rnpm_hw *hw = &adapter->hw;
+	struct ethtool_cmd safe_ecmd;
+	bool change = false;
+	int timeout = 50;
+	int err = 0;
+	u8 autoneg;
+	u32 advertise, speed;
+	u32 old_ethtool_advertising = 0;
+	u32 old_link_speed, advertising_link_speed = 0;
+
+	rnpm_logd(LOG_ETHTOOL,
+		  "%s %s set link: speed=%d port=%d duplex=%d autoneg=%d "
+		  "phy_address=%d\n",
+		  __func__, netdev->name, ecmd->speed, ecmd->port, ecmd->duplex,
+		  ecmd->autoneg, ecmd->phy_address);
+
+	/* get our own copy of the bits to check against */
+	memset(&safe_ecmd, 0, sizeof(struct ethtool_cmd));
+	rnpm_get_settings(netdev, &safe_ecmd);
+
+	/* Checkout the media_type */
+	if (hw->phy.media_type != rnpm_media_type_fiber &&
+	    hw->phy.media_type != rnpm_media_type_copper &&
+	    hw->phy.media_type != rnpm_media_type_backplane &&
+	    hw->phy.media_type != rnpm_media_type_cx4 &&
+	    hw->phy.media_type != rnpm_media_type_da)
+		return -EOPNOTSUPP;
+
+#ifdef ETH_TP_MDI_AUTO
+	/*
+	 * MDI setting is only allowed when autoneg enabled because
+	 * some hardware doesn't allow MDI setting when speed or
+	 * duplex is forced.
+	 */
+	if (ecmd->eth_tp_mdix_ctrl && hw->is_sgmii) {
+		if (hw->phy.media_type != rnpm_media_type_copper)
+			return -EOPNOTSUPP;
+
+		if ((ecmd->eth_tp_mdix_ctrl != ETH_TP_MDI_AUTO) &&
+		    (ecmd->autoneg != AUTONEG_ENABLE)) {
+			netdev_info(
+				netdev,
+				"forcing MDI/MDI-X state is not supported when link "
+				"speed and/or duplex are forced\n");
+			return -EINVAL;
+		}
+	}
+
+#endif /* ETH_TP_MDI_AUTO */
+
+	/* save autoneg and speed out of ecmd */
+	autoneg = ecmd->autoneg;
+	advertise = ecmd->advertising;
+
+	/* set autoneg and speed back to what they currently are */
+	ecmd->autoneg = safe_ecmd.autoneg;
+	ecmd->advertising = safe_ecmd.advertising;
+
+	/* Due to a bug in ethtool versions < 3.6 this check is necessary */
+	old_ethtool_advertising =
+		ecmd->supported &
+		(ADVERTISED_10baseT_Half | ADVERTISED_10baseT_Full |
+		 ADVERTISED_100baseT_Half | ADVERTISED_100baseT_Full |
+		 ADVERTISED_1000baseT_Half | ADVERTISED_1000baseT_Full |
+		 ADVERTISED_2500baseX_Full | ADVERTISED_10000baseT_Full);
+	old_ethtool_advertising |=
+		(old_ethtool_advertising | ADVERTISED_20000baseMLD2_Full |
+		 ADVERTISED_20000baseKR2_Full);
+
+	if (advertise == old_ethtool_advertising)
+		netdev_info(
+			netdev,
+			"If you are not setting advertising to %x then you may "
+			"have an old version of ethtool. Please update.\n",
+			advertise);
+	ecmd->cmd = safe_ecmd.cmd;
+	/* If ecmd and safe_ecmd are not the same now, then they are
+	 * trying to set something that we do not support
+	 */
+	// if (memcmp(ecmd, &safe_ecmd, sizeof(struct ethtool_cmd)))
+	//	return -EOPNOTSUPP;
+
+	/* Check autoneg */
+	if (autoneg == AUTONEG_ENABLE) {
+		/* If autoneg was not already enabled */
+		if (!(adapter->an)) {
+			/* If autoneg is not supported, return error */
+			if (!(safe_ecmd.supported & SUPPORTED_Autoneg)) {
+				netdev_info(
+					netdev,
+					"Autoneg not supported on this phy\n");
+				err = -EINVAL;
+				goto done;
+			}
+			/* Autoneg is allowed to change */
+			change = true;
+		}
+
+		if (advertise & ADVERTISED_10baseT_Full)
+			advertising_link_speed |= RNPM_LINK_SPEED_10_FULL;
+		if (advertise & ADVERTISED_100baseT_Full)
+			advertising_link_speed |= RNPM_LINK_SPEED_100_FULL;
+		if (advertise & ADVERTISED_1000baseT_Full ||
+		    advertise & ADVERTISED_1000baseKX_Full)
+			advertising_link_speed |= RNPM_LINK_SPEED_1GB_FULL;
+		if (advertise & ADVERTISED_10000baseT_Full ||
+		    advertise & ADVERTISED_10000baseKX4_Full ||
+		    advertise & ADVERTISED_10000baseKR_Full)
+			advertising_link_speed |= RNPM_LINK_SPEED_10GB_FULL;
+
+		hw->phy.autoneg_advertised = advertising_link_speed;
+		if (hw->is_sgmii && hw->mac.autoneg == false)
+			change = true;
+		hw->mac.autoneg = true;
+	} else {
+		if (!hw->is_sgmii &&
+		    !adapter->pf_adapter->force_10g_1g_speed_ablity) {
+			err = -EOPNOTSUPP;
+			goto done;
+		}
+		/* If autoneg is currently enabled */
+		if (adapter->an) {
+			/* If autoneg is supported 10GBASE_T is the only phy
+			 * that can disable it, so otherwise return error
+			 */
+			if (safe_ecmd.supported & SUPPORTED_Autoneg) {
+				netdev_info(
+					netdev,
+					"Autoneg cannot be disabled on this phy\n");
+				err = -EINVAL;
+				goto done;
+			}
+			/* Autoneg is allowed to change */
+			change = true;
+		}
+
+		if (ecmd->duplex == DUPLEX_HALF) {
+			netdev_info(netdev, "unsupported duplex\n");
+			return -EINVAL;
+		}
+
+		/* Only allow one speed at a time when autoneg is AUTONEG_DISABLE. */
+		speed = ethtool_cmd_speed(ecmd);
+		switch (speed) {
+		case SPEED_10:
+			advertising_link_speed = RNPM_LINK_SPEED_10_FULL;
+			break;
+		case SPEED_100:
+			advertising_link_speed = RNPM_LINK_SPEED_100_FULL;
+			break;
+		case SPEED_1000:
+			advertising_link_speed = RNPM_LINK_SPEED_1GB_FULL;
+			break;
+		case SPEED_10000:
+			advertising_link_speed = RNPM_LINK_SPEED_10GB_FULL;
+			break;
+		default:
+			netdev_info(netdev, "unsupported speed\n");
+			return -EINVAL;
+		}
+
+		hw->phy.autoneg_advertised = RNPM_LINK_SPEED_UNKNOWN;
+		hw->mac.autoneg = false;
+	}
+
+	if (advertise & ~safe_ecmd.supported) {
+		err = -EINVAL;
+		goto done;
+	}
+
+	/* If speed didn't get set, set it to what it currently is.
+	 * This is needed because if advertise is 0 (as it is when autoneg
+	 * is disabled) then speed won't get set.
+	 */
+	old_link_speed = hw->phy.autoneg_advertised;
+	if (!advertising_link_speed)
+		advertising_link_speed = old_link_speed;
+
+	/* If the unsupported speed is set, return -EOPNOTSUPP error. */
+	if ((advertising_link_speed | hw->supported_link) != hw->supported_link)
+		return -EOPNOTSUPP;
+
+#ifdef ETH_TP_MDI_AUTO
+	/* MDI-X => 2; MDI => 1; Auto => 3 */
+	if (ecmd->eth_tp_mdix_ctrl) {
+		/* fix up the value for auto (3 => 0) as zero is mapped
+		 * internally to auto
+		 */
+		if (ecmd->eth_tp_mdix_ctrl == ETH_TP_MDI_AUTO)
+			hw->phy.mdix = AUTO_ALL_MODES;
+		else
+			hw->phy.mdix = ecmd->eth_tp_mdix_ctrl;
+		change = true;
+	}
+
+#endif /* ETH_TP_MDI_AUTO */
+
+	if (change || (hw->phy.autoneg_advertised != advertising_link_speed)) {
+		/* this sets the link speed and restarts auto-neg */
+		while (test_and_set_bit(__RNPM_IN_SFP_INIT, &adapter->state)) {
+			timeout--;
+			if (!timeout)
+				return -EBUSY;
+			usleep_range(1000, 2000);
+		}
+
+		hw->mac.autotry_restart = true;
+		/* set speed */
+		err = hw->mac.ops.setup_link(hw, advertising_link_speed, true);
+		if (err) {
+			e_info(probe, "setup link failed with code %d\n", err);
+			hw->mac.ops.setup_link(hw, old_link_speed, true);
+		}
+		clear_bit(__RNPM_IN_SFP_INIT, &adapter->state);
+
+	} else {
+		netdev_info(
+			netdev,
+			"Nothing changed, exiting without setting anything.\n");
+	}
+
+done:
+	return err;
+}
+
+#endif /* ETHTOOL_GLINKSETTINGS */
+
+/**
+ * rnpm_get_pauseparam -  Get Flow Control status
+ * @netdev: netdevice structure
+ * @pause: buffer to return pause parameters
+ *
+ * Return tx/rx-pause status
+ **/
 static void rnpm_get_pauseparam(struct net_device *netdev,
-								struct ethtool_pauseparam *pause)
+				struct ethtool_pauseparam *pause)
 {
 	struct rnpm_adapter *adapter = netdev_priv(netdev);
 	struct rnpm_hw *hw = &adapter->hw;
 
-	/* we don't support autoneg */
-	pause->autoneg = 0;
-	/*
-	   if (hw->fc.disable_fc_autoneg)
-	   pause->autoneg = 0;
-	   else
-	   pause->autoneg = 1;
-	   */
+	rnpm_redefine_phy_type(adapter);
+	rnpm_get_media_type(hw);
+
+	if (rnpm_device_supports_autoneg_fc(hw) && !hw->fc.disable_fc_autoneg)
+		pause->autoneg = 1;
+	else
+		pause->autoneg = 0;
+
 	if (hw->fc.current_mode == rnpm_fc_rx_pause) {
 		pause->rx_pause = 1;
 	} else if (hw->fc.current_mode == rnpm_fc_tx_pause) {
@@ -1013,8 +2035,13 @@ static void rnpm_get_pauseparam(struct net_device *netdev,
 	}
 }
 
+/**
+ * rnpm_set_pauseparam - Set Flow Control parameter
+ * @netdev: network interface device structure
+ * @pause: return tx/rx flow control status
+ **/
 static int rnpm_set_pauseparam(struct net_device *netdev,
-							   struct ethtool_pauseparam *pause)
+			       struct ethtool_pauseparam *pause)
 {
 	struct rnpm_adapter *adapter = netdev_priv(netdev);
 	struct rnpm_hw *hw = &adapter->hw;
@@ -1023,32 +2050,35 @@ static int rnpm_set_pauseparam(struct net_device *netdev,
 	/* we not support change in dcb mode */
 	if (adapter->flags & RNPM_FLAG_DCB_ENABLED)
 		return -EINVAL;
+	rnpm_redefine_phy_type(adapter);
+	rnpm_get_media_type(hw);
 
-	/* we not support autoneg mode */
-	if (pause->autoneg == AUTONEG_ENABLE)
+	/* some devices do not support autoneg of flow control */
+	if ((pause->autoneg == AUTONEG_ENABLE) &&
+	    !rnpm_device_supports_autoneg_fc(hw))
 		return -EINVAL;
 
-	// fc.disable_fc_autoneg = (pause->autoneg != AUTONEG_ENABLE);
-	fc.disable_fc_autoneg = 0;
+	fc.disable_fc_autoneg = (pause->autoneg != AUTONEG_ENABLE);
 
 	if ((pause->rx_pause && pause->tx_pause) || (pause->autoneg))
 		fc.requested_mode = rnpm_fc_full;
-	else if (pause->rx_pause && !pause->tx_pause)
+	else if (pause->rx_pause)
 		fc.requested_mode = rnpm_fc_rx_pause;
-	else if (!pause->rx_pause && pause->tx_pause)
+	else if (pause->tx_pause)
 		fc.requested_mode = rnpm_fc_tx_pause;
 	else
 		fc.requested_mode = rnpm_fc_none;
 
 	/* if the thing changed then we'll update and use new autoneg */
 	if (memcmp(&fc, &hw->fc, sizeof(struct rnpm_fc_info))) {
-		/* to tell all vf new pause status */
 		hw->fc = fc;
-		rnpm_msg_post_status(adapter, PF_PAUSE_STATUS);
-		if (netif_running(netdev))
+		/* to tell all vf new pause status */
+		// rnpm_msg_post_status(adapter, PF_PAUSE_STATUS);
+		if (netif_running(netdev)) {
 			rnpm_reinit_locked(adapter);
-		else
+		} else {
 			rnpm_reset(adapter);
+		}
 	}
 
 	return 0;
@@ -1056,7 +2086,7 @@ static int rnpm_set_pauseparam(struct net_device *netdev,
 
 #ifdef ETHTOOL_GFECPARAM
 static int rnpm_get_fecparam(struct net_device *netdev,
-		struct ethtool_fecparam *fecparam)
+			     struct ethtool_fecparam *fecparam)
 {
 	int err;
 	struct rnpm_adapter *adapter = netdev_priv(netdev);
@@ -1077,7 +2107,7 @@ static int rnpm_get_fecparam(struct net_device *netdev,
 }
 
 static int rnpm_set_fecparam(struct net_device *netdev,
-struct ethtool_fecparam *fecparam)
+			     struct ethtool_fecparam *fecparam)
 {
 	// int err;
 	struct rnpm_adapter *adapter = netdev_priv(netdev);
@@ -1092,6 +2122,7 @@ struct ethtool_fecparam *fecparam)
 	return -EINVAL;
 }
 #endif
+
 static u32 rnpm_get_msglevel(struct net_device *netdev)
 {
 	struct rnpm_adapter *adapter = netdev_priv(netdev);
@@ -1104,18 +2135,17 @@ static void rnpm_set_msglevel(struct net_device *netdev, u32 data)
 	adapter->msg_enable = data;
 }
 
+#ifdef HAVE_ETHTOOL_SET_PHYS_ID
 static int rnpm_set_phys_id(struct net_device *netdev,
-							enum ethtool_phys_id_state state)
+			    enum ethtool_phys_id_state state)
 {
 	struct rnpm_adapter *adapter = netdev_priv(netdev);
 	struct rnpm_hw *hw = &adapter->hw;
 
-	// printk("%s: %d\n", __func__, state);
-
 	switch (state) {
 	case ETHTOOL_ID_ACTIVE:
 		rnpm_mbx_led_set(hw, 1);
-		return 2; /*twice peer second*/
+		return 2; /*twic peer seconds*/
 	case ETHTOOL_ID_ON:
 		rnpm_mbx_led_set(hw, 2);
 		break;
@@ -1125,12 +2155,22 @@ static int rnpm_set_phys_id(struct net_device *netdev,
 	case ETHTOOL_ID_INACTIVE:
 		rnpm_mbx_led_set(hw, 0);
 		break;
+	default:
+		return -ENOENT;
 	}
+
 	return 0;
 }
+#else /* HAVE_ETHTOOL_SET_PHYS_ID */
+static int rnpm_phys_id(struct net_device *netdev, u32 data)
+{
+	return 0;
+}
+#endif /* HAVE_ETHTOOL_SET_PHYS_ID */
 
+#ifdef HAVE_ETHTOOL_GET_TS_INFO
 static int rnpm_get_ts_info(struct net_device *dev,
-							struct ethtool_ts_info *info)
+			    struct ethtool_ts_info *info)
 {
 	struct rnpm_adapter *adapter = netdev_priv(dev);
 #ifndef NO_PTP
@@ -1150,16 +2190,18 @@ static int rnpm_get_ts_info(struct net_device *dev,
 
 	info->tx_types = (1 << HWTSTAMP_TX_OFF) | (1 << HWTSTAMP_TX_ON);
 
-	info->rx_filters =
-		BIT(HWTSTAMP_FILTER_NONE) | BIT(HWTSTAMP_FILTER_PTP_V1_L4_SYNC) |
-		BIT(HWTSTAMP_FILTER_PTP_V1_L4_DELAY_REQ) |
-		BIT(HWTSTAMP_FILTER_PTP_V1_L4_EVENT) |
-		BIT(HWTSTAMP_FILTER_PTP_V2_L4_SYNC) |
-		BIT(HWTSTAMP_FILTER_PTP_V2_L4_EVENT) |
-		BIT(HWTSTAMP_FILTER_PTP_V2_L4_DELAY_REQ) | BIT(HWTSTAMP_FILTER_ALL);
+	info->rx_filters = BIT(HWTSTAMP_FILTER_NONE) |
+			   BIT(HWTSTAMP_FILTER_PTP_V1_L4_SYNC) |
+			   BIT(HWTSTAMP_FILTER_PTP_V1_L4_DELAY_REQ) |
+			   BIT(HWTSTAMP_FILTER_PTP_V1_L4_EVENT) |
+			   BIT(HWTSTAMP_FILTER_PTP_V2_L4_SYNC) |
+			   BIT(HWTSTAMP_FILTER_PTP_V2_L4_EVENT) |
+			   BIT(HWTSTAMP_FILTER_PTP_V2_L4_DELAY_REQ) |
+			   BIT(HWTSTAMP_FILTER_ALL);
 #ifdef PTP_802_AS1
 	/* 802.AS1 */
-	BIT(HWTSTAMP_FILTER_PTP_V2_L2_EVENT) | BIT(HWTSTAMP_FILTER_PTP_V2_L2_SYNC) |
+	BIT(HWTSTAMP_FILTER_PTP_V2_L2_EVENT) |
+		BIT(HWTSTAMP_FILTER_PTP_V2_L2_SYNC) |
 		BIT(HWTSTAMP_FILTER_PTP_V2_L2_DELAY_REQ);
 #endif
 
@@ -1170,6 +2212,9 @@ static int rnpm_get_ts_info(struct net_device *dev,
 	return 0;
 }
 
+#endif /* HAVE_ETHTOOL_GET_TS_INFO */
+
+#ifdef ETHTOOL_SCHANNELS
 static unsigned int rnpm_max_channels(struct rnpm_adapter *adapter)
 {
 	unsigned int max_combined;
@@ -1188,8 +2233,18 @@ static unsigned int rnpm_max_channels(struct rnpm_adapter *adapter)
 	return max_combined;
 }
 
+/**
+ * rnpm_get_channels - Get the current channels enabled and max supported etc.
+ * @dev: network interface device structure
+ * @ch: ethtool channels structure
+ *
+ * We don't support separate tx and rx queues as channels. The other count
+ * represents how many queues are being used for control. max_combined counts
+ * how many queue pairs we can support. They may not be mapped 1 to 1 with
+ * q_vectors since we support a lot more queue pairs than q_vectors.
+ **/
 static void rnpm_get_channels(struct net_device *dev,
-							  struct ethtool_channels *ch)
+			      struct ethtool_channels *ch)
 {
 	struct rnpm_adapter *adapter = netdev_priv(dev);
 
@@ -1219,8 +2274,16 @@ static void rnpm_get_channels(struct net_device *dev,
 	// ch->combined_count = adapter->ring_feature[RING_F_FDIR].indices;
 }
 
+/**
+ * rnpm_set_channels - Set the new channels count.
+ * @dev: network interface device structure
+ * @ch: ethtool channels structure
+ *
+ * The new channels count may not be the same as requested by the user
+ * since it gets rounded down to a power of 2 value.
+ **/
 static int rnpm_set_channels(struct net_device *dev,
-							 struct ethtool_channels *ch)
+			     struct ethtool_channels *ch)
 {
 	struct rnpm_adapter *adapter = netdev_priv(dev);
 	unsigned int count = ch->combined_count;
@@ -1254,24 +2317,42 @@ static int rnpm_set_channels(struct net_device *dev,
 	return rnpm_setup_tc(dev, netdev_get_num_tc(dev));
 }
 
+#endif /* ETHTOOL_SCHANNELS */
+
+#ifdef ETHTOOL_GMODULEINFO
+
+/**
+ * rnpm_get_module_info - get (Q)SFP+ module type info
+ * @netdev: network interface device structure
+ * @modinfo: module EEPROM size and layout information structure
+ **/
 static int rnpm_get_module_info(struct net_device *dev,
-								struct ethtool_modinfo *modinfo)
+				struct ethtool_modinfo *modinfo)
 {
 	struct rnpm_adapter *adapter = netdev_priv(dev);
 	struct rnpm_hw *hw = &adapter->hw;
 	u8 module_id, diag_supported;
 	int rc;
 
-	rc = rnpm_mbx_sfp_module_eeprom_info(
-		hw, 0xA0, SFF_MODULE_ID_OFFSET, 1, &module_id);
+	rnpm_mbx_get_lane_stat(hw);
+	if (hw->is_sgmii)
+		return -EIO;
+
+	/* Check if firmware supports reading module EEPROM. */
+	rc = rnpm_mbx_sfp_module_eeprom_info(hw, 0xA0, SFF_MODULE_ID_OFFSET, 1,
+					     &module_id);
 	if (rc || module_id == 0xff) {
 		return -EIO;
 	}
-	rc = rnpm_mbx_sfp_module_eeprom_info(
-		hw, 0xA0, SFF_DIAG_SUPPORT_OFFSET, 1, &diag_supported);
+
+	rc = rnpm_mbx_sfp_module_eeprom_info(hw, 0xA0, SFF_DIAG_SUPPORT_OFFSET,
+					     1, &diag_supported);
 	if (!rc) {
 		switch (module_id) {
+		case SFF_MODULE_ID_SFF:
 		case SFF_MODULE_ID_SFP:
+
+			/* TODO: get info from firmware */
 			modinfo->type = ETH_MODULE_SFF_8472;
 			modinfo->eeprom_len = ETH_MODULE_SFF_8472_LEN;
 			if (!diag_supported)
@@ -1284,21 +2365,27 @@ static int rnpm_get_module_info(struct net_device *dev,
 			break;
 		case SFF_MODULE_ID_QSFP28:
 			modinfo->type = ETH_MODULE_SFF_8636;
-			modinfo->eeprom_len = ETH_MODULE_SFF_8636_LEN;
+			modinfo->eeprom_len = RNPM_MODULE_QSFP_MAX_LEN;
 			break;
 		default:
-			printk("module_id:%x diag:%x\n", module_id, diag_supported);
-			rc = -EOPNOTSUPP;
-			break;
+			netdev_err(
+				dev,
+				"SFP module type unrecognized or no SFP connector.\n");
+			return -EINVAL;
 		}
 	}
 
-	return rc;
+	return 0;
 }
 
+/**
+ * rnpm_get_module_eeprom - fills buffer with (Q)SFP+ module memory contents
+ * @netdev: network interface device structure
+ * @ee: EEPROM dump request structure
+ * @data: buffer to be filled with EEPROM contents
+ **/
 static int rnpm_get_module_eeprom(struct net_device *dev,
-								  struct ethtool_eeprom *eeprom,
-								  u8 *data)
+				  struct ethtool_eeprom *eeprom, u8 *data)
 {
 	struct rnpm_adapter *adapter = netdev_priv(dev);
 	struct rnpm_hw *hw = &adapter->hw;
@@ -1311,7 +2398,8 @@ static int rnpm_get_module_eeprom(struct net_device *dev,
 	if (start < ETH_MODULE_SFF_8436_LEN) {
 		if (start + eeprom->len > ETH_MODULE_SFF_8436_LEN)
 			length = ETH_MODULE_SFF_8436_LEN - start;
-		rc = rnpm_mbx_sfp_module_eeprom_info(hw, 0xA0, start, length, data);
+		rc = rnpm_mbx_sfp_module_eeprom_info(hw, 0xA0, start, length,
+						     data);
 		if (rc)
 			return rc;
 		start += length;
@@ -1322,21 +2410,22 @@ static int rnpm_get_module_eeprom(struct net_device *dev,
 	/* Read A2 portion of the EEPROM */
 	if (length) {
 		start -= ETH_MODULE_SFF_8436_LEN;
-		rc = rnpm_mbx_sfp_module_eeprom_info(hw, 0xA2, start, length, data);
+		rc = rnpm_mbx_sfp_module_eeprom_info(hw, 0xA2, start, length,
+						     data);
 	}
 
 	return rc;
 }
+#endif /* ETHTOOL_GMODULEINFO */
 
 #ifdef HAVE_ETHTOOL_EXTENDED_RINGPARAMS
-void
-rnpm_get_ringparam(struct net_device *netdev,
-			struct ethtool_ringparam *ring,
-			struct kernel_ethtool_ringparam __always_unused *ker,
-			struct netlink_ext_ack __always_unused *extack)
+static void
+rnpm_get_ringparam(struct net_device *netdev, struct ethtool_ringparam *ring,
+		   struct kernel_ethtool_ringparam __always_unused *ker,
+		   struct netlink_ext_ack __always_unused *extack)
 #else
-void rnpm_get_ringparam(struct net_device *netdev,
-				struct ethtool_ringparam *ring)
+static void rnpm_get_ringparam(struct net_device *netdev,
+			       struct ethtool_ringparam *ring)
 #endif /* HAVE_ETHTOOL_EXTENDED_RINGPARAMS */
 {
 	struct rnpm_adapter *adapter = netdev_priv(netdev);
@@ -1353,13 +2442,12 @@ void rnpm_get_ringparam(struct net_device *netdev,
 
 #ifdef HAVE_ETHTOOL_EXTENDED_RINGPARAMS
 static int
-rnpm_set_ringparam(struct net_device *netdev,
-			struct ethtool_ringparam *ring,
-			struct kernel_ethtool_ringparam __always_unused *ker,
-			struct netlink_ext_ack __always_unused *extack)
+rnpm_set_ringparam(struct net_device *netdev, struct ethtool_ringparam *ring,
+		   struct kernel_ethtool_ringparam __always_unused *ker,
+		   struct netlink_ext_ack __always_unused *extack)
 #else
 static int rnpm_set_ringparam(struct net_device *netdev,
-				struct ethtool_ringparam *ring)
+			      struct ethtool_ringparam *ring)
 #endif /* HAVE_ETHTOOL_EXTENDED_RINGPARAMS */
 {
 	struct rnpm_adapter *adapter = netdev_priv(netdev);
@@ -1370,27 +2458,27 @@ static int rnpm_set_ringparam(struct net_device *netdev,
 	if ((ring->rx_mini_pending) || (ring->rx_jumbo_pending))
 		return -EINVAL;
 	if ((ring->tx_pending < RNPM_MIN_TXD) ||
-		(ring->tx_pending > RNPM_MAX_TXD) ||
-		(ring->rx_pending < RNPM_MIN_RXD) ||
-		(ring->rx_pending > RNPM_MAX_RXD)) {
+	    (ring->tx_pending > RNPM_MAX_TXD) ||
+	    (ring->rx_pending < RNPM_MIN_RXD) ||
+	    (ring->rx_pending > RNPM_MAX_RXD)) {
 		netdev_info(
 			netdev,
 			"Descriptors requested (Tx: %d / Rx: %d) out of range [%d-%d]\n",
-			ring->tx_pending,
-			ring->rx_pending,
-			RNPM_MIN_TXD,
+			ring->tx_pending, ring->rx_pending, RNPM_MIN_TXD,
 			RNPM_MAX_TXD);
 		return -EINVAL;
 	}
 
-	new_tx_count = clamp_t(u32, ring->tx_pending, RNPM_MIN_TXD, RNPM_MAX_TXD);
+	new_tx_count =
+		clamp_t(u32, ring->tx_pending, RNPM_MIN_TXD, RNPM_MAX_TXD);
 	new_tx_count = ALIGN(new_tx_count, RNPM_REQ_TX_DESCRIPTOR_MULTIPLE);
 
-	new_rx_count = clamp_t(u32, ring->rx_pending, RNPM_MIN_RXD, RNPM_MAX_RXD);
+	new_rx_count =
+		clamp_t(u32, ring->rx_pending, RNPM_MIN_RXD, RNPM_MAX_RXD);
 	new_rx_count = ALIGN(new_rx_count, RNPM_REQ_RX_DESCRIPTOR_MULTIPLE);
 
 	if ((new_tx_count == adapter->tx_ring_item_count) &&
-		(new_rx_count == adapter->rx_ring_item_count)) {
+	    (new_rx_count == adapter->rx_ring_item_count)) {
 		/* nothing to do */
 		return 0;
 	}
@@ -1441,9 +2529,12 @@ static int rnpm_set_ringparam(struct net_device *netdev,
 	 * have resources even in the case of an allocation failure.
 	 */
 	if (new_tx_count != adapter->tx_ring_item_count) {
+		netdev_info(netdev,
+			    "Changing Tx descriptor count from %d to %d\n",
+			    adapter->tx_ring_item_count, new_tx_count);
 		for (i = 0; i < adapter->num_tx_queues; i++) {
-			memcpy(
-				&temp_ring[i], adapter->tx_ring[i], sizeof(struct rnpm_ring));
+			memcpy(&temp_ring[i], adapter->tx_ring[i],
+			       sizeof(struct rnpm_ring));
 
 			temp_ring[i].count = new_tx_count;
 			err = rnpm_setup_tx_resources(&temp_ring[i], adapter);
@@ -1458,8 +2549,8 @@ static int rnpm_set_ringparam(struct net_device *netdev,
 
 		for (i = 0; i < adapter->num_tx_queues; i++) {
 			rnpm_free_tx_resources(adapter->tx_ring[i]);
-			memcpy(
-				adapter->tx_ring[i], &temp_ring[i], sizeof(struct rnpm_ring));
+			memcpy(adapter->tx_ring[i], &temp_ring[i],
+			       sizeof(struct rnpm_ring));
 		}
 
 		adapter->tx_ring_item_count = new_tx_count;
@@ -1467,12 +2558,15 @@ static int rnpm_set_ringparam(struct net_device *netdev,
 
 	/* Repeat the process for the Rx rings if needed */
 	if (new_rx_count != adapter->rx_ring_item_count) {
+		netdev_info(netdev,
+			    "Changing Rx descriptor count from %d to %d\n",
+			    adapter->rx_ring_item_count, new_rx_count);
 		for (i = 0; i < adapter->num_rx_queues; i++) {
-			memcpy(
-				&temp_ring[i], adapter->rx_ring[i], sizeof(struct rnpm_ring));
+			memcpy(&temp_ring[i], adapter->rx_ring[i],
+			       sizeof(struct rnpm_ring));
 			/* setup ring count */
 			if (!(adapter->rx_ring[i]->ring_flags &
-				  RNPM_RING_FLAG_DELAY_SETUP_RX_LEN)) {
+			      RNPM_RING_FLAG_DELAY_SETUP_RX_LEN)) {
 				temp_ring[i].count = new_rx_count;
 			} else {
 				/* setup temp count */
@@ -1491,8 +2585,8 @@ static int rnpm_set_ringparam(struct net_device *netdev,
 
 		for (i = 0; i < adapter->num_rx_queues; i++) {
 			rnpm_free_rx_resources(adapter->rx_ring[i]);
-			memcpy(
-				adapter->rx_ring[i], &temp_ring[i], sizeof(struct rnpm_ring));
+			memcpy(adapter->rx_ring[i], &temp_ring[i],
+			       sizeof(struct rnpm_ring));
 		}
 		adapter->rx_ring_item_count = new_rx_count;
 	}
@@ -1515,25 +2609,28 @@ static void rnpm_get_strings(struct net_device *netdev, u32 stringset, u8 *data)
 
 	switch (stringset) {
 		/* maybe we don't support test? */
-		#ifndef CLOST_SELF_TEST
+#ifndef CLOST_SELF_TEST
 	case ETH_SS_TEST:
 		for (i = 0; i < RNPM_TEST_LEN; i++) {
 			memcpy(data, rnpm_gstrings_test[i], ETH_GSTRING_LEN);
 			data += ETH_GSTRING_LEN;
 		}
 		break;
-		#endif
+#endif /* CLOST_SELF_TEST */
 	case ETH_SS_STATS:
 		for (i = 0; i < RNPM_GLOBAL_STATS_LEN; i++) {
-			memcpy(p, rnpm_gstrings_net_stats[i].stat_string, ETH_GSTRING_LEN);
+			memcpy(p, rnpm_gstrings_net_stats[i].stat_string,
+			       ETH_GSTRING_LEN);
 			p += ETH_GSTRING_LEN;
 		}
 		for (i = 0; i < RNPM_HWSTRINGS_STATS_LEN; i++) {
-			memcpy(p, rnpm_hwstrings_stats[i].stat_string, ETH_GSTRING_LEN);
+			memcpy(p, rnpm_hwstrings_stats[i].stat_string,
+			       ETH_GSTRING_LEN);
 			p += ETH_GSTRING_LEN;
 		}
 		for (i = 0; i < RNPM_NUM_TX_QUEUES; i++) {
 #define SHORT_STATS
+
 #ifdef SHORT_STATS
 			//====  tx ========
 			ring = adapter->tx_ring[i];
@@ -1542,6 +2639,7 @@ static void rnpm_get_strings(struct net_device *netdev, u32 stringset, u8 *data)
 			p += ETH_GSTRING_LEN;
 			sprintf(p, "queue%u_tx_bytes", i);
 			p += ETH_GSTRING_LEN;
+
 			sprintf(p, "queue%u_tx_restart", i);
 			p += ETH_GSTRING_LEN;
 			sprintf(p, "queue%u_tx_busy", i);
@@ -1554,6 +2652,7 @@ static void rnpm_get_strings(struct net_device *netdev, u32 stringset, u8 *data)
 			p += ETH_GSTRING_LEN;
 			sprintf(p, "queue%u_tx_irq_more", i);
 			p += ETH_GSTRING_LEN;
+
 			sprintf(p, "queue%u_tx_hw_head", i);
 			p += ETH_GSTRING_LEN;
 			sprintf(p, "queue%u_tx_hw_tail", i);
@@ -1585,6 +2684,7 @@ static void rnpm_get_strings(struct net_device *netdev, u32 stringset, u8 *data)
 			p += ETH_GSTRING_LEN;
 			sprintf(p, "queue%u_rx_bytes", i);
 			p += ETH_GSTRING_LEN;
+
 			sprintf(p, "queue%u_rx_driver_dropped_packets", i);
 			p += ETH_GSTRING_LEN;
 			sprintf(p, "queue%u_rx_rsc", i);
@@ -1607,6 +2707,7 @@ static void rnpm_get_strings(struct net_device *netdev, u32 stringset, u8 *data)
 			p += ETH_GSTRING_LEN;
 			sprintf(p, "queue%u_alloc_rx_page", i);
 			p += ETH_GSTRING_LEN;
+
 			sprintf(p, "queue%u_rx_hw_head", i);
 			p += ETH_GSTRING_LEN;
 			sprintf(p, "queue%u_rx_hw_tail", i);
@@ -1622,6 +2723,12 @@ static void rnpm_get_strings(struct net_device *netdev, u32 stringset, u8 *data)
 			p += ETH_GSTRING_LEN;
 			sprintf(p, "queue%u_rx_equal_count", i);
 			p += ETH_GSTRING_LEN;
+			sprintf(p, "queue%u_rx_poll_packets", i);
+			p += ETH_GSTRING_LEN;
+			sprintf(p, "queue%u_rx_poll_avg_packets", i);
+			p += ETH_GSTRING_LEN;
+			sprintf(p, "queue%u_rx_poll_itr", i);
+			p += ETH_GSTRING_LEN;
 #else
 			//====  tx ========
 			ring = adapter->tx_ring[i];
@@ -1630,6 +2737,7 @@ static void rnpm_get_strings(struct net_device *netdev, u32 stringset, u8 *data)
 			p += ETH_GSTRING_LEN;
 			sprintf(p, "queue%u_dma%u_tx_bytes", i, dma_ch);
 			p += ETH_GSTRING_LEN;
+
 			sprintf(p, "queue%u_dma%u_tx_restart", i, dma_ch);
 			p += ETH_GSTRING_LEN;
 			sprintf(p, "queue%u_dma%u_tx_busy", i, dma_ch);
@@ -1642,13 +2750,16 @@ static void rnpm_get_strings(struct net_device *netdev, u32 stringset, u8 *data)
 			p += ETH_GSTRING_LEN;
 			sprintf(p, "queue%u_dma%u_tx_irq_more", i, dma_ch);
 			p += ETH_GSTRING_LEN;
+
 			sprintf(p, "queue%u_dma%u_tx_hw_head", i, dma_ch);
 			p += ETH_GSTRING_LEN;
 			sprintf(p, "queue%u_dma%u_tx_hw_tail", i, dma_ch);
 			p += ETH_GSTRING_LEN;
-			sprintf(p, "queue%u_dma%u_tx_sw_next_to_clean", i, dma_ch);
+			sprintf(p, "queue%u_dma%u_tx_sw_next_to_clean", i,
+				dma_ch);
 			p += ETH_GSTRING_LEN;
-			sprintf(p, "queue%u_dma%u_tx_sw_next_to_use", i, dma_ch);
+			sprintf(p, "queue%u_dma%u_tx_sw_next_to_use", i,
+				dma_ch);
 			p += ETH_GSTRING_LEN;
 			sprintf(p, "queue%u_dma%u_send_bytes", i, dma_ch);
 			p += ETH_GSTRING_LEN;
@@ -1658,7 +2769,8 @@ static void rnpm_get_strings(struct net_device *netdev, u32 stringset, u8 *data)
 			p += ETH_GSTRING_LEN;
 			sprintf(p, "queue%u_dma%u_send_done_bytes", i, dma_ch);
 			p += ETH_GSTRING_LEN;
-			sprintf(p, "queue%u_dma%u_added_vlan_packets", i, dma_ch);
+			sprintf(p, "queue%u_dma%u_added_vlan_packets", i,
+				dma_ch);
 			p += ETH_GSTRING_LEN;
 			sprintf(p, "queue%u_dma%u_tx_next_to_clean", i, dma_ch);
 			p += ETH_GSTRING_LEN;
@@ -1673,7 +2785,9 @@ static void rnpm_get_strings(struct net_device *netdev, u32 stringset, u8 *data)
 			p += ETH_GSTRING_LEN;
 			sprintf(p, "queue%u_dma%u_rx_bytes", i, dma_ch);
 			p += ETH_GSTRING_LEN;
-			sprintf(p, "queue%u_dma%u_rx_driver_drop_packets", i, dma_ch);
+
+			sprintf(p, "queue%u_dma%u_rx_driver_drop_packets", i,
+				dma_ch);
 			p += ETH_GSTRING_LEN;
 			sprintf(p, "queue%u_dma%u_rx_rsc", i, dma_ch);
 			p += ETH_GSTRING_LEN;
@@ -1681,27 +2795,36 @@ static void rnpm_get_strings(struct net_device *netdev, u32 stringset, u8 *data)
 			p += ETH_GSTRING_LEN;
 			sprintf(p, "queue%u_dma%u_rx_non_eop_descs", i, dma_ch);
 			p += ETH_GSTRING_LEN;
-			sprintf(p, "queue%u_dma%u_rx_alloc_page_failed", i, dma_ch);
+			sprintf(p, "queue%u_dma%u_rx_alloc_page_failed", i,
+				dma_ch);
 			p += ETH_GSTRING_LEN;
-			sprintf(p, "queue%u_dma%u_rx_alloc_buff_failed", i, dma_ch);
+			sprintf(p, "queue%u_dma%u_rx_alloc_buff_failed", i,
+				dma_ch);
 			p += ETH_GSTRING_LEN;
-			sprintf(p, "queue%u_dma%u_rx_csum_offload_errs", i, dma_ch);
+			sprintf(p, "queue%u_dma%u_rx_csum_offload_errs", i,
+				dma_ch);
 			p += ETH_GSTRING_LEN;
-			sprintf(p, "queue%u_dma%u_rx_csum_offload_good", i, dma_ch);
+			sprintf(p, "queue%u_dma%u_rx_csum_offload_good", i,
+				dma_ch);
 			p += ETH_GSTRING_LEN;
-			sprintf(p, "queue%u_dma%u_rx_poll_again_count", i, dma_ch);
+			sprintf(p, "queue%u_dma%u_rx_poll_again_count", i,
+				dma_ch);
 			p += ETH_GSTRING_LEN;
-			sprintf(p, "queue%u_dma%u_rx_rm_vlan_packets", i, dma_ch);
+			sprintf(p, "queue%u_dma%u_rx_rm_vlan_packets", i,
+				dma_ch);
 			p += ETH_GSTRING_LEN;
 			sprintf(p, "queue%u_dma%u_alloc_rx_page", i, dma_ch);
 			p += ETH_GSTRING_LEN;
+
 			sprintf(p, "queue%u_dma%u_rx_hw_head", i, dma_ch);
 			p += ETH_GSTRING_LEN;
 			sprintf(p, "queue%u_dma%u_rx_hw_tail", i, dma_ch);
 			p += ETH_GSTRING_LEN;
-			sprintf(p, "queue%u_dma%u_rx_sw_next_to_use", i, dma_ch);
+			sprintf(p, "queue%u_dma%u_rx_sw_next_to_use", i,
+				dma_ch);
 			p += ETH_GSTRING_LEN;
-			sprintf(p, "queue%u_dma%u_rx_sw_next_to_clean", i, dma_ch);
+			sprintf(p, "queue%u_dma%u_rx_sw_next_to_clean", i,
+				dma_ch);
 			/* dbg desc */
 			p += ETH_GSTRING_LEN;
 			sprintf(p, "queue%u_dma%u_rx_next_to_clean", i, dma_ch);
@@ -1710,28 +2833,38 @@ static void rnpm_get_strings(struct net_device *netdev, u32 stringset, u8 *data)
 			p += ETH_GSTRING_LEN;
 			sprintf(p, "queue%u_dma%u_rx_equal_count", i, dma_ch);
 			p += ETH_GSTRING_LEN;
-#endif
+			sprintf(p, "queue%u_dma%u_rx_poll_packets", i, dma_ch);
+			p += ETH_GSTRING_LEN;
+			sprintf(p, "queue%u_dma%u_rx_poll_avg_packets", i,
+				dma_ch);
+			p += ETH_GSTRING_LEN;
+			sprintf(p, "queue%u_dma%u_rx_poll_itr", i, dma_ch);
+			p += ETH_GSTRING_LEN;
+#endif /* SHORT_STATS */
 		}
+
 		break;
 #ifdef HAVE_ETHTOOL_GET_SSET_COUNT
 	case ETH_SS_PRIV_FLAGS:
 		memcpy(data, rnpm_priv_flags_strings,
-				RNPM_PRIV_FLAGS_STR_LEN * ETH_GSTRING_LEN);
+		       RNPM_PRIV_FLAGS_STR_LEN * ETH_GSTRING_LEN);
 		break;
 #endif /* HAVE_ETHTOOL_GET_SSET_COUNT */
+
 #ifdef HAVE_ETHTOOL_PHY_STATISTICS
 	case ETH_SS_PHY_STATS:
 		memcpy(data, rnpm_phy_statistics_strings,
-				RNPM_PHY_STATISTICS_STR_LEN * ETH_GSTRING_LEN);
+		       RNPM_PHY_STATISTICS_STR_LEN * ETH_GSTRING_LEN);
 		break;
-#endif
+#endif /* HAVE_ETHTOOL_PHY_STATISTICS */
 	}
 }
 
-static int rnpm_get_dump_flag(struct net_device *netdev,
-							  struct ethtool_dump *dump)
+__maybe_unused static int rnpm_get_dump_flag(struct net_device *netdev,
+					     struct ethtool_dump *dump)
 {
-	struct rnpm_adapter *adapter = (struct rnpm_adapter *)netdev_priv(netdev);
+	struct rnpm_adapter *adapter =
+		(struct rnpm_adapter *)netdev_priv(netdev);
 	// struct rnpm_hw *hw = &adapter->hw;
 	// struct rnpm_pf_adapter *pf_adapter = adapter->pf_adapter;
 
@@ -1744,16 +2877,17 @@ static int rnpm_get_dump_flag(struct net_device *netdev,
 	return 0;
 }
 
-static int rnpm_get_dump_data(struct net_device *netdev,
-							  struct ethtool_dump *dump,
-							  void *buffer)
+__maybe_unused static int rnpm_get_dump_data(struct net_device *netdev,
+					     struct ethtool_dump *dump,
+					     void *buffer)
 {
 	int err;
 	struct rnpm_adapter *adapter = netdev_priv(netdev);
-	
+
 	err = rnpm_mbx_get_dump(&adapter->hw, dump->flag, buffer, dump->len);
-	if (err)
+	if (err) {
 		return err;
+	}
 
 	dump->flag = adapter->hw.dump.flag;
 	dump->len = adapter->hw.dump.len;
@@ -1762,7 +2896,8 @@ static int rnpm_get_dump_data(struct net_device *netdev,
 	return 0;
 }
 
-static int rnpm_set_dump(struct net_device *netdev, struct ethtool_dump *dump)
+__maybe_unused static int rnpm_set_dump(struct net_device *netdev,
+					struct ethtool_dump *dump)
 {
 	// int err;
 	struct rnpm_adapter *adapter = netdev_priv(netdev);
@@ -1782,6 +2917,11 @@ static int rnpm_get_stats_count(struct net_device *netdev)
 
 static int rnpm_get_sset_count(struct net_device *netdev, int sset)
 {
+#ifdef NO_REAL_QUEUE_NUM
+	struct rnpm_adapter *adapter =
+		(struct rnpm_adapter *)netdev_priv(netdev);
+#endif
+
 	switch (sset) {
 		/* now we don't support test */
 #ifndef CLOST_SELF_TEST
@@ -1801,9 +2941,20 @@ static int rnpm_get_sset_count(struct net_device *netdev, int sset)
 	}
 }
 
+/**
+ * rnpm_get_priv_flags - report device private flags
+ * @dev: network interface device structure
+ *
+ * The get string set count and the string set should be matched for each
+ * flag returned.  Add new strings for each flag to the rnpm_gstrings_priv_flags
+ * array.
+ *
+ * Returns a u32 bitmap of flags.
+ **/
 static u32 rnpm_get_priv_flags(struct net_device *netdev)
 {
-	struct rnpm_adapter *adapter = (struct rnpm_adapter *)netdev_priv(netdev);
+	struct rnpm_adapter *adapter =
+		(struct rnpm_adapter *)netdev_priv(netdev);
 	// struct rnpm_hw *hw = &adapter->hw;
 	struct rnpm_pf_adapter *pf_adapter = adapter->pf_adapter;
 	u32 priv_flags = 0;
@@ -1815,8 +2966,8 @@ static u32 rnpm_get_priv_flags(struct net_device *netdev)
 		priv_flags |= RNPM_SWITCH_LOOPBACK;
 	if (pf_adapter->priv_flags & RNPM_PRIV_FLAG_VEB_ENABLE)
 		priv_flags |= RNPM_VEB_ENABLE;
-	if (pf_adapter->priv_flags & RNPM_PRIV_FLAG_FT_PADDING)
-		priv_flags |= RNPM_FT_PADDING;
+	if (pf_adapter->priv_flags & RNPM_PRIV_FLAG_PCIE_CACHE_ALIGN_PATCH)
+		priv_flags |= RNPM_PCIE_CACHE_ALIGN_PATCH;
 	if (adapter->priv_flags & RNPM_PRIV_FLAG_PADDING_DEBUG)
 		priv_flags |= RNPM_PADDING_DEBUG;
 	if (adapter->priv_flags & RNPM_PRIV_FLAG_PTP_DEBUG)
@@ -1828,6 +2979,15 @@ static u32 rnpm_get_priv_flags(struct net_device *netdev)
 	if (pf_adapter->priv_flags & RNPM_PRIV_FLAG_LEN_ERR) {
 		priv_flags |= RNPM_LEN_ERR;
 	}
+	if (pf_adapter->priv_flags & RNPM_PRIV_FLAG_FW_10G_1G_AUTO_DETCH_EN) {
+		priv_flags |= RNPM_FW_10G_1G_SFP_AUTO_DET_EN;
+	}
+	if (pf_adapter->priv_flags & RNPM_PRIV_FLAG_FORCE_SPEED_ABLIY) {
+		priv_flags |= RNPM_FORCE_SPEED_ABLITY;
+	}
+	if (adapter->priv_flags & RNPM_PRIV_FLAG_LLDP_EN_STAT) {
+		priv_flags |= RNPM_LLDP_EN_STAT;
+	}
 
 	return priv_flags;
 }
@@ -1838,8 +2998,9 @@ static int rnpm_priv_status_update(struct rnpm_adapter *adapter)
 	int i;
 	u32 priv = 0;
 	u32 data_old, data_new;
+	unsigned long flags;
 
-	spin_lock(&pf_adapter->priv_flags_lock);
+	spin_lock_irqsave(&pf_adapter->priv_flags_lock, flags);
 	data_old = rd32(pf_adapter, RNPM_DMA_CONFIG);
 	data_new = data_old;
 	for (i = 0; i < pf_adapter->adapter_cnt; i++) {
@@ -1847,11 +3008,12 @@ static int rnpm_priv_status_update(struct rnpm_adapter *adapter)
 			priv |= pf_adapter->adapter[i]->priv_flags;
 		}
 	}
-	if (priv & RNPM_PRIV_FLAG_FT_PADDING) {
-		pf_adapter->priv_flags |= RNPM_PRIV_FLAG_FT_PADDING;
+	if (priv & RNPM_PRIV_FLAG_PCIE_CACHE_ALIGN_PATCH) {
+		pf_adapter->priv_flags |= RNPM_PRIV_FLAG_PCIE_CACHE_ALIGN_PATCH;
 		SET_BIT(padding_enable, data_new);
 	} else {
-		pf_adapter->priv_flags &= (~RNPM_PRIV_FLAG_FT_PADDING);
+		pf_adapter->priv_flags &=
+			(~RNPM_PRIV_FLAG_PCIE_CACHE_ALIGN_PATCH);
 		CLR_BIT(padding_enable, data_new);
 	}
 
@@ -1881,7 +3043,24 @@ static int rnpm_priv_status_update(struct rnpm_adapter *adapter)
 
 	if (data_old != data_new)
 		wr32(pf_adapter, RNPM_DMA_CONFIG, data_new);
-	spin_unlock(&pf_adapter->priv_flags_lock);
+	spin_unlock_irqrestore(&pf_adapter->priv_flags_lock, flags);
+	return 0;
+}
+
+static int rnpm_priv_fw_10g_1g_auto_detch(struct rnpm_adapter *adapter)
+{
+	struct rnpm_pf_adapter *pf_adapter = adapter->pf_adapter;
+	unsigned long flags;
+
+	spin_lock_irqsave(&pf_adapter->priv_flags_lock, flags);
+
+	if (pf_adapter->priv_flags & RNPM_PRIV_FLAG_FW_10G_1G_AUTO_DETCH_EN) {
+		rnpm_hw_set_fw_10g_1g_auto_detch(&adapter->hw, 1);
+	} else {
+		rnpm_hw_set_fw_10g_1g_auto_detch(&adapter->hw, 0);
+	}
+
+	spin_unlock_irqrestore(&pf_adapter->priv_flags_lock, flags);
 	return 0;
 }
 
@@ -1889,65 +3068,89 @@ static int rnpm_priv_err_mask_set(struct rnpm_adapter *adapter)
 {
 	struct rnpm_pf_adapter *pf_adapter = adapter->pf_adapter;
 	u32 data_old, data_new;
+	unsigned long flags;
 
-	spin_lock(&pf_adapter->priv_flags_lock);
+	spin_lock_irqsave(&pf_adapter->priv_flags_lock, flags);
 	data_new = data_old = rd32(pf_adapter, RNPM_ETH_ERR_MASK_VECTOR);
 
 	if (pf_adapter->priv_flags & RNPM_PRIV_FLAG_LEN_ERR) {
-			//pf_adapter->priv_flags |= RNPM_PRIV_FLAG_LEN_ERR;
-			data_new |= (ETH_ERR_PKT_LEN_ERR | ETH_ERR_HDR_LEN_ERR);
+		// pf_adapter->priv_flags |= RNPM_PRIV_FLAG_LEN_ERR;
+		data_new |= (ETH_ERR_PKT_LEN_ERR | ETH_ERR_HDR_LEN_ERR);
 	} else {
-			//pf_adapter->priv_flags &= (~RNPM_PRIV_FLAG_LEN_ERR);
-			data_new &= ~(ETH_ERR_PKT_LEN_ERR | ETH_ERR_HDR_LEN_ERR);
+		// pf_adapter->priv_flags &= (~RNPM_PRIV_FLAG_LEN_ERR);
+		data_new &= ~(ETH_ERR_PKT_LEN_ERR | ETH_ERR_HDR_LEN_ERR);
 	}
 
 	if (data_old != data_new) {
-			wr32(pf_adapter, RNPM_ETH_ERR_MASK_VECTOR, data_new);
+		wr32(pf_adapter, RNPM_ETH_ERR_MASK_VECTOR, data_new);
 	}
-	spin_unlock(&pf_adapter->priv_flags_lock);
+	spin_unlock_irqrestore(&pf_adapter->priv_flags_lock, flags);
 	return 0;
 }
 
+/**
+ * rnpm_set_priv_flags - set private flags
+ * @dev: network interface device structure
+ * @flags: bit flags to be set
+ **/
 static int rnpm_set_priv_flags(struct net_device *netdev, u32 priv_flags)
 {
-	struct rnpm_adapter *adapter = (struct rnpm_adapter *)netdev_priv(netdev);
+	struct rnpm_adapter *adapter =
+		(struct rnpm_adapter *)netdev_priv(netdev);
 	struct rnpm_hw *hw = &adapter->hw;
-	u32 data_old;
-	u32 data_new;
+	u32 orig_flags, new_flags;
 
-	data_old = rd32(hw, RNPM_DMA_CONFIG);
-	data_new = data_old;
+	orig_flags = rd32(hw, RNPM_DMA_CONFIG);
+	new_flags = orig_flags;
 
 	if (priv_flags & RNPM_MAC_LOOPBACK) {
-		SET_BIT(mac_loopback, data_new);
+		SET_BIT(mac_loopback, new_flags);
 		adapter->priv_flags |= RNPM_PRIV_FLAG_MAC_LOOPBACK;
 	} else if (adapter->priv_flags & RNPM_PRIV_FLAG_MAC_LOOPBACK) {
 		adapter->priv_flags &= (~RNPM_PRIV_FLAG_MAC_LOOPBACK);
-		CLR_BIT(mac_loopback, data_new);
+		CLR_BIT(mac_loopback, new_flags);
+	}
+
+	if (priv_flags & RNPM_LLDP_EN_STAT) {
+		if (rnpm_mbx_lldp_port_enable(hw, true) == 0) {
+			// dump_stack();
+			adapter->priv_flags |= RNPM_PRIV_FLAG_LLDP_EN_STAT;
+		} else {
+			rnpm_err("%s: set lldp enable faild!\n", adapter->netdev->name);
+			adapter->priv_flags &= (~RNPM_PRIV_FLAG_LLDP_EN_STAT);
+		}
+	} else if (adapter->priv_flags & RNPM_PRIV_FLAG_LLDP_EN_STAT) {
+		adapter->priv_flags &= (~RNPM_PRIV_FLAG_LLDP_EN_STAT);
+		rnpm_mbx_lldp_port_enable(hw, false);
+	}
+
+	if (priv_flags & RNPM_MPE_RELOAD) {
+		rnpm_rpu_mpe_start(adapter->pf_adapter);
 	}
 
 	if (priv_flags & RNPM_SWITCH_LOOPBACK) {
-		SET_BIT(switch_loopback, data_new);
+		SET_BIT(switch_loopback, new_flags);
 		adapter->priv_flags |= RNPM_PRIV_FLAG_SWITCH_LOOPBACK;
 	} else if (adapter->priv_flags & RNPM_PRIV_FLAG_SWITCH_LOOPBACK) {
 		adapter->priv_flags &= (~RNPM_PRIV_FLAG_SWITCH_LOOPBACK);
-		CLR_BIT(switch_loopback, data_new);
+		CLR_BIT(switch_loopback, new_flags);
 	}
 
 	if (priv_flags & RNPM_VEB_ENABLE) {
-		SET_BIT(veb_enable, data_new);
+		SET_BIT(veb_enable, new_flags);
 		adapter->priv_flags |= RNPM_PRIV_FLAG_VEB_ENABLE;
 	} else if (adapter->priv_flags & RNPM_PRIV_FLAG_VEB_ENABLE) {
 		adapter->priv_flags &= (~RNPM_PRIV_FLAG_VEB_ENABLE);
-		CLR_BIT(veb_enable, data_new);
+		CLR_BIT(veb_enable, new_flags);
 	}
 
-	if (priv_flags & RNPM_FT_PADDING) {
-		SET_BIT(padding_enable, data_new);
-		adapter->priv_flags |= RNPM_PRIV_FLAG_FT_PADDING;
-	} else if (adapter->priv_flags & RNPM_PRIV_FLAG_FT_PADDING) {
-		adapter->priv_flags &= (~RNPM_PRIV_FLAG_FT_PADDING);
-		CLR_BIT(padding_enable, data_new);
+	if (priv_flags & RNPM_PCIE_CACHE_ALIGN_PATCH) {
+		SET_BIT(padding_enable, new_flags);
+		adapter->priv_flags |= RNPM_PRIV_FLAG_PCIE_CACHE_ALIGN_PATCH;
+	} else if (adapter->priv_flags &
+		   RNPM_PRIV_FLAG_PCIE_CACHE_ALIGN_PATCH) {
+		adapter->priv_flags &= (~RNPM_PRIV_FLAG_PCIE_CACHE_ALIGN_PATCH);
+		CLR_BIT(padding_enable, new_flags);
 	}
 
 	if (priv_flags & RNPM_PADDING_DEBUG)
@@ -1978,6 +3181,42 @@ static int rnpm_set_priv_flags(struct net_device *netdev, u32 priv_flags)
 	else if (adapter->priv_flags & RNPM_PRIV_FLAG_TO_RPU)
 		adapter->priv_flags &= (~RNPM_PRIV_FLAG_TO_RPU);
 
+	if (priv_flags & RNPM_FW_10G_1G_SFP_AUTO_DET_EN) {
+		if (rnpm_card_partially_supported_10g_1g_sfp(
+			    adapter->pf_adapter)) {
+			adapter->pf_adapter->priv_flags |=
+				RNPM_PRIV_FLAG_FW_10G_1G_AUTO_DETCH_EN;
+			rnpm_priv_fw_10g_1g_auto_detch(adapter);
+		} else {
+			return -EOPNOTSUPP;
+		}
+	} else if (adapter->pf_adapter->priv_flags &
+		   RNPM_PRIV_FLAG_FW_10G_1G_AUTO_DETCH_EN) {
+		adapter->pf_adapter->priv_flags &=
+			(~RNPM_PRIV_FLAG_FW_10G_1G_AUTO_DETCH_EN);
+		rnpm_priv_fw_10g_1g_auto_detch(adapter);
+	}
+
+	if (priv_flags & RNPM_FORCE_SPEED_ABLITY) {
+		if (adapter->hw.max_speed_1g == 1) {
+			adapter->pf_adapter->priv_flags &= ~RNPM_PRIV_FLAG_FORCE_SPEED_ABLIY;
+			adapter->pf_adapter->force_10g_1g_speed_ablity = false;
+
+			rnpm_err("%s: max speed is 1G canot set force_speed_ablity priv-flags  !\n",
+					 adapter->netdev->name);
+		} else {
+			adapter->pf_adapter->priv_flags |= RNPM_PRIV_FLAG_FORCE_SPEED_ABLIY;
+			adapter->pf_adapter->force_10g_1g_speed_ablity = true;
+		}
+	} else if (adapter->pf_adapter->priv_flags &
+		   RNPM_PRIV_FLAG_FORCE_SPEED_ABLIY) {
+		adapter->pf_adapter->priv_flags &=
+			(~RNPM_PRIV_FLAG_FORCE_SPEED_ABLIY);
+		rnpm_mbx_force_speed(hw, 0);
+		set_bit(RNPM_PF_LINK_CHANGE, &adapter->pf_adapter->flags);
+		adapter->pf_adapter->force_10g_1g_speed_ablity = false;
+	}
+
 	if (priv_flags & RNPM_LEN_ERR) {
 		adapter->pf_adapter->priv_flags |= RNPM_PRIV_FLAG_LEN_ERR;
 		rnpm_priv_err_mask_set(adapter);
@@ -1986,30 +3225,45 @@ static int rnpm_set_priv_flags(struct net_device *netdev, u32 priv_flags)
 		rnpm_priv_err_mask_set(adapter);
 	}
 
-	if (data_old != data_new) {
+	if (orig_flags != new_flags) {
 		/* we not support this in multiports */
-		//if (adapter->flags & RNPM_FLAG_MUTIPORT_ENABLED)
-		//	return -EINVAL;
-		wr32(hw, RNPM_DMA_CONFIG, data_new);
+		// if (adapter->flags & RNPM_FLAG_MUTIPORT_ENABLED)
+		//       return -EINVAL;
+		wr32(hw, RNPM_DMA_CONFIG, new_flags);
 
 		rnpm_priv_status_update(adapter);
 	}
 
 	/* if ft_padding changed */
-	if (CHK_BIT(padding_enable, data_old) != CHK_BIT(padding_enable, data_new))
+	if (CHK_BIT(padding_enable, orig_flags) !=
+	    CHK_BIT(padding_enable, new_flags))
 		rnpm_msg_post_status(adapter, PF_FT_PADDING_STATUS);
 	return 0;
 }
 
 #endif /* HAVE_ETHTOOL_GET_SSET_COUNT */
 
-static int rnpm_get_coalesce(struct net_device *netdev,
+/* ethtool register test data */
+
+/**
+ * rnpm_get_coalesce - get a netdev's coalesce settings
+ * @netdev: the netdev to check
+ * @ec: ethtool coalesce data structure
+ * @kec: kernel coalesce parameter
+ * @extack: kernel extack parameter
+ *
+ * Gets the coalesce settings for a particular netdev. Note that if user has
+ * modified per-queue settings, this only guarantees to represent queue 0. See
+ * __rnpm_get_coalesce for more details.
+ **/
+static int
+rnpm_get_coalesce(struct net_device *netdev,
 #ifdef HAVE_ETHTOOL_COALESCE_EXTACK
-				struct ethtool_coalesce *coal,
-				struct kernel_ethtool_coalesce *kernel_coal,
-				struct netlink_ext_ack *extack)
+		  struct ethtool_coalesce *coal,
+		  struct kernel_ethtool_coalesce __maybe_unused *kernel_coal,
+		  struct netlink_ext_ack __maybe_unused *extack)
 #else
-				struct ethtool_coalesce *coal)
+			     struct ethtool_coalesce *coal)
 #endif
 {
 	struct rnpm_adapter *adapter = netdev_priv(netdev);
@@ -2042,14 +3296,24 @@ static int rnpm_get_coalesce(struct net_device *netdev,
 	return 0;
 }
 
-static int rnpm_set_coalesce(struct net_device *netdev,
+/**
+ * rnpm_set_coalesce - set coalesce settings for every queue on the netdev
+ * @netdev: the netdev to change
+ * @ec: ethtool coalesce settings
+ * @kec: kernel coalesce parameter
+ * @extack: kernel extack parameter
+ *
+ * This will set each queue to the same coalesce settings.
+ **/
+static int
+rnpm_set_coalesce(struct net_device *netdev,
 #ifdef HAVE_ETHTOOL_COALESCE_EXTACK
-				struct ethtool_coalesce *ec,
-				struct kernel_ethtool_coalesce *kernel_coal,
-				struct netlink_ext_ack *extack)
+		  struct ethtool_coalesce *ec,
+		  struct kernel_ethtool_coalesce __maybe_unused *kernel_coal,
+		  struct netlink_ext_ack __maybe_unused *extack)
 #else
-				struct ethtool_coalesce *ec)
-#endif
+			     struct ethtool_coalesce *ec)
+#endif /* HAVE_ETHTOOL_COALESCE_EXTACK */
 {
 	int reset = 0;
 	struct rnpm_adapter *adapter = netdev_priv(netdev);
@@ -2060,10 +3324,8 @@ static int rnpm_set_coalesce(struct net_device *netdev,
 
 	if (ec->tx_max_coalesced_frames_irq) {
 		/* check coalesce frame irq */
-		value = clamp_t(u32,
-						ec->tx_max_coalesced_frames_irq,
-						RNPM_MIN_TX_WORK,
-						RNPM_MAX_TX_WORK);
+		value = clamp_t(u32, ec->tx_max_coalesced_frames_irq,
+				RNPM_MIN_TX_WORK, RNPM_MAX_TX_WORK);
 		value = ALIGN(value, RNPM_WORK_ALIGN);
 
 		if (adapter->tx_work_limit != value) {
@@ -2074,10 +3336,8 @@ static int rnpm_set_coalesce(struct net_device *netdev,
 
 	if (ec->tx_max_coalesced_frames) {
 		/* check vlaue */
-		value = clamp_t(u32,
-						ec->tx_max_coalesced_frames,
-						RNPM_MIN_TX_FRAME,
-						RNPM_MAX_TX_FRAME);
+		value = clamp_t(u32, ec->tx_max_coalesced_frames,
+				RNPM_MIN_TX_FRAME, RNPM_MAX_TX_FRAME);
 		if (adapter->tx_frames != value) {
 			reset = 1;
 			adapter->tx_frames = value;
@@ -2086,8 +3346,8 @@ static int rnpm_set_coalesce(struct net_device *netdev,
 
 	if (ec->tx_coalesce_usecs) {
 		/* check vlaue */
-		value = clamp_t(
-			u32, ec->tx_coalesce_usecs, RNPM_MIN_TX_USEC, RNPM_MAX_TX_USEC);
+		value = clamp_t(u32, ec->tx_coalesce_usecs, RNPM_MIN_TX_USEC,
+				RNPM_MAX_TX_USEC);
 		value = value;
 		if (adapter->tx_usecs != value) {
 			reset = 1;
@@ -2096,11 +3356,8 @@ static int rnpm_set_coalesce(struct net_device *netdev,
 	}
 
 	if (ec->rx_max_coalesced_frames_irq) {
-
-		value = clamp_t(u32,
-						ec->rx_max_coalesced_frames_irq,
-						RNPM_MIN_RX_WORK,
-						RNPM_MAX_RX_WORK);
+		value = clamp_t(u32, ec->rx_max_coalesced_frames_irq,
+				RNPM_MIN_RX_WORK, RNPM_MAX_RX_WORK);
 		value = ALIGN(value, RNPM_WORK_ALIGN);
 
 		if (adapter->napi_budge != value) {
@@ -2110,10 +3367,8 @@ static int rnpm_set_coalesce(struct net_device *netdev,
 	}
 
 	if (ec->rx_max_coalesced_frames) {
-		value = clamp_t(u32,
-						ec->rx_max_coalesced_frames,
-						RNPM_MIN_RX_FRAME,
-						RNPM_MAX_RX_FRAME);
+		value = clamp_t(u32, ec->rx_max_coalesced_frames,
+				RNPM_MIN_RX_FRAME, RNPM_MAX_RX_FRAME);
 		if (adapter->rx_frames != value) {
 			reset = 1;
 			adapter->rx_frames = value;
@@ -2122,8 +3377,8 @@ static int rnpm_set_coalesce(struct net_device *netdev,
 
 	if (ec->rx_coalesce_usecs) {
 		/* check vlaue */
-		value = clamp_t(
-			u32, ec->rx_coalesce_usecs, RNPM_MIN_RX_USEC, RNPM_MAX_RX_USEC);
+		value = clamp_t(u32, ec->rx_coalesce_usecs, RNPM_MIN_RX_USEC,
+				RNPM_MAX_RX_USEC);
 		value = value;
 
 		if (adapter->rx_usecs != value) {
@@ -2131,14 +3386,16 @@ static int rnpm_set_coalesce(struct net_device *netdev,
 			adapter->rx_usecs = value;
 		}
 	}
+
 	/* other setup is not supported */
 	if ((ec->pkt_rate_low) || (ec->pkt_rate_high) ||
-		(ec->rx_coalesce_usecs_low) || (ec->rx_max_coalesced_frames_low) ||
-		(ec->tx_coalesce_usecs_low) || (ec->tx_max_coalesced_frames_low) ||
-		(ec->rx_coalesce_usecs_high) || (ec->rx_max_coalesced_frames_high) ||
-		(ec->tx_coalesce_usecs_high) || (ec->tx_max_coalesced_frames_high) ||
-		(ec->rate_sample_interval) || (ec->tx_coalesce_usecs_irq) ||
-		(ec->rx_coalesce_usecs_irq))
+	    (ec->rx_coalesce_usecs_low) || (ec->rx_max_coalesced_frames_low) ||
+	    (ec->tx_coalesce_usecs_low) || (ec->tx_max_coalesced_frames_low) ||
+	    (ec->rx_coalesce_usecs_high) ||
+	    (ec->rx_max_coalesced_frames_high) ||
+	    (ec->tx_coalesce_usecs_high) ||
+	    (ec->tx_max_coalesced_frames_high) || (ec->rate_sample_interval) ||
+	    (ec->tx_coalesce_usecs_irq) || (ec->rx_coalesce_usecs_irq))
 		return -EINVAL;
 
 	if (reset)
@@ -2147,36 +3404,46 @@ static int rnpm_set_coalesce(struct net_device *netdev,
 	return 0;
 }
 
+/**
+ * rnpm_get_ethtool_stats - copy stat values into supplied buffer
+ * @netdev: the netdev to collect stats for
+ * @stats: ethtool stats command structure
+ * @data: ethtool supplied buffer
+ *
+ * Copy the stats values for this netdev into the buffer. Expects data to be
+ * pre-allocated to the size returned by i40e_get_stats_count.. Note that all
+ * statistics must be copied in a static order, and the count must not change
+ * for a given netdev. See i40e_get_stats_count for more details.
+ *
+ * If a statistic is not currently valid (such as a disabled queue), this
+ * function reports its value as zero.
+ **/
 static void rnpm_get_ethtool_stats(struct net_device *netdev,
-								   struct ethtool_stats *stats,
-								   u64 *data)
+				   struct ethtool_stats *stats, u64 *data)
 {
 	struct rnpm_adapter *adapter = netdev_priv(netdev);
-	// struct rtnl_link_stats64 temp;
 	struct rnpm_hw *hw = &adapter->hw;
-	// const struct rtnl_lihk_stats64 *net_stats;
+
 	struct net_device_stats *net_stats = &netdev->stats;
-	// unsigned int start;
 	struct rnpm_ring *ring;
 	int i, j;
 	char *p = NULL;
-	// union rnpm_rx_desc *rx_desc;
 
 	rnpm_update_stats(adapter);
 
-	// net_stats = dev_get_stats(netdev, &temp);
-
 	for (i = 0; i < RNPM_GLOBAL_STATS_LEN; i++) {
 		p = (char *)net_stats + rnpm_gstrings_net_stats[i].stat_offset;
-		data[i] = (rnpm_gstrings_net_stats[i].sizeof_stat == sizeof(u64))
-					  ? *(u64 *)p
-					  : *(u32 *)p;
+		data[i] = (rnpm_gstrings_net_stats[i].sizeof_stat ==
+			   sizeof(u64)) ?
+				  *(u64 *)p :
+				  *(u32 *)p;
 	}
+
 	for (j = 0; j < RNPM_HWSTRINGS_STATS_LEN; j++, i++) {
 		p = (char *)adapter + rnpm_hwstrings_stats[j].stat_offset;
-		data[i] = (rnpm_hwstrings_stats[j].sizeof_stat == sizeof(u64))
-					  ? *(u64 *)p
-					  : *(u32 *)p;
+		data[i] = (rnpm_hwstrings_stats[j].sizeof_stat == sizeof(u64)) ?
+				  *(u64 *)p :
+				  *(u32 *)p;
 	}
 
 	BUG_ON(RNPM_NUM_TX_QUEUES != RNPM_NUM_RX_QUEUES);
@@ -2230,6 +3497,7 @@ static void rnpm_get_ethtool_stats(struct net_device *netdev,
 
 			continue;
 		}
+
 		data[i++] = ring->stats.packets;
 		data[i++] = ring->stats.bytes;
 		data[i++] = ring->tx_stats.restart_queue;
@@ -2239,10 +3507,10 @@ static void rnpm_get_ethtool_stats(struct net_device *netdev,
 		data[i++] = ring->tx_stats.poll_count;
 		data[i++] = ring->tx_stats.irq_more_count;
 		/* rnpm_tx_queue_ring_stat */
-		data[i++] =
-			rd32(hw, RNPM_DMA_REG_TX_DESC_BUF_HEAD(ring->rnpm_queue_idx));
-		data[i++] =
-			rd32(hw, RNPM_DMA_REG_TX_DESC_BUF_TAIL(ring->rnpm_queue_idx));
+		data[i++] = rd32(hw, RNPM_DMA_REG_TX_DESC_BUF_HEAD(
+					     ring->rnpm_queue_idx));
+		data[i++] = rd32(hw, RNPM_DMA_REG_TX_DESC_BUF_TAIL(
+					     ring->rnpm_queue_idx));
 		data[i++] = ring->next_to_clean;
 		data[i++] = ring->next_to_use;
 		data[i++] = ring->tx_stats.send_bytes;
@@ -2297,10 +3565,10 @@ static void rnpm_get_ethtool_stats(struct net_device *netdev,
 		data[i++] = ring->rx_stats.vlan_remove;
 		data[i++] = ring->rx_stats.alloc_rx_page;
 		/* rnpm_rx_queue_ring_stat */
-		data[i++] =
-			rd32(hw, RNPM_DMA_REG_RX_DESC_BUF_HEAD(ring->rnpm_queue_idx));
-		data[i++] =
-			rd32(hw, RNPM_DMA_REG_RX_DESC_BUF_TAIL(ring->rnpm_queue_idx));
+		data[i++] = rd32(hw, RNPM_DMA_REG_RX_DESC_BUF_HEAD(
+					     ring->rnpm_queue_idx));
+		data[i++] = rd32(hw, RNPM_DMA_REG_RX_DESC_BUF_TAIL(
+					     ring->rnpm_queue_idx));
 		data[i++] = ring->next_to_use;
 		data[i++] = ring->next_to_clean;
 		if (ring->rx_stats.rx_next_to_clean == -1)
@@ -2309,6 +3577,9 @@ static void rnpm_get_ethtool_stats(struct net_device *netdev,
 			data[i++] = ring->rx_stats.rx_next_to_clean;
 		data[i++] = ring->rx_stats.rx_irq_miss;
 		data[i++] = ring->rx_stats.rx_equal_count;
+		data[i++] = ring->rx_stats.rx_poll_packets;
+		data[i++] = ring->rx_stats.rx_poll_avg_packets;
+		data[i++] = ring->rx_stats.rx_poll_itr;
 	}
 }
 
@@ -2320,46 +3591,20 @@ static u32 rnpm_get_rx_csum(struct net_device *netdev)
 
 static int rnpm_set_rx_csum(struct net_device *netdev, u32 data)
 {
-	struct rnpm_adapter *adapter = netdev_priv(netdev);
-	bool need_reset = false;
+	// struct rnpm_adapter *adapter = netdev_priv(netdev);
+	// bool need_reset = false;
 
 	if (data)
 		netdev->features |= NETIF_F_RXCSUM;
 	else
 		netdev->features &= ~NETIF_F_RXCSUM;
 
-#if 0
-	/* LRO and RSC both depend on RX checksum to function */
-	if (!data && (netdev->features & NETIF_F_LRO)) {
-		netdev->features &= ~NETIF_F_LRO;
-
-		if (adapter->flags2 & IXGBE_FLAG2_RSC_ENABLED) {
-			adapter->flags2 &= ~IXGBE_FLAG2_RSC_ENABLED;
-			need_reset = true;
-		}
-	}
-
-#ifdef HAVE_VXLAN_RX_OFFLOAD
-	if (adapter->flags & IXGBE_FLAG_VXLAN_OFFLOAD_CAPABLE && data) {
-		netdev->hw_enc_features |= NETIF_F_RXCSUM |
-					   NETIF_F_IP_CSUM |
-					   NETIF_F_IPV6_CSUM;
-		if (!need_reset)
-			adapter->flags2 |= IXGBE_FLAG2_VXLAN_REREG_NEEDED;
-	} else {
-		netdev->hw_enc_features &= ~(NETIF_F_RXCSUM |
-					     NETIF_F_IP_CSUM |
-					     NETIF_F_IPV6_CSUM);
-		ixgbe_clear_udp_tunnel_port(adapter,
-					    IXGBE_VXLANCTRL_ALL_UDPPORT_MASK);
-	}
-#endif /* HAVE_VXLAN_RX_OFFLOAD */
-
-	if (need_reset)
-		ixgbe_do_reset(netdev);
-
-#endif
 	return 0;
+}
+
+__maybe_unused static u32 rnpm_get_tx_csum(struct net_device *netdev)
+{
+	return (netdev->features & NETIF_F_IP_CSUM) != 0;
 }
 
 static int rnpm_set_tx_csum(struct net_device *netdev, u32 data)
@@ -2371,8 +3616,8 @@ static int rnpm_set_tx_csum(struct net_device *netdev, u32 data)
 	u32 feature_list = NETIF_F_IP_CSUM;
 #endif
 
-	switch (adapter->hw.mac.type) {
-	case rnpm_mac_2port_10G:
+	switch (adapter->hw.rss_type) {
+	case rnpm_rss_n10:
 #ifdef HAVE_ENCAP_TSO_OFFLOAD
 		if (data)
 			netdev->hw_enc_features |= NETIF_F_GSO_UDP_TUNNEL;
@@ -2437,9 +3682,15 @@ tso_out:
 #endif
 
 #ifdef ETHTOOL_GRXRINGS
-
+/**
+ * rnpm_get_rss_hash_opts - Get RSS hash Input Set for each flow type
+ * @pf: pointer to the physical function struct
+ * @cmd: ethtool rxnfc command
+ *
+ * Returns Success if the flow is supported, else Invalid Input.
+ **/
 static int rnpm_get_rss_hash_opts(struct rnpm_adapter *adapter,
-								  struct ethtool_rxnfc *cmd)
+				  struct ethtool_rxnfc *cmd)
 {
 	cmd->data = 0;
 
@@ -2481,8 +3732,7 @@ static int rnpm_get_rss_hash_opts(struct rnpm_adapter *adapter,
 	return 0;
 }
 
-__maybe_unused
-static void dump_fsp(struct ethtool_rx_flow_spec *fsp)
+__maybe_unused static void dump_fsp(struct ethtool_rx_flow_spec *fsp)
 {
 	int i;
 
@@ -2491,7 +3741,8 @@ static void dump_fsp(struct ethtool_rx_flow_spec *fsp)
 	case ETHER_FLOW:
 		for (i = 0; i < ETH_ALEN; i++) {
 			dbg("src 0x%02x\n", fsp->h_u.ether_spec.h_source[i]);
-			dbg("src mask 0x%02x\n", fsp->m_u.ether_spec.h_source[i]);
+			dbg("src mask 0x%02x\n",
+			    fsp->m_u.ether_spec.h_source[i]);
 		}
 		for (i = 0; i < ETH_ALEN; i++) {
 			dbg("dst 0x%02x\n", fsp->h_u.ether_spec.h_dest[i]);
@@ -2516,18 +3767,19 @@ static void dump_fsp(struct ethtool_rx_flow_spec *fsp)
 }
 
 static int rnpm_get_ethtool_fdir_entry(struct rnpm_adapter *adapter,
-									   struct ethtool_rxnfc *cmd)
+				       struct ethtool_rxnfc *cmd)
 {
 	// union rnpm_atr_input *mask = &adapter->fdir_mask;
-	struct ethtool_rx_flow_spec *fsp = (struct ethtool_rx_flow_spec *)&cmd->fs;
+	struct ethtool_rx_flow_spec *fsp =
+		(struct ethtool_rx_flow_spec *)&cmd->fs;
 	struct hlist_node *node2;
 	struct rnpm_fdir_filter *rule = NULL;
 
 	/* report total rule count */
 	cmd->data = adapter->fdir_pballoc;
 
-	hlist_for_each_entry_safe(
-		rule, node2, &adapter->fdir_filter_list, fdir_node) {
+	hlist_for_each_entry_safe (rule, node2, &adapter->fdir_filter_list,
+				   fdir_node) {
 		if (fsp->location <= rule->sw_idx)
 			break;
 	}
@@ -2553,14 +3805,15 @@ static int rnpm_get_ethtool_fdir_entry(struct rnpm_adapter *adapter,
 		fsp->h_u.usr_ip4_spec.ip_ver = ETH_RX_NFC_IP4;
 		if (adapter->fdir_mode == fdir_mode_tuple5) {
 			fsp->h_u.usr_ip4_spec.proto =
-			rule->filter.formatted.inner_mac[0];
+				rule->filter.formatted.inner_mac[0];
 			fsp->m_u.usr_ip4_spec.proto = 0xff;
+
 		} else {
 			fsp->h_u.usr_ip4_spec.proto =
-			rule->filter.formatted.inner_mac[0] &
-			rule->filter.formatted.inner_mac_mask[0];
+				rule->filter.formatted.inner_mac[0] &
+				rule->filter.formatted.inner_mac_mask[0];
 			fsp->m_u.usr_ip4_spec.proto =
-			rule->filter.formatted.inner_mac_mask[0];
+				rule->filter.formatted.inner_mac_mask[0];
 		}
 		break;
 	case RNPM_ATR_FLOW_TYPE_ETHER:
@@ -2578,10 +3831,14 @@ static int rnpm_get_ethtool_fdir_entry(struct rnpm_adapter *adapter,
 		// fsp->h_ext.data[1] = htonl(rule->filter.formatted.vm_pool);
 		/* not support mask in tuple 5 mode */
 		if (adapter->fdir_mode == fdir_mode_tuple5) {
-			fsp->h_u.tcp_ip4_spec.psrc = rule->filter.formatted.src_port;
-			fsp->h_u.tcp_ip4_spec.pdst = rule->filter.formatted.dst_port;
-			fsp->h_u.tcp_ip4_spec.ip4src = rule->filter.formatted.src_ip[0];
-			fsp->h_u.tcp_ip4_spec.ip4dst = rule->filter.formatted.dst_ip[0];
+			fsp->h_u.tcp_ip4_spec.psrc =
+				rule->filter.formatted.src_port;
+			fsp->h_u.tcp_ip4_spec.pdst =
+				rule->filter.formatted.dst_port;
+			fsp->h_u.tcp_ip4_spec.ip4src =
+				rule->filter.formatted.src_ip[0];
+			fsp->h_u.tcp_ip4_spec.ip4dst =
+				rule->filter.formatted.dst_ip[0];
 			fsp->m_u.tcp_ip4_spec.psrc = 0xffff;
 			fsp->m_u.tcp_ip4_spec.pdst = 0xffff;
 			fsp->m_u.tcp_ip4_spec.ip4src = 0xffffffff;
@@ -2590,12 +3847,16 @@ static int rnpm_get_ethtool_fdir_entry(struct rnpm_adapter *adapter,
 			// fsp->m_ext.vlan_etype = mask->formatted.flex_bytes;
 			// fsp->m_ext.data[1] = htonl(mask->formatted.vm_pool);
 		} else {
-			fsp->h_u.tcp_ip4_spec.psrc = rule->filter.formatted.src_port &
-										 rule->filter.formatted.src_port_mask;
-			fsp->m_u.tcp_ip4_spec.psrc = rule->filter.formatted.src_port_mask;
-			fsp->h_u.tcp_ip4_spec.pdst = rule->filter.formatted.dst_port &
-										 rule->filter.formatted.dst_port_mask;
-			fsp->m_u.tcp_ip4_spec.pdst = rule->filter.formatted.dst_port_mask;
+			fsp->h_u.tcp_ip4_spec.psrc =
+				rule->filter.formatted.src_port &
+				rule->filter.formatted.src_port_mask;
+			fsp->m_u.tcp_ip4_spec.psrc =
+				rule->filter.formatted.src_port_mask;
+			fsp->h_u.tcp_ip4_spec.pdst =
+				rule->filter.formatted.dst_port &
+				rule->filter.formatted.dst_port_mask;
+			fsp->m_u.tcp_ip4_spec.pdst =
+				rule->filter.formatted.dst_port_mask;
 			fsp->h_u.tcp_ip4_spec.ip4src =
 				rule->filter.formatted.src_ip[0] &
 				rule->filter.formatted.src_ip_mask[0];
@@ -2616,8 +3877,9 @@ static int rnpm_get_ethtool_fdir_entry(struct rnpm_adapter *adapter,
 		fsp->ring_cookie = RX_CLS_FLOW_DISC;
 	else {
 		if (rule->vf_num != 0) {
-			fsp->ring_cookie = ((u64)rule->vf_num << 32) |
-							   (rule->action % PF_RING_CNT_WHEN_IOV_ENABLED);
+			fsp->ring_cookie =
+				((u64)rule->vf_num << 32) |
+				(rule->action % PF_RING_CNT_WHEN_IOV_ENABLED);
 		} else {
 			fsp->ring_cookie = rule->action;
 		}
@@ -2627,8 +3889,7 @@ static int rnpm_get_ethtool_fdir_entry(struct rnpm_adapter *adapter,
 }
 
 static int rnpm_get_ethtool_fdir_all(struct rnpm_adapter *adapter,
-									 struct ethtool_rxnfc *cmd,
-									 u32 *rule_locs)
+				     struct ethtool_rxnfc *cmd, u32 *rule_locs)
 {
 	struct hlist_node *node2;
 	struct rnpm_fdir_filter *rule;
@@ -2637,8 +3898,8 @@ static int rnpm_get_ethtool_fdir_all(struct rnpm_adapter *adapter,
 	/* report total rule count */
 	cmd->data = adapter->fdir_pballoc;
 
-	hlist_for_each_entry_safe(
-		rule, node2, &adapter->fdir_filter_list, fdir_node) {
+	hlist_for_each_entry_safe (rule, node2, &adapter->fdir_filter_list,
+				   fdir_node) {
 		if (cnt == cmd->rule_cnt)
 			return -EMSGSIZE;
 		rule_locs[cnt] = rule->sw_idx;
@@ -2650,12 +3911,19 @@ static int rnpm_get_ethtool_fdir_all(struct rnpm_adapter *adapter,
 	return 0;
 }
 
-static int rnpm_get_rxnfc(struct net_device *dev,
-						  struct ethtool_rxnfc *cmd,
+/**
+ * rnpm_get_rxnfc - command to get RX flow classification rules
+ * @netdev: network interface device structure
+ * @cmd: ethtool rxnfc command
+ * @rule_locs: pointer to store rule data
+ *
+ * Returns Success if the command is supported.
+ **/
+static int rnpm_get_rxnfc(struct net_device *dev, struct ethtool_rxnfc *cmd,
 #ifdef HAVE_ETHTOOL_GET_RXNFC_VOID_RULE_LOCS
-						  void *rule_locs)
+			  void *rule_locs)
 #else
-						  u32 *rule_locs)
+			  u32 *rule_locs)
 #endif
 {
 	struct rnpm_adapter *adapter = netdev_priv(dev);
@@ -2679,7 +3947,11 @@ static int rnpm_get_rxnfc(struct net_device *dev,
 		ret = rnpm_get_ethtool_fdir_entry(adapter, cmd);
 		break;
 	case ETHTOOL_GRXCLSRLALL:
+#ifdef HAVE_ETHTOOL_GET_RXNFC_VOID_RULE_LOCS
 		ret = rnpm_get_ethtool_fdir_all(adapter, cmd, (u32 *)rule_locs);
+#else
+		ret = rnpm_get_ethtool_fdir_all(adapter, cmd, rule_locs);
+#endif
 		break;
 	case ETHTOOL_GRXFH:
 		ret = rnpm_get_rss_hash_opts(adapter, cmd);
@@ -2690,10 +3962,10 @@ static int rnpm_get_rxnfc(struct net_device *dev,
 
 	return ret;
 }
-#define UDP_RSS_FLAGS \
+#define UDP_RSS_FLAGS                                                          \
 	(RNPM_FLAG2_RSS_FIELD_IPV4_UDP | RNPM_FLAG2_RSS_FIELD_IPV6_UDP)
 static int rnpm_set_rss_hash_opt(struct rnpm_adapter *adapter,
-								 struct ethtool_rxnfc *nfc)
+				 struct ethtool_rxnfc *nfc)
 {
 	// u32 flags2 = adapter->flags2;
 
@@ -2701,7 +3973,8 @@ static int rnpm_set_rss_hash_opt(struct rnpm_adapter *adapter,
 	 * RSS does not support anything other than hashing
 	 * to queues on src and dst IPs and ports
 	 */
-	if (nfc->data & ~(RXH_IP_SRC | RXH_IP_DST | RXH_L4_B_0_1 | RXH_L4_B_2_3))
+	if (nfc->data &
+	    ~(RXH_IP_SRC | RXH_IP_DST | RXH_L4_B_0_1 | RXH_L4_B_2_3))
 		return -EINVAL;
 
 	switch (nfc->flow_type) {
@@ -2710,7 +3983,7 @@ static int rnpm_set_rss_hash_opt(struct rnpm_adapter *adapter,
 	case UDP_V4_FLOW:
 	case UDP_V6_FLOW:
 		if (!(nfc->data & RXH_IP_SRC) || !(nfc->data & RXH_IP_DST) ||
-		!(nfc->data & RXH_L4_B_0_1) || !(nfc->data & RXH_L4_B_2_3))
+		    !(nfc->data & RXH_L4_B_0_1) || !(nfc->data & RXH_L4_B_2_3))
 			return -EINVAL;
 		break;
 	case AH_ESP_V4_FLOW:
@@ -2722,7 +3995,7 @@ static int rnpm_set_rss_hash_opt(struct rnpm_adapter *adapter,
 	case ESP_V6_FLOW:
 	case SCTP_V6_FLOW:
 		if (!(nfc->data & RXH_IP_SRC) || !(nfc->data & RXH_IP_DST) ||
-		(nfc->data & RXH_L4_B_0_1) || (nfc->data & RXH_L4_B_2_3))
+		    (nfc->data & RXH_L4_B_0_1) || (nfc->data & RXH_L4_B_2_3))
 			return -EINVAL;
 		break;
 	default:
@@ -2763,10 +4036,17 @@ static int rnpm_set_rss_hash_opt(struct rnpm_adapter *adapter,
 	return 0;
 }
 
+#ifdef ETHTOOL_GFLAGS
+__maybe_unused static int rnpm_set_flags(struct net_device *netdev, u32 data)
+{
+	return 0;
+}
+#endif /* ETHTOOL_GFLAGS */
+
 static int rnpm_flowspec_to_flow_type(struct rnpm_adapter *adapter,
-									  struct ethtool_rx_flow_spec *fsp,
-									  uint8_t *flow_type,
-									  struct rnpm_fdir_filter *input)
+				      struct ethtool_rx_flow_spec *fsp,
+				      uint8_t *flow_type,
+				      struct rnpm_fdir_filter *input)
 {
 	int i;
 	int ret = 1;
@@ -2787,7 +4067,8 @@ static int rnpm_flowspec_to_flow_type(struct rnpm_adapter *adapter,
 	case ETHER_FLOW:
 		/* layer 2 flow */
 		*flow_type = RNPM_ATR_FLOW_TYPE_ETHER;
-		input->filter.layer2_formate.proto = fsp->h_u.ether_spec.h_proto;
+		input->filter.layer2_formate.proto =
+			fsp->h_u.ether_spec.h_proto;
 		break;
 	case IP_USER_FLOW:
 		switch (fsp->h_u.usr_ip4_spec.proto) {
@@ -2803,10 +4084,11 @@ static int rnpm_flowspec_to_flow_type(struct rnpm_adapter *adapter,
 		case 0:
 			/* if only ip4 no src no dst*/
 			if (!(fsp->h_u.tcp_ip4_spec.ip4src) &&
-			(!(fsp->h_u.tcp_ip4_spec.ip4dst))) {
+			    (!(fsp->h_u.tcp_ip4_spec.ip4dst))) {
 				/* if have no l4 proto, use layer2 */
 				*flow_type = RNPM_ATR_FLOW_TYPE_ETHER;
-				input->filter.layer2_formate.proto = htons(0x0800);
+				input->filter.layer2_formate.proto =
+					htons(0x0800);
 			} else {
 				/* may only src or dst input */
 				*flow_type = RNPM_ATR_FLOW_TYPE_IPV4;
@@ -2830,34 +4112,36 @@ static int rnpm_flowspec_to_flow_type(struct rnpm_adapter *adapter,
 		/* should check src dst all zeros */
 		for (i = 0; i < ETH_ALEN; i++) {
 			if ((fsp->h_u.ether_spec.h_source[i] != 0) ||
-				(fsp->h_u.ether_spec.h_dest[i] != 0) ||
-				(fsp->m_u.ether_spec.h_source[i] != 0) ||
-				(fsp->m_u.ether_spec.h_dest[i] != 0))
+			    (fsp->h_u.ether_spec.h_dest[i] != 0) ||
+			    (fsp->m_u.ether_spec.h_source[i] != 0) ||
+			    (fsp->m_u.ether_spec.h_dest[i] != 0))
 				ret = 0;
 		}
 	} else if (*flow_type == RNPM_ATR_FLOW_TYPE_IPV4) {
 		if (adapter->fdir_mode == fdir_mode_tuple5) {
-			if (adapter->tuple_5_count >= adapter->tuple_5_count_max) {
+			if (adapter->tuple_5_count >=
+			    adapter->tuple_5_count_max) {
 				e_err(drv, "tuple 5 count full\n");
 				ret = 0;
 			}
 			if ((fsp->h_u.usr_ip4_spec.ip4src != 0) &&
-				(fsp->m_u.usr_ip4_spec.ip4src != 0xffffffff)) {
+			    (fsp->m_u.usr_ip4_spec.ip4src != 0xffffffff)) {
 				e_err(drv, "ip src mask error\n");
 				ret = 0;
 			}
 			if ((fsp->h_u.usr_ip4_spec.ip4dst != 0) &&
-				(fsp->m_u.usr_ip4_spec.ip4dst != 0xffffffff)) {
+			    (fsp->m_u.usr_ip4_spec.ip4dst != 0xffffffff)) {
 				e_err(drv, "ip dst mask error\n");
 				ret = 0;
 			}
 			if ((fsp->h_u.usr_ip4_spec.proto != 0) &&
-				(fsp->m_u.usr_ip4_spec.proto != 0xff)) {
+			    (fsp->m_u.usr_ip4_spec.proto != 0xff)) {
 				e_err(drv, "ip l4 proto mask error\n");
 				ret = 0;
 			}
 		} else {
-			if (adapter->tuple_5_count >= adapter->tuple_5_count_max) {
+			if (adapter->tuple_5_count >=
+			    adapter->tuple_5_count_max) {
 				e_err(drv, "tcam count full\n");
 				ret = 0;
 			}
@@ -2871,32 +4155,34 @@ static int rnpm_flowspec_to_flow_type(struct rnpm_adapter *adapter,
 	} else {
 		if (adapter->fdir_mode == fdir_mode_tuple5) {
 			/* should check mask all ff */
-			if (adapter->tuple_5_count >= adapter->tuple_5_count_max) {
+			if (adapter->tuple_5_count >=
+			    adapter->tuple_5_count_max) {
 				e_err(drv, "tuple 5 count full\n");
 				ret = 0;
 			}
 			if ((fsp->h_u.tcp_ip4_spec.ip4src != 0) &&
-				(fsp->m_u.tcp_ip4_spec.ip4src != 0xffffffff)) {
+			    (fsp->m_u.tcp_ip4_spec.ip4src != 0xffffffff)) {
 				e_err(drv, "src mask error\n");
 				ret = 0;
 			}
 			if ((fsp->h_u.tcp_ip4_spec.ip4dst != 0) &&
-				(fsp->m_u.tcp_ip4_spec.ip4dst != 0xffffffff)) {
+			    (fsp->m_u.tcp_ip4_spec.ip4dst != 0xffffffff)) {
 				e_err(drv, "dst mask error\n");
 				ret = 0;
 			}
 			if ((fsp->h_u.tcp_ip4_spec.psrc != 0) &&
-				(fsp->m_u.tcp_ip4_spec.psrc != 0xffff)) {
+			    (fsp->m_u.tcp_ip4_spec.psrc != 0xffff)) {
 				e_err(drv, "src port mask error\n");
 				ret = 0;
 			}
 			if ((fsp->h_u.tcp_ip4_spec.pdst != 0) &&
-				(fsp->m_u.tcp_ip4_spec.pdst != 0xffff)) {
+			    (fsp->m_u.tcp_ip4_spec.pdst != 0xffff)) {
 				e_err(drv, "src port mask error\n");
 				ret = 0;
 			}
 		} else {
-			if (adapter->tuple_5_count >= adapter->tuple_5_count_max) {
+			if (adapter->tuple_5_count >=
+			    adapter->tuple_5_count_max) {
 				e_err(drv, "tcam count full\n");
 				ret = 0;
 			}
@@ -2912,8 +4198,7 @@ static int rnpm_flowspec_to_flow_type(struct rnpm_adapter *adapter,
 }
 
 int rnpm_update_ethtool_fdir_entry(struct rnpm_adapter *adapter,
-								   struct rnpm_fdir_filter *input,
-								   u16 sw_idx)
+				   struct rnpm_fdir_filter *input, u16 sw_idx)
 {
 	struct rnpm_hw *hw = &adapter->hw;
 	struct hlist_node *node2;
@@ -2924,8 +4209,8 @@ int rnpm_update_ethtool_fdir_entry(struct rnpm_adapter *adapter,
 	parent = NULL;
 	rule = NULL;
 
-	hlist_for_each_entry_safe(
-		rule, node2, &adapter->fdir_filter_list, fdir_node) {
+	hlist_for_each_entry_safe (rule, node2, &adapter->fdir_filter_list,
+				   fdir_node) {
 		/* hash found, or no matching entry */
 		if (rule->sw_idx >= sw_idx)
 			break;
@@ -2940,13 +4225,15 @@ int rnpm_update_ethtool_fdir_entry(struct rnpm_adapter *adapter,
 		 * is down
 		 */
 		if (netif_running(adapter->netdev) && (!input)) {
-			err = rnpm_fdir_erase_perfect_filter(
-				adapter->fdir_mode, hw, &rule->filter, rule->hw_idx);
+			err = rnpm_fdir_erase_perfect_filter(adapter->fdir_mode,
+							     hw, &rule->filter,
+							     rule->hw_idx);
 			if (err)
 				return -EINVAL;
 		}
 		adapter->fdir_filter_count--;
-		if (rule->filter.formatted.flow_type == RNPM_ATR_FLOW_TYPE_ETHER) {
+		if (rule->filter.formatted.flow_type ==
+		    RNPM_ATR_FLOW_TYPE_ETHER) {
 			/* used to determine hw reg offset */
 			adapter->layer2_count--;
 		} else {
@@ -2985,14 +4272,16 @@ int rnpm_update_ethtool_fdir_entry(struct rnpm_adapter *adapter,
 }
 
 static int rnpm_add_ethtool_fdir_entry(struct rnpm_adapter *adapter,
-									   struct ethtool_rxnfc *cmd)
+				       struct ethtool_rxnfc *cmd)
 {
-	struct ethtool_rx_flow_spec *fsp = (struct ethtool_rx_flow_spec *)&cmd->fs;
+	struct ethtool_rx_flow_spec *fsp =
+		(struct ethtool_rx_flow_spec *)&cmd->fs;
 	struct rnpm_hw *hw = &adapter->hw;
 	struct rnpm_fdir_filter *input;
 	/* we don't support mask */
 	// union rnpm_atr_input mask;
 	int err;
+	unsigned long flags;
 
 	if (!(adapter->flags & RNPM_FLAG_FDIR_PERFECT_CAPABLE))
 		return -EOPNOTSUPP;
@@ -3005,13 +4294,15 @@ static int rnpm_add_ethtool_fdir_entry(struct rnpm_adapter *adapter,
 	/* vf should smaller than num_vfs */
 	if (adapter->flags & RNPM_FLAG_SRIOV_ENABLED) {
 		if ((fsp->ring_cookie != RX_CLS_FLOW_DISC) &&
-			((((fsp->ring_cookie & 0xff00000000) >> 32) > adapter->num_vfs) ||
-			 ((fsp->ring_cookie & 0xffffffff) >= PF_RING_CNT_WHEN_IOV_ENABLED)))
+		    ((((fsp->ring_cookie & 0xff00000000) >> 32) >
+		      adapter->num_vfs) ||
+		     ((fsp->ring_cookie & 0xffffffff) >=
+		      PF_RING_CNT_WHEN_IOV_ENABLED)))
 			return -EINVAL;
 
 	} else {
 		if ((fsp->ring_cookie != RX_CLS_FLOW_DISC) &&
-			(fsp->ring_cookie >= adapter->num_rx_queues))
+		    (fsp->ring_cookie >= adapter->num_rx_queues))
 			return -EINVAL;
 	}
 
@@ -3026,13 +4317,12 @@ static int rnpm_add_ethtool_fdir_entry(struct rnpm_adapter *adapter,
 		return -ENOMEM;
 
 	// memset(&mask, 0, sizeof(union rnpm_atr_input));
-
 	/* set SW index */
 	input->sw_idx = fsp->location;
 
 	/* record flow type */
 	if (!rnpm_flowspec_to_flow_type(
-			adapter, fsp, &input->filter.formatted.flow_type, input)) {
+		    adapter, fsp, &input->filter.formatted.flow_type, input)) {
 		e_err(drv, "Unrecognized flow type\n");
 		goto err_out;
 	}
@@ -3040,30 +4330,45 @@ static int rnpm_add_ethtool_fdir_entry(struct rnpm_adapter *adapter,
 	if (input->filter.formatted.flow_type == RNPM_ATR_FLOW_TYPE_ETHER) {
 		/* used to determine hw reg offset */
 		input->hw_idx = adapter->layer2_count + adapter->layer2_offset;
-	} else if (input->filter.formatted.flow_type == RNPM_ATR_FLOW_TYPE_IPV4) {
-		input->hw_idx = adapter->tuple_5_count + adapter->tuple_5_offset;
+	} else if (input->filter.formatted.flow_type ==
+		   RNPM_ATR_FLOW_TYPE_IPV4) {
+		input->hw_idx =
+			adapter->tuple_5_count + adapter->tuple_5_offset;
 		/* Copy input into formatted structures */
-		input->filter.formatted.src_ip[0] = fsp->h_u.usr_ip4_spec.ip4src;
-		input->filter.formatted.src_ip_mask[0] = fsp->m_u.usr_ip4_spec.ip4src;
-		input->filter.formatted.dst_ip[0] = fsp->h_u.usr_ip4_spec.ip4dst;
-		input->filter.formatted.dst_ip_mask[0] = fsp->m_u.usr_ip4_spec.ip4dst;
+		input->filter.formatted.src_ip[0] =
+			fsp->h_u.usr_ip4_spec.ip4src;
+		input->filter.formatted.src_ip_mask[0] =
+			fsp->m_u.usr_ip4_spec.ip4src;
+		input->filter.formatted.dst_ip[0] =
+			fsp->h_u.usr_ip4_spec.ip4dst;
+		input->filter.formatted.dst_ip_mask[0] =
+			fsp->m_u.usr_ip4_spec.ip4dst;
 		input->filter.formatted.src_port = 0;
 		input->filter.formatted.src_port_mask = 0xffff;
 		input->filter.formatted.dst_port = 0;
 		input->filter.formatted.dst_port_mask = 0xffff;
-		input->filter.formatted.inner_mac[0] = fsp->h_u.usr_ip4_spec.proto;
-		input->filter.formatted.inner_mac_mask[0] = fsp->m_u.usr_ip4_spec.proto;
+		input->filter.formatted.inner_mac[0] =
+			fsp->h_u.usr_ip4_spec.proto;
+		input->filter.formatted.inner_mac_mask[0] =
+			fsp->m_u.usr_ip4_spec.proto;
 	} else { /* tcp or udp or sctp*/
-		input->hw_idx = adapter->tuple_5_count + adapter->tuple_5_offset;
+		input->hw_idx =
+			adapter->tuple_5_count + adapter->tuple_5_offset;
 		/* Copy input into formatted structures */
-		input->filter.formatted.src_ip[0] = fsp->h_u.tcp_ip4_spec.ip4src;
-		input->filter.formatted.src_ip_mask[0] = fsp->m_u.usr_ip4_spec.ip4src;
-		input->filter.formatted.dst_ip[0] = fsp->h_u.tcp_ip4_spec.ip4dst;
-		input->filter.formatted.dst_ip_mask[0] = fsp->m_u.usr_ip4_spec.ip4dst;
+		input->filter.formatted.src_ip[0] =
+			fsp->h_u.tcp_ip4_spec.ip4src;
+		input->filter.formatted.src_ip_mask[0] =
+			fsp->m_u.usr_ip4_spec.ip4src;
+		input->filter.formatted.dst_ip[0] =
+			fsp->h_u.tcp_ip4_spec.ip4dst;
+		input->filter.formatted.dst_ip_mask[0] =
+			fsp->m_u.usr_ip4_spec.ip4dst;
 		input->filter.formatted.src_port = fsp->h_u.tcp_ip4_spec.psrc;
-		input->filter.formatted.src_port_mask = fsp->m_u.tcp_ip4_spec.psrc;
+		input->filter.formatted.src_port_mask =
+			fsp->m_u.tcp_ip4_spec.psrc;
 		input->filter.formatted.dst_port = fsp->h_u.tcp_ip4_spec.pdst;
-		input->filter.formatted.dst_port_mask = fsp->m_u.tcp_ip4_spec.pdst;
+		input->filter.formatted.dst_port_mask =
+			fsp->m_u.tcp_ip4_spec.pdst;
 	}
 	/* determine if we need to drop or route the packet */
 	if (fsp->ring_cookie == RX_CLS_FLOW_DISC)
@@ -3072,12 +4377,13 @@ static int rnpm_add_ethtool_fdir_entry(struct rnpm_adapter *adapter,
 		input->vf_num = (fsp->ring_cookie >> 32) & 0xff;
 		if (input->vf_num) {
 			/* in vf mode input->action is the real queue nums */
-			input->action = 2 * (((fsp->ring_cookie >> 32) & 0xff) - 1) +
-							(fsp->ring_cookie & 0xffffffff);
+			input->action =
+				2 * (((fsp->ring_cookie >> 32) & 0xff) - 1) +
+				(fsp->ring_cookie & 0xffffffff);
 		} else
 			input->action = fsp->ring_cookie;
 	}
-	spin_lock(&adapter->fdir_perfect_lock);
+	spin_lock_irqsave(&adapter->fdir_perfect_lock, flags);
 	/* only program filters to hardware if the net device is running, as
 	 * we store the filters in the Rx buffer which is not allocated when
 	 * the device is down
@@ -3085,50 +4391,57 @@ static int rnpm_add_ethtool_fdir_entry(struct rnpm_adapter *adapter,
 	if (netif_running(adapter->netdev)) {
 		if (!input->vf_num) {
 			err = rnpm_fdir_write_perfect_filter(
-				adapter->fdir_mode,
-				hw,
-				&input->filter,
+				adapter->fdir_mode, hw, &input->filter,
 				input->hw_idx,
-				(input->action == RNPM_FDIR_DROP_QUEUE)
-					? RNPM_FDIR_DROP_QUEUE
-					: adapter->rx_ring[input->action]->rnpm_queue_idx);
+				(input->action == RNPM_FDIR_DROP_QUEUE) ?
+					RNPM_FDIR_DROP_QUEUE :
+					adapter->rx_ring[input->action]
+						->rnpm_queue_idx);
 			/* to check */
 		} else {
 			err = rnpm_fdir_write_perfect_filter(
-				adapter->fdir_mode,
-				hw,
-				&input->filter,
+				adapter->fdir_mode, hw, &input->filter,
 				input->hw_idx,
-				(input->action == RNPM_FDIR_DROP_QUEUE) ? RNPM_FDIR_DROP_QUEUE
-														: input->action);
+				(input->action == RNPM_FDIR_DROP_QUEUE) ?
+					RNPM_FDIR_DROP_QUEUE :
+					input->action);
 		}
 		if (err)
 			goto err_out_w_lock;
 	}
 
 	rnpm_update_ethtool_fdir_entry(adapter, input, input->sw_idx);
-	spin_unlock(&adapter->fdir_perfect_lock);
+	spin_unlock_irqrestore(&adapter->fdir_perfect_lock, flags);
 	return 0;
 err_out_w_lock:
-	spin_unlock(&adapter->fdir_perfect_lock);
+	spin_unlock_irqrestore(&adapter->fdir_perfect_lock, flags);
 err_out:
 	kfree(input);
 	return -EINVAL;
 }
 
 static int rnpm_del_ethtool_fdir_entry(struct rnpm_adapter *adapter,
-									   struct ethtool_rxnfc *cmd)
+				       struct ethtool_rxnfc *cmd)
 {
-	struct ethtool_rx_flow_spec *fsp = (struct ethtool_rx_flow_spec *)&cmd->fs;
+	struct ethtool_rx_flow_spec *fsp =
+		(struct ethtool_rx_flow_spec *)&cmd->fs;
 	int err;
+	unsigned long flags;
 
-	spin_lock(&adapter->fdir_perfect_lock);
+	spin_lock_irqsave(&adapter->fdir_perfect_lock, flags);
 	err = rnpm_update_ethtool_fdir_entry(adapter, NULL, fsp->location);
-	spin_unlock(&adapter->fdir_perfect_lock);
+	spin_unlock_irqrestore(&adapter->fdir_perfect_lock, flags);
 
 	return err;
 }
 
+/**
+ * rnpm_set_rxnfc - command to set RX flow classification rules
+ * @dev: network interface device structure
+ * @cmd: ethtool rxnfc command
+ *
+ * Returns Success if the command is supported.
+ **/
 static int rnpm_set_rxnfc(struct net_device *dev, struct ethtool_rxnfc *cmd)
 {
 	struct rnpm_adapter *adapter = netdev_priv(dev);
@@ -3151,19 +4464,128 @@ static int rnpm_set_rxnfc(struct net_device *dev, struct ethtool_rxnfc *cmd)
 	return ret;
 }
 
-#endif
+#endif /* ETHTOOL_GRXRINGS */
+
 #ifdef ETHTOOL_SRXNTUPLE
-/*
- * We need to keep this around for kernels 2.6.33 - 2.6.39 in order to avoid
+/* We need to keep this around for kernels 2.6.33 - 2.6.39 in order to avoid
  * a null pointer dereference as it was assumend if the NETIF_F_NTUPLE flag
  * was defined that this function was present.
  */
 static int rnpm_set_rx_ntuple(struct net_device __always_unused *dev,
-							  struct ethtool_rx_ntuple __always_unused *cmd)
+			      struct ethtool_rx_ntuple __always_unused *cmd)
 {
 	return -EOPNOTSUPP;
 }
 
+#endif /* ETHTOOL_SRXNTUPLE */
+
+enum {
+	PART_FW,
+	PART_CFG,
+	PART_MACSN,
+	PART_PCSPHY,
+	PART_PXE,
+};
+
+#define UCFG_OFF 0x41000
+#define UCFG_SZ	 (4096)
+#define PXE_OFF	 0x4a000
+#define PXE_SZ	 (512 * 1024)
+
+#ifdef HAVE_DDP_PROFILE_UPLOAD_SUPPORT
+static int rnpm_flash_firmware(struct rnpm_adapter *adapter, int region,
+			       const u8 *data, int bytes)
+{
+	struct rnpm_hw *hw = &adapter->hw;
+	switch (region) {
+	case PART_FW: {
+		if (*((u32 *)(data + 28)) != 0xA51BBEAF) {
+			return -EINVAL;
+		}
+		if (bytes > PXE_OFF) {	// fw with pxe
+			int err;
+			int wbytes_seg1 = bytes - PXE_OFF;
+			if (wbytes_seg1 > PXE_SZ) {
+				wbytes_seg1 = PXE_SZ;
+			}
+
+			// fw
+			err = rnpm_fw_update(hw, PART_FW, data, UCFG_OFF);
+			if (err) {
+				return err;
+			}
+			// skip ucfg flush only pxe
+			err = rnpm_fw_update(hw, PART_PXE, data + PXE_OFF, wbytes_seg1);
+			if (err) {
+				return err;
+			}
+			return 0;
+		}
+		break;
+	}
+	case PART_CFG: {
+		if (*((u32 *)(data)) != 0x00010cf9) {
+			return -EINVAL;
+		}
+		break;
+	}
+	case PART_MACSN: {
+		break;
+	}
+	case PART_PCSPHY: {
+		if (*((u16 *)(data)) != 0x081d) {
+			return -EINVAL;
+		}
+		break;
+	}
+	case PART_PXE: {
+		if (*((u16 *)(data)) != 0xaa55) {
+			return -EINVAL;
+		}
+		break;
+	}
+	default: {
+		return -EINVAL;
+	}
+	}
+
+	return rnpm_fw_update(hw, region, data, bytes);
+}
+
+static int rnpm_flash_firmware_from_file(struct net_device *dev,
+					 struct rnpm_adapter *adapter,
+					 int region, const char *filename)
+{
+	const struct firmware *fw;
+	int rc;
+
+	rc = request_firmware(&fw, filename, &dev->dev);
+	if (rc != 0) {
+		netdev_err(dev, "Error %d requesting firmware file: %s\n", rc,
+			   filename);
+		return rc;
+	}
+
+	rc = rnpm_flash_firmware(adapter, region, fw->data, fw->size);
+
+	release_firmware(fw);
+	return rc;
+}
+
+static int rnpm_flash_device(struct net_device *dev,
+			     struct ethtool_flash *flash)
+{
+	struct rnpm_adapter *adapter = netdev_priv(dev);
+
+	if (IS_VF(adapter->hw.pfvfnum)) {
+		netdev_err(dev,
+			   "flashdev not supported from a virtual function\n");
+		return -EINVAL;
+	}
+
+	return rnpm_flash_firmware_from_file(dev, adapter, flash->region,
+					     flash->data);
+}
 #endif
 
 #if defined(ETHTOOL_GRSSH) && defined(ETHTOOL_SRSSH)
@@ -3197,8 +4619,8 @@ static void rnpm_get_reta(struct rnpm_adapter *adapter, u32 *indir)
 }
 
 #ifdef HAVE_RXFH_HASHFUNC
-static int
-rnpm_get_rxfh(struct net_device *netdev, u32 *indir, u8 *key, u8 *hfunc)
+static int rnpm_get_rxfh(struct net_device *netdev, u32 *indir, u8 *key,
+			 u8 *hfunc)
 #else
 static int rnpm_get_rxfh(struct net_device *netdev, u32 *indir, u8 *key)
 #endif
@@ -3215,97 +4637,12 @@ static int rnpm_get_rxfh(struct net_device *netdev, u32 *indir, u8 *key)
 		rnpm_get_reta(adapter, indir);
 
 	if (key)
-		memcpy(key, pf_adapter->rss_key, rnpm_get_rxfh_key_size(netdev));
+		memcpy(key, pf_adapter->rss_key,
+		       rnpm_get_rxfh_key_size(netdev));
 
 	return 0;
 }
 
-enum {
-	PART_FW,
-	PART_CFG,
-	PART_MACSN,
-	PART_PCSPHY,
-	PART_PXE,
-};
-
-#ifdef HAVE_DDP_PROFILE_UPLOAD_SUPPORT
-static int rnpm_flash_firmware(struct rnpm_adapter *adapter,
-							   int region,
-							   const u8 *data,
-							   int bytes)
-{
-	struct rnpm_hw *hw = &adapter->hw;
-	switch (region) {
-		case PART_FW: {
-			if (*((u32 *)(data + 28)) != 0xA51BBEAF) {
-				return -EINVAL;
-			}
-			break;
-		}
-		case PART_CFG: {
-			if (*((u32 *)(data)) != 0x00010cf9) {
-				return -EINVAL;
-			}
-			break;
-		}
-		case PART_MACSN: {
-			break;
-		}
-		case PART_PCSPHY: {
-			if (*((u16 *)(data)) != 0x081d) {
-				return -EINVAL;
-			}
-			break;
-		}
-		case PART_PXE: {
-			if (*((u16 *)(data)) != 0xaa55) {
-				return -EINVAL;
-			}
-			break;
-		}
-		default: {
-			return -EINVAL;
-		}
-	}
-
-	return rnpm_fw_update(hw, region, data, bytes);
-}
-
-static int rnpm_flash_firmware_from_file(struct net_device *dev,
-		struct rnpm_adapter *adapter,
-		int region,
-		const char *filename)
-{
-	const struct firmware *fw;
-	int rc;
-
-	rc = request_firmware(&fw, filename, &dev->dev);
-	if (rc != 0) {
-		netdev_err(
-			dev, "Error %d requesting firmware file: %s\n", rc, filename);
-		return rc;
-	}
-
-	rc = rnpm_flash_firmware(adapter, region, fw->data, fw->size);
-
-	release_firmware(fw);
-	return rc;
-}
-
-static int rnpm_flash_device(struct net_device *dev,
-							 struct ethtool_flash *flash)
-{
-	struct rnpm_adapter *adapter = netdev_priv(dev);
-
-	if (IS_VF(adapter->hw.pfvfnum)) {
-		netdev_err(dev, "flashdev not supported from a virtual function\n");
-		return -EINVAL;
-	}
-
-	return rnpm_flash_firmware_from_file(
-		dev, adapter, flash->region, flash->data);
-}
-#endif
 static int rnpm_rss_indir_tbl_max(struct rnpm_adapter *adapter)
 {
 	if (adapter->hw.rss_type == rnpm_rss_uv3p)
@@ -3318,40 +4655,50 @@ static int rnpm_rss_indir_tbl_max(struct rnpm_adapter *adapter)
 		return 128;
 }
 
+/**
+ * rnpm_set_rxfh - set the rx flow hash indirection table
+ * @netdev: network interface device structure
+ * @indir: indirection table
+ * @key: hash key
+ * @hfunc: hash function to use
+ *
+ * Returns -EINVAL if the table specifies an invalid queue id, otherwise
+ * returns 0 after programming the table.
+ **/
 #ifdef HAVE_RXFH_HASHFUNC
-static int rnpm_set_rxfh(struct net_device *netdev,
-						 const u32 *indir,
-						 const u8 *key,
-						 const u8 hfunc)
+static int rnpm_set_rxfh(struct net_device *netdev, const u32 *indir,
+			 const u8 *key, const u8 hfunc)
 #else
 #ifdef HAVE_RXFH_NONCONST
 static int rnpm_set_rxfh(struct net_device *netdev, u32 *indir, u8 *key)
 #else
-static int
-rnpm_set_rxfh(struct net_device *netdev, const u32 *indir, const u8 *key)
+static int rnpm_set_rxfh(struct net_device *netdev, const u32 *indir,
+			 const u8 *key)
 #endif /* HAVE_RXFH_NONCONST */
 #endif /* HAVE_RXFH_HASHFUNC */
 {
 	struct rnpm_adapter *adapter = netdev_priv(netdev);
 	struct rnpm_pf_adapter *pf_adapter = adapter->pf_adapter;
-	int i;
+	u16 i;
 	u32 reta_entries = rnpm_rss_indir_tbl_entries(adapter);
+	unsigned long flags;
 
 #ifdef HAVE_RXFH_HASHFUNC
 	if (hfunc)
-		return -EINVAL;
+		return -EOPNOTSUPP;
 #endif
 
-	/* Fill out the redirection table */
+	/* Verify user input. */
 	if (indir) {
-		int max_queues =
-			min_t(int, adapter->num_rx_queues, rnpm_rss_indir_tbl_max(adapter));
+		int max_queues = min_t(int, adapter->num_rx_queues,
+				       rnpm_rss_indir_tbl_max(adapter));
 
 		/* in this mode ,do not change rss table */
 		if (adapter->flags & RNPM_FLAG_RXHASH_DISABLE)
 			return -EINVAL;
 		/*Allow at least 2 queues w/ SR-IOV.*/
-		if ((adapter->flags & RNPM_FLAG_SRIOV_ENABLED) && (max_queues < 2))
+		if ((adapter->flags & RNPM_FLAG_SRIOV_ENABLED) &&
+		    (max_queues < 2))
 			max_queues = 2;
 
 		/* Verify user input. */
@@ -3371,27 +4718,29 @@ rnpm_set_rxfh(struct net_device *netdev, const u32 *indir, const u8 *key)
 		/* not support key setup in multiports */
 		if (adapter->flags & RNPM_FLAG_MUTIPORT_ENABLED)
 			return -EINVAL;
-		spin_lock(&pf_adapter->key_setup_lock);
-		memcpy(pf_adapter->rss_key, key, rnpm_get_rxfh_key_size(netdev));
+		spin_lock_irqsave(&pf_adapter->key_setup_lock, flags);
+		memcpy(pf_adapter->rss_key, key,
+		       rnpm_get_rxfh_key_size(netdev));
 		rnpm_store_key(pf_adapter);
-		spin_unlock(&pf_adapter->key_setup_lock);
+		spin_unlock_irqrestore(&pf_adapter->key_setup_lock, flags);
 	}
 
 	return 0;
 }
 
-#endif
+#endif /* ETHTOOL_GRSSH && ETHTOOL_SRSSH */
 
 #ifdef HAVE_ETHTOOL_PHY_STATISTICS
-void rnpm_get_phy_statistics(struct net_device *netdev, struct ethtool_stats *stats, u64 *data)
+void rnpm_get_phy_statistics(struct net_device *netdev,
+			     struct ethtool_stats *stats, u64 *data)
 {
 	struct rnpm_adapter *adapter = netdev_priv(netdev);
 	struct rnpm_hw *hw = &adapter->hw;
-    struct phy_statistics ps;
+	struct phy_statistics ps;
 
-    if (rnpm_mbx_get_phy_statistics(hw, (u8 *)&ps) != 0) {
+	if (rnpm_mbx_get_phy_statistics(hw, (u8 *)&ps) != 0) {
 		return;
-    }
+	}
 
 	*data++ = ps.yt.pkg_ib_valid;
 	*data++ = ps.yt.pkg_ib_os_good;
@@ -3410,25 +4759,35 @@ void rnpm_get_phy_statistics(struct net_device *netdev, struct ethtool_stats *st
 }
 #endif
 
+static int rnpm_nway_reset(struct net_device *netdev)
+{
+	/* restart autonegotiation */
+	struct rnpm_adapter *adapter = netdev_priv(netdev);
+	netdev_info(netdev, "NIC Link is Down\n");
+	rnpm_down(adapter);
+	msleep(10);
+	rnpm_up(adapter);
+	return 0;
+}
 static const struct ethtool_ops rnpm_ethtool_ops = {
-#ifdef HAVE_ETHTOOL_CONVERT_U32_AND_LINK_MODE
-	.get_link_ksettings = rnpm_get_link_ksettings,
-	.set_link_ksettings = rnpm_set_link_ksettings,
-#else
+#if defined(KYLIN_V4_ETHTOOL_FIX_BOND) || !defined(ETHTOOL_GLINKSETTINGS)
 	.get_settings = rnpm_get_settings,
 	.set_settings = rnpm_set_settings,
-#endif
+#else
+	.get_link_ksettings = rnpm_get_link_ksettings,
+	.set_link_ksettings = rnpm_set_link_ksettings,
+#endif /* ETHTOOL_GLINKSETTINGS */
 	.get_drvinfo = rnpm_get_drvinfo,
 
 	.get_regs_len = rnpm_get_regs_len,
 	.get_regs = rnpm_get_regs,
 	.get_wol = rnpm_get_wol,
 	.set_wol = rnpm_set_wol,
-	//.nway_reset             = rnpm_nway_reset,
+	.nway_reset = rnpm_nway_reset,
 	.get_link = ethtool_op_get_link,
-	//.get_eeprom_len         = rnpm_get_eeprom_len,
-	//.get_eeprom             = rnpm_get_eeprom,
-	//.set_eeprom             = rnpm_set_eeprom,
+	//.set_eeprom		= rnpm_set_eeprom,
+	//.get_eeprom_len	= rnpm_get_eeprom_len,
+	//.get_eeprom		= rnpm_get_eeprom,
 	.get_ringparam = rnpm_get_ringparam,
 	.set_ringparam = rnpm_set_ringparam,
 	.get_pauseparam = rnpm_get_pauseparam,
@@ -3439,27 +4798,34 @@ static const struct ethtool_ops rnpm_ethtool_ops = {
 #ifdef ETHTOOL_GFECPARAM
 	.get_fecparam = rnpm_get_fecparam,
 	.set_fecparam = rnpm_set_fecparam,
-#endif
+#endif /* ETHTOOL_GFECPARAM */
+
 #ifndef CLOST_SELF_TEST
 #ifndef HAVE_ETHTOOL_GET_SSET_COUNT
-//.self_test_count        = rnpm_diag_test_count,
-#endif
+// .self_test_count = rnpm_diag_test_count,
+#endif /* HAVE_ETHTOOL_GET_SSET_COUNT */
 	.self_test = rnpm_diag_test,
 #endif
 	.get_strings = rnpm_get_strings,
 
 #ifndef HAVE_RHEL6_ETHTOOL_OPS_EXT_STRUCT
+#ifdef ETHTOOL_GEEE
+//.get_eee		= rnpm_get_eee,
+#endif /* ETHTOOL_GEEE */
+#ifdef ETHTOOL_SEEE
+//.set_eee		= rnpm_set_eee,
+#endif /* ETHTOOL_SEEE */
 #ifdef HAVE_ETHTOOL_SET_PHYS_ID
 	.set_phys_id = rnpm_set_phys_id,
 #else
-//.phys_id = rnpm_phys_id,
+//.phys_id		= rnpm_phys_id,
 #endif /* HAVE_ETHTOOL_SET_PHYS_ID */
 #endif /* HAVE_RHEL6_ETHTOOL_OPS_EXT_STRUCT */
 #ifndef HAVE_ETHTOOL_GET_SSET_COUNT
 	.get_stats_count = rnpm_get_stats_count,
-#else  /* HAVE_ETHTOOL_GET_SSET_COUNT */
+#else /* HAVE_ETHTOOL_GET_SSET_COUNT */
 	.get_sset_count = rnpm_get_sset_count,
-	.get_priv_flags = rnpm_get_priv_flags, // priv flags
+	.get_priv_flags = rnpm_get_priv_flags,
 	.set_priv_flags = rnpm_set_priv_flags,
 #endif /* HAVE_ETHTOOL_GET_SSET_COUNT */
 	.get_ethtool_stats = rnpm_get_ethtool_stats,
@@ -3469,8 +4835,16 @@ static const struct ethtool_ops rnpm_ethtool_ops = {
 	.get_coalesce = rnpm_get_coalesce,
 	.set_coalesce = rnpm_set_coalesce,
 #ifdef ETHTOOL_COALESCE_USECS
-	.supported_coalesce_params = ETHTOOL_COALESCE_USECS,
+	.supported_coalesce_params = 0 | ETHTOOL_COALESCE_USECS
+#ifdef ETHTOOL_COALESCE_MAX_FRAMES_IRQ
+				     | ETHTOOL_COALESCE_MAX_FRAMES_IRQ
 #endif
+#ifdef ETHTOOL_COALESCE_MAX_FRAMES
+				     | ETHTOOL_COALESCE_MAX_FRAMES
+#endif
+	,
+#endif
+
 #ifndef HAVE_NDO_SET_FEATURES
 	.get_rx_csum = rnpm_get_rx_csum,
 	.set_rx_csum = rnpm_set_rx_csum,
@@ -3485,15 +4859,15 @@ static const struct ethtool_ops rnpm_ethtool_ops = {
 
 #ifdef ETHTOOL_GFLAGS
 	.get_flags = ethtool_op_get_flags,
-//.set_flags              = rnp_set_flags,
+//.set_flags		= rnpm_set_flags,
 #endif
 #endif /* HAVE_NDO_SET_FEATURES */
 #ifdef ETHTOOL_GRXRINGS
 	.get_rxnfc = rnpm_get_rxnfc,
 	.set_rxnfc = rnpm_set_rxnfc,
-#endif
 #ifdef ETHTOOL_SRXNTUPLE
 	.set_rx_ntuple = rnpm_set_rx_ntuple,
+#endif
 #endif
 
 #ifndef HAVE_RHEL6_ETHTOOL_OPS_EXT_STRUCT
@@ -3506,7 +4880,7 @@ static const struct ethtool_ops rnpm_ethtool_ops = {
 #ifdef ETHTOOL_SCHANNELS
 	.get_channels = rnpm_get_channels,
 	.set_channels = rnpm_set_channels,
-#endif /* ETHTOOL_SCHANNELS */
+#endif
 
 #ifdef ETHTOOL_GMODULEINFO
 	.get_module_info = rnpm_get_module_info,
@@ -3532,8 +4906,14 @@ static const struct ethtool_ops rnpm_ethtool_ops = {
 #endif /* HAVE_DDP_PROFILE_UPLOAD_SUPPORT */
 
 #ifdef HAVE_ETHTOOL_PHY_STATISTICS
-    .get_ethtool_phy_stats	= rnpm_get_phy_statistics,
+	.get_ethtool_phy_stats = rnpm_get_phy_statistics,
 #endif
+
+#ifdef ETHTOOL_PERQUEUE
+//.get_per_queue_coalesce	= rnpm_get_per_queue_coalesce,
+//.set_per_queue_coalesce	= rnpm_set_per_queue_coalesce,
+#endif /* ETHTOOL_PERQUEUE */
+
 };
 
 #ifdef HAVE_RHEL6_ETHTOOL_OPS_EXT_STRUCT
@@ -3555,10 +4935,10 @@ static const struct ethtool_ops_ext rnpm_ethtool_ops_ext = {
 	.set_rxfh = rnpm_set_rxfh,
 #endif /* ETHTOOL_GRSSH && ETHTOOL_SRSSH */
 #ifdef ETHTOOL_GEEE
-//        .get_eee                = rnpm_get_eee,
+//.get_eee		= rnpm_get_eee,
 #endif /* ETHTOOL_GEEE */
 #ifdef ETHTOOL_SEEE
-//        .set_eee                = rnpm_set_eee,
+//.set_eee		= rnpm_set_eee,
 #endif /* ETHTOOL_SEEE */
 };
 #endif /* HAVE_RHEL6_ETHTOOL_OPS_EXT_STRUCT */
@@ -3574,4 +4954,4 @@ void rnpm_set_ethtool_ops(struct net_device *netdev)
 	set_ethtool_ops_ext(netdev, &rnpm_ethtool_ops_ext);
 #endif /* HAVE_RHEL6_ETHTOOL_OPS_EXT_STRUCT */
 }
-#endif
+// #endif /* SIOCETHTOOL */

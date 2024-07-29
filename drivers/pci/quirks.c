@@ -324,6 +324,19 @@ static void loongson_mrrs_quirk(struct pci_dev *dev)
 }
 DECLARE_PCI_FIXUP_ENABLE(PCI_ANY_ID, PCI_ANY_ID, loongson_mrrs_quirk);
 
+static void loongson_pcie_msi_quirk(struct pci_dev *dev)
+{
+	u16 val;
+	u16 class;
+	class = dev->class >> 8;
+	if (class == PCI_CLASS_BRIDGE_HOST) {
+		pci_read_config_word(dev, dev->msi_cap + PCI_MSI_FLAGS, &val);
+		val |= PCI_MSI_FLAGS_ENABLE;
+		pci_write_config_word(dev, dev->msi_cap + PCI_MSI_FLAGS, val);
+	}
+}
+DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_LOONGSON, DEV_PCIE_PORT_6, loongson_pcie_msi_quirk);
+
 static void loongson_vgadev_quirk(struct pci_dev *pdev)
 {
 	struct pci_dev *devp = NULL;
@@ -354,6 +367,9 @@ static void loongson_display_quirk(struct pci_dev *dev)
 	u64 max_size = 0;
 	int i, num;
 	struct pci_bus *bus = dev->bus;
+
+	if (dev->vendor == PCI_VENDOR_ID_ATI)
+		return;
 
 	if (!dev->bus->number) {
 		if (!(dev->vendor == PCI_VENDOR_ID_LOONGSON && dev->device == 0x7a25))

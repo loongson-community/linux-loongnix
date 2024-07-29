@@ -281,8 +281,7 @@ static int __init loongson_hwmon_init(void)
 		goto fail_hwmon_device_register;
 	}
 
-	nr_packages = loongson_sysconf.nr_cpus /
-		loongson_sysconf.cores_per_package;
+	nr_packages = topology_max_packages();
 
 	ret = sysfs_create_group(&cpu_hwmon_dev->kobj,
 				&cpu_hwmon_attribute_group);

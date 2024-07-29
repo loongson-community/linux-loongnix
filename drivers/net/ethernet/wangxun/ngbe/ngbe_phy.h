@@ -124,81 +124,80 @@
 /* SFP+ SFF-8472 Compliance */
 #define NGBE_SFF_SFF_8472_UNSUP        0x00
 
-
+bool ngbe_check_reset_blocked(struct ngbe_hw *hw);
 enum ngbe_phy_type ngbe_get_phy_type_from_id(struct ngbe_hw *hw);
-s32 ngbe_init_phy_ops_common(struct ngbe_hw *hw);
-s32 ngbe_phy_read_reg_mdi(	struct ngbe_hw *hw,
+void ngbe_init_phy_ops_common(struct ngbe_hw *hw);
+int ngbe_phy_read_reg_mdi(	struct ngbe_hw *hw,
 							u32 reg_addr,
 							u32 device_type,
 							u16 *phy_data);
-s32 ngbe_phy_write_reg_mdi(	struct ngbe_hw *hw,
+int ngbe_phy_write_reg_mdi(	struct ngbe_hw *hw,
 							u32 reg_addr,
 							u32 device_type,
 							u16 phy_data);
 
-s32 ngbe_phy_read_reg_sds_mii_yt8521s(struct ngbe_hw *hw,
+int ngbe_phy_read_reg_sds_mii_yt8521s(struct ngbe_hw *hw,
 							u32 reg_addr,
 							u32 device_type,
 							u16 *phy_data);
-s32 ngbe_phy_write_reg_sds_mii_yt8521s(struct ngbe_hw *hw,
+int ngbe_phy_write_reg_sds_mii_yt8521s(struct ngbe_hw *hw,
 							u32 reg_addr,
 							u32 device_type,
 							u16 phy_data);
 
-s32 ngbe_phy_read_reg_ext_yt8521s(struct ngbe_hw *hw,
+int ngbe_phy_read_reg_ext_yt8521s(struct ngbe_hw *hw,
 							u32 reg_addr,
 							u32 device_type,
 							u16 *phy_data);
-s32 ngbe_phy_write_reg_ext_yt8521s(struct ngbe_hw *hw,
+int ngbe_phy_write_reg_ext_yt8521s(struct ngbe_hw *hw,
 							u32 reg_addr,
 							u32 device_type,
 							u16 phy_data);
 
-s32 ngbe_phy_read_reg_sds_ext_yt8521s(struct ngbe_hw *hw,
+int ngbe_phy_read_reg_sds_ext_yt8521s(struct ngbe_hw *hw,
 							u32 reg_addr,
 							u32 device_type,
 							u16 *phy_data);
-s32 ngbe_phy_write_reg_sds_ext_yt8521s(struct ngbe_hw *hw,
+int ngbe_phy_write_reg_sds_ext_yt8521s(struct ngbe_hw *hw,
 							u32 reg_addr,
 							u32 device_type,
 							u16 phy_data);
 
-s32 ngbe_phy_init(struct ngbe_hw *hw);
-s32 ngbe_phy_identify(struct ngbe_hw *hw);
-s32 ngbe_phy_reset(struct ngbe_hw *hw);
+int ngbe_phy_init(struct ngbe_hw *hw);
+int ngbe_phy_identify(struct ngbe_hw *hw);
+int ngbe_phy_reset(struct ngbe_hw *hw);
 u32 ngbe_phy_setup_link(struct ngbe_hw *hw,
 						u32 speed,
 						bool need_restart_AN);
-s32 ngbe_phy_reset_m88e1512(struct ngbe_hw *hw);
+u32 ngbe_phy_led_ctrl(struct ngbe_hw *hw);
+int ngbe_phy_reset_m88e1512(struct ngbe_hw *hw);
 u32 ngbe_phy_setup_link_m88e1512(	struct ngbe_hw *hw,
 									u32 speed,
 									bool autoneg_wait_to_complete);
-s32 ngbe_phy_check_overtemp(struct ngbe_hw *hw);
+int ngbe_phy_check_overtemp(struct ngbe_hw *hw);
 
-s32 ngbe_check_zte_phy_id(struct ngbe_hw *hw);
-s32 ngbe_phy_reset_zte(struct ngbe_hw *hw);
-u32 ngbe_phy_setup_link_zte(struct ngbe_hw *hw,
-							u32 speed,
-							bool autoneg_wait_to_complete);
-s32 ngbe_phy_check_event(struct ngbe_hw *hw);
-s32 ngbe_phy_check_event_m88e1512(struct ngbe_hw *hw);
-s32 ngbe_phy_get_advertised_pause_m88e1512(struct ngbe_hw *hw, u8 *pause_bit);
-s32 ngbe_phy_get_lp_advertised_pause_m88e1512(struct ngbe_hw *hw,
-												u8 *pause_bit);
-s32 ngbe_phy_set_pause_advertisement_m88e1512(struct ngbe_hw *hw,
+int ngbe_mv_suspend(struct ngbe_hw *hw);
+int ngbe_yt_suspend(struct ngbe_hw *hw);
+
+int ngbe_phy_check_event(struct ngbe_hw *hw);
+int ngbe_phy_check_event_m88e1512(struct ngbe_hw *hw);
+int ngbe_phy_set_pause_advertisement_m88e1512(struct ngbe_hw *hw,
 												u16 pause_bit);
-
-s32 ngbe_phy_reset_yt8521s(struct ngbe_hw *hw);
-u32 ngbe_phy_setup_link_yt8521s(struct ngbe_hw *hw,
+int ngbe_phy_get_advertised_pause_m88e1512(struct ngbe_hw *hw, u8 *pause_bit);
+int ngbe_phy_get_lp_advertised_pause_m88e1512(struct ngbe_hw *hw, u8 *pause_bit);
+int ngbe_phy_check_event_yt8521s(struct ngbe_hw *hw);
+int ngbe_phy_get_advertised_pause_yt8521s(struct ngbe_hw *hw, u8 *pause_bit);
+int ngbe_phy_get_lp_advertised_pause_yt8521s(struct ngbe_hw *hw, u8 *pause_bit);
+int ngbe_phy_reset_yt8521s(struct ngbe_hw *hw);
+u32 ngbe_phy_setup_link_yt8521s(	struct ngbe_hw *hw,
 									u32 speed,
 									bool autoneg_wait_to_complete);
-
-s32 ngbe_phy_check_event_yt8521s(struct ngbe_hw *hw);
-s32 ngbe_phy_get_advertised_pause_yt8521s(struct ngbe_hw *hw, u8 *pause_bit);
-s32 ngbe_phy_get_lp_advertised_pause_yt8521s(struct ngbe_hw *hw,
-												u8 *pause_bit);
-s32 ngbe_phy_set_pause_advertisement_yt8521s(struct ngbe_hw *hw,
+int ngbe_phy_set_pause_advertisement_yt8521s(struct ngbe_hw *hw,
 												u16 pause_bit);
+int ngbe_gphy_wait_mdio_access_on(struct ngbe_hw *hw);
+int  ngbe_gphy_efuse_calibration(struct ngbe_hw *hw);
+
+int ngbe_gphy_dis_eee(struct ngbe_hw *hw);
 
 
 #endif /* _NGBE_PHY_H_ */

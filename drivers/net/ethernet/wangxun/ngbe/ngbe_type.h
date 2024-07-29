@@ -120,8 +120,6 @@
 
 /* Subsystem ID */
 #define NGBE_WX1860AL_INTERNAL                0x0410
-#define NGBE_WX1860AL_ZTE5201_RJ45            0x0100
-#define NGBE_WX1860AL_M88E1512_RJ45           0x0200
 #define NGBE_WX1860AL_M88E1512_SFP            0x0403
 #define NGBE_WX1860AL_YT8521S_SFP             0x0460
 
@@ -141,14 +139,20 @@
 #define NGBE_SUBSYSTEM_ID_EM_SF400_LY         0x0450
 #define NGBE_SUBSYSTEM_ID_EM_SF400_LY_YT      0x0470
 
-#define INTERNAL_SFP                          0x0003
+#define M88E1512_SFP                          0x0003
 #define OCP_CARD                              0x0040
 #define LY_M88E1512_SFP                       0x0050
+#define M88E1512_RJ45                         0x0051
+#define M88E1512_MIX                          0x0052
 #define YT8521S_SFP                           0x0060
 #define LY_YT8521S_SFP                        0x0070
+#define INTERNAL_YT8521S_SFP                  0x0061
+#define YT8521S_SFP_GPIO                      0x0062
+#define INTERNAL_YT8521S_SFP_GPIO             0x0064
+#define RGMII_FPGA                            0x0080
 
-#define OEM_MASK                              0x00F0
-#define INTERNAL_SFP_MASK                     0x000F
+#define OEM_MASK                              0x00FF
+#define INTERNAL_SFP_MASK                     0x00FF
 
 #define NCSI_SUP                              0x8000
 #define NCSI_SUP_MASK                         0x8000
@@ -280,12 +284,17 @@
 
 /* yt8521s reg */
 #define NGBE_YT8521S_PHY_ID                    0x011a
+#define NGBE_YT8531S_PHY_ID                    0xe91a
 
 #define NGBE_YT8521S_SDS_LINK_UP               0x4
 #define NGBE_YT8521S_SDS_LINK_DOWN             0x8
 #define NGBE_YT8521S_UTP_LINK_UP               0x400
 #define NGBE_YT8521S_UTP_LINK_DOWN             0x800
 
+#define NGBE_YT8521S_PHY_SPEED_SELECT1         0x0040
+#define NGBE_YT8521S_PHY_SPEED_SELECT0         0x2000
+#define NGBE_YT8521S_PHY_DUPLEX                0x0100
+#define NGBE_YT8521S_PHY_RESET                 0x8000
 
 /* PHY IDs*/
 #define TN1010_PHY_ID                          0x00A19410U
@@ -433,6 +442,7 @@
 #define NGBE_MIS_PWR                   0x10000
 #define NGBE_MIS_CTL                   0x10004
 #define NGBE_MIS_PF_SM                 0x10008
+#define NGBE_MIS_PRB_CTL               0x10010
 #define NGBE_MIS_ST                    0x10028
 #define NGBE_MIS_SWSM                  0x1002C
 #define NGBE_MIS_RST_ST                0x10030
@@ -481,6 +491,10 @@
 #define NGBE_MIS_RST_ST_RST_INI_SHIFT  8
 #define NGBE_MIS_RST_ST_RST_TIM        0x000000FFU
 #define NGBE_MIS_PF_SM_SM              1
+#define NGBE_MIS_PRB_CTL_LAN0_UP       0x8
+#define NGBE_MIS_PRB_CTL_LAN1_UP       0x4
+#define NGBE_MIS_PRB_CTL_LAN2_UP       0x2
+#define NGBE_MIS_PRB_CTL_LAN3_UP       0x1
 
 /* Sensors for PVT(Process Voltage Temperature) */
 #define NGBE_TS_CTL                    0x10300
@@ -667,6 +681,7 @@ struct ngbe_thermal_sensor_data {
 
 #define NGBE_TDM_TCP_FLG_L     0x18078
 #define NGBE_TDM_TCP_FLG_H     0x1807C
+#define NGBE_TDM_DESC_FATAL    0x180D0
 #define NGBE_TDM_VLAN_INS(_i)  (0x18100 + ((_i) * 4)) /* 8 of these 0 - 7 */
 /* TDM CTL BIT */
 #define NGBE_TDM_CTL_TE        0x1 /* Transmit Enable */
@@ -701,7 +716,7 @@ struct ngbe_thermal_sensor_data {
 #define NGBE_RDM_ARB_CTL       0x12000
 #define NGBE_RDM_POOL_RE         0x12004
 
-#define NGBE_RDM_PF_QDE        0x12080
+#define NGBE_RDM_PF_QDE        0x12080 
 #define NGBE_RDM_PF_HIDE       0x12090
 /* VFRE bitmask */
 #define NGBE_RDM_POOL_RE_ENABLE_ALL  0xFFFFFFFFU
@@ -1040,7 +1055,7 @@ enum {
 #define NGBE_PSR_MAX_SZ                0x15020
 
 /****************************** TDB ******************************************/
-#define NGBE_TDB_RFCS                  0x1CE00
+#define NGBE_TDB_TFCS                  0x1CE00
 #define NGBE_TDB_PB_SZ                  0x1CC00
 
 #define NGBE_TDB_PRB_CTL               0x17010
@@ -1160,7 +1175,6 @@ enum {
 
 /************************************** MNG ********************************/
 #define NGBE_MNG_FW_SM         0x1E000
-#define NGBE_MNG_SW_SM         0x1E004
 #define NGBE_MNG_SWFW_SYNC     0x1E008
 #define NGBE_MNG_MBOX          0x1E100
 #define NGBE_MNG_MBOX_CTL      0x1E044
@@ -1172,8 +1186,6 @@ enum {
 /* Firmware Semaphore Register */
 #define NGBE_MNG_FW_SM_MODE_MASK       0xE
 #define NGBE_MNG_FW_SM_TS_ENABLED      0x1
-/* SW Semaphore Register bitmasks */
-#define NGBE_MNG_SW_SM_SM              0x00000001U /* software Semaphore */
 
 /* SW_FW_SYNC definitions */
 #define NGBE_MNG_SWFW_SYNC_SW_PHY      0x0001
@@ -1488,6 +1500,7 @@ enum NGBE_MSCA_CMD_value {
 #define NGBE_PBANUM_PTR_GUARD          0xFAFA
 #define NGBE_CHECKSUM_CAP_ST_PASS      0x80658383
 #define NGBE_CHECKSUM_CAP_ST_FAIL      0x70657376
+#define NGBE_ERR_ST                    0xffffffff
 #define NGBE_EEPROM_CHECKSUM           0x2F
 #define NGBE_EEPROM_SUM                0xBABA
 #define NGBE_OPTION_ROM_PTR            0x05
@@ -1864,8 +1877,8 @@ enum ngbe_l2_ptypes {
 
 /************ ngbe_type.h ************/
 /* Number of Transmit and Receive Descriptors must be a multiple of 8 */
-#define NGBE_REQ_TX_DESCRIPTOR_MULTIPLE        8
-#define NGBE_REQ_RX_DESCRIPTOR_MULTIPLE        8
+#define NGBE_REQ_TX_DESCRIPTOR_MULTIPLE        128
+#define NGBE_REQ_RX_DESCRIPTOR_MULTIPLE        128
 #define NGBE_REQ_TX_BUFFER_GRANULARITY         1024
 
 /* Vlan-specific macros */
@@ -2047,6 +2060,7 @@ union ngbe_atr_hash_dword {
 #define FW_FLASH_UPGRADE_VERIFY_CMD     0xE5
 #define FW_FLASH_UPGRADE_VERIFY_LEN     0x4
 #define FW_EEPROM_CHECK_STATUS 			0xE9
+#define FW_PHY_LED_CONF			0xF1
 #define FW_PHY_SIGNAL					0xF0
 
 
@@ -2162,6 +2176,13 @@ enum ngbe_upg_flag {
 struct ngbe_hic_upg_verify {
 	struct ngbe_hic_hdr hdr;
 	u32 action_flag;
+};
+
+struct ngbe_hic_write_lldp{
+	struct ngbe_hic_hdr hdr;
+	u8 func;
+	u8 pad2;
+	u16 pad3;
 };
 
 /* Number of 100 microseconds we wait for PCI Express master disable */
@@ -2320,9 +2341,9 @@ enum ngbe_phy_type {
 	ngbe_phy_internal,
 	ngbe_phy_m88e1512,
 	ngbe_phy_m88e1512_sfi,
+	ngbe_phy_m88e1512_unknown,
 	ngbe_phy_yt8521s,
 	ngbe_phy_yt8521s_sfi,
-	ngbe_phy_zte,
 	ngbe_phy_sfp_passive_tyco,
 	ngbe_phy_sfp_passive_unknown,
 	ngbe_phy_sfp_active_unknown,
@@ -2332,6 +2353,7 @@ enum ngbe_phy_type {
 	ngbe_phy_sfp_unknown,
 	ngbe_phy_sfp_intel,
 	ngbe_phy_sfp_unsupported, /*Enforce bit set with unsupported module*/
+	ngbe_phy_internal_yt8521s_sfi,
 	ngbe_phy_generic
 };
 
@@ -2372,7 +2394,6 @@ enum ngbe_media_type {
 	ngbe_media_type_unknown = 0,
 	ngbe_media_type_fiber,
 	ngbe_media_type_copper,
-	ngbe_media_type_backplane,
 	ngbe_media_type_virtual
 };
 
@@ -2543,50 +2564,52 @@ typedef u8* (*ngbe_mc_addr_itr) (struct ngbe_hw *hw, u8 **mc_addr_ptr,
 
 /* Function pointer table */
 struct ngbe_eeprom_operations {
-	s32 (*init_params)(struct ngbe_hw *);
-	s32 (*read)(struct ngbe_hw *, u16, u16 *);
-	s32 (*read_buffer)(struct ngbe_hw *, u16, u16, u16 *);
-	s32 (*read32)(struct ngbe_hw *, u16, u32 *);
-	s32 (*write)(struct ngbe_hw *, u16, u16);
-	s32 (*write_buffer)(struct ngbe_hw *, u16, u16, u16 *);
-	s32 (*validate_checksum)(struct ngbe_hw *, u16 *);
-	s32 (*update_checksum)(struct ngbe_hw *);
-	s32 (*calc_checksum)(struct ngbe_hw *);
-	s32 (*eeprom_chksum_cap_st)(struct ngbe_hw *, u16, u32 *);
-	s32 (*phy_signal_set)(struct ngbe_hw *);
+	int (*init_params)(struct ngbe_hw *);
+	int (*read)(struct ngbe_hw *, u16, u16 *);
+	int (*read_buffer)(struct ngbe_hw *, u16, u16, u16 *);
+	int (*read32)(struct ngbe_hw *, u16, u32 *);
+	int (*write)(struct ngbe_hw *, u16, u16);
+	int (*write_buffer)(struct ngbe_hw *, u16, u16, u16 *);
+	int (*validate_checksum)(struct ngbe_hw *, u16 *);
+	int (*update_checksum)(struct ngbe_hw *);
+	int (*calc_checksum)(struct ngbe_hw *);
+	int (*eeprom_chksum_cap_st)(struct ngbe_hw *, u16, u32 *);
+	int (*phy_led_oem_chk)(struct ngbe_hw *, u32 *);
+	int (*phy_signal_set)(struct ngbe_hw *);
 };
 
 struct ngbe_flash_operations {
-	s32 (*init_params)(struct ngbe_hw *);
-	s32 (*read_buffer)(struct ngbe_hw *, u32, u32, u32 *);
-	s32 (*write_buffer)(struct ngbe_hw *, u32, u32, u32 *);
+	int (*init_params)(struct ngbe_hw *);
+	int (*read_buffer)(struct ngbe_hw *, u32, u32, u32 *);
+	int (*write_buffer)(struct ngbe_hw *, u32, u32, u32 *);
+	int (*check_led_oem)(struct ngbe_hw *);
 };
 
 struct ngbe_mac_operations {
-	s32 (*init_hw)(struct ngbe_hw *);
-	s32 (*reset_hw)(struct ngbe_hw *);
-	s32 (*start_hw)(struct ngbe_hw *);
-	s32 (*clear_hw_cntrs)(struct ngbe_hw *);
+	int (*init_hw)(struct ngbe_hw *);
+	int (*reset_hw)(struct ngbe_hw *);
+	int (*start_hw)(struct ngbe_hw *);
+	int (*clear_hw_cntrs)(struct ngbe_hw *);
 	enum ngbe_media_type (*get_media_type)(struct ngbe_hw *);
-	s32 (*get_mac_addr)(struct ngbe_hw *, u8 *);
-	s32 (*get_device_caps)(struct ngbe_hw *, u16 *);
-	s32 (*stop_adapter)(struct ngbe_hw *);
-	s32 (*get_bus_info)(struct ngbe_hw *);
+	int (*get_mac_addr)(struct ngbe_hw *, u8 *);
+	int (*get_device_caps)(struct ngbe_hw *, u16 *);
+	int (*stop_adapter)(struct ngbe_hw *);
+	int (*get_bus_info)(struct ngbe_hw *);
 	void (*set_lan_id)(struct ngbe_hw *);
-	s32 (*enable_rx_dma)(struct ngbe_hw *, u32);
-	s32 (*disable_sec_rx_path)(struct ngbe_hw *);
-	s32 (*enable_sec_rx_path)(struct ngbe_hw *);
-	s32 (*acquire_swfw_sync)(struct ngbe_hw *, u32);
+	int (*enable_rx_dma)(struct ngbe_hw *, u32);
+	int (*disable_sec_rx_path)(struct ngbe_hw *);
+	int (*enable_sec_rx_path)(struct ngbe_hw *);
+	int (*acquire_swfw_sync)(struct ngbe_hw *, u32);
 	void (*release_swfw_sync)(struct ngbe_hw *, u32);
 
 	/* Link */
 	void (*disable_tx_laser)(struct ngbe_hw *);
 	void (*enable_tx_laser)(struct ngbe_hw *);
 	void (*flap_tx_laser)(struct ngbe_hw *);
-	s32 (*setup_link)(struct ngbe_hw *, u32, bool);
-	s32 (*setup_mac_link)(struct ngbe_hw *, u32, bool);
-	s32 (*check_link)(struct ngbe_hw *, u32 *, bool *, bool);
-	s32 (*get_link_capabilities)(struct ngbe_hw *, u32 *,
+	int (*setup_link)(struct ngbe_hw *, u32, bool);
+	int (*setup_mac_link)(struct ngbe_hw *, u32, bool);
+	int (*check_link)(struct ngbe_hw *, u32 *, bool *, bool);
+	int (*get_link_capabilities)(struct ngbe_hw *, u32 *,
 				     bool *);
 	void (*set_rate_select_speed)(struct ngbe_hw *, u32);
 
@@ -2594,67 +2617,72 @@ struct ngbe_mac_operations {
 	void (*setup_rxpba)(struct ngbe_hw *, int, u32, int);
 
 	/* LED */
-	s32 (*led_on)(struct ngbe_hw *, u32);
-	s32 (*led_off)(struct ngbe_hw *, u32);
+	int (*led_on)(struct ngbe_hw *, u32);
+	int (*led_off)(struct ngbe_hw *, u32);
 
 	/* RAR, Multicast, VLAN */
-	s32 (*set_rar)(struct ngbe_hw *, u32, u8 *, u64, u32);
-	s32 (*clear_rar)(struct ngbe_hw *, u32);
-	s32 (*insert_mac_addr)(struct ngbe_hw *, u8 *, u32);
-	s32 (*set_vmdq)(struct ngbe_hw *, u32, u32);
-	s32 (*set_vmdq_san_mac)(struct ngbe_hw *, u32);
-	s32 (*clear_vmdq)(struct ngbe_hw *, u32, u32);
-	s32 (*init_rx_addrs)(struct ngbe_hw *);
-	s32 (*update_uc_addr_list)(struct ngbe_hw *, u8 *, u32,
+	int (*set_rar)(struct ngbe_hw *, u32, u8 *, u64, u32);
+	int (*clear_rar)(struct ngbe_hw *, u32);
+	int (*insert_mac_addr)(struct ngbe_hw *, u8 *, u32);
+	int (*set_vmdq)(struct ngbe_hw *, u32, u32);
+	int (*set_vmdq_san_mac)(struct ngbe_hw *, u32);
+	int (*clear_vmdq)(struct ngbe_hw *, u32, u32);
+	int (*init_rx_addrs)(struct ngbe_hw *);
+	int (*update_uc_addr_list)(struct ngbe_hw *, u8 *, u32,
 				   ngbe_mc_addr_itr);
-	s32 (*update_mc_addr_list)(struct ngbe_hw *, u8 *, u32,
+	int (*update_mc_addr_list)(struct ngbe_hw *, u8 *, u32,
 				   ngbe_mc_addr_itr, bool clear);
-	s32 (*enable_mc)(struct ngbe_hw *);
-	s32 (*disable_mc)(struct ngbe_hw *);
-	s32 (*clear_vfta)(struct ngbe_hw *);
-	s32 (*set_vfta)(struct ngbe_hw *, u32, u32, bool);
-	s32 (*set_vlvf)(struct ngbe_hw *, u32, u32, bool, bool *);
-	s32 (*init_uta_tables)(struct ngbe_hw *);
+	int (*enable_mc)(struct ngbe_hw *);
+	int (*disable_mc)(struct ngbe_hw *);
+	int (*clear_vfta)(struct ngbe_hw *);
+	int (*set_vfta)(struct ngbe_hw *, u32, u32, bool);
+	int (*set_vlvf)(struct ngbe_hw *, u32, u32, bool, bool *);
+	int (*init_uta_tables)(struct ngbe_hw *);
 	void (*set_mac_anti_spoofing)(struct ngbe_hw *, bool, int);
 	void (*set_vlan_anti_spoofing)(struct ngbe_hw *, bool, int);
 
 	/* Flow Control */
-	s32 (*fc_enable)(struct ngbe_hw *);
-	s32 (*setup_fc)(struct ngbe_hw *);
+	int (*fc_enable)(struct ngbe_hw *);
+	int (*setup_fc)(struct ngbe_hw *);
 
 	/* Manageability interface */
-	s32 (*set_fw_drv_ver)(struct ngbe_hw *, u8, u8, u8, u8);
-	s32 (*get_thermal_sensor_data)(struct ngbe_hw *);
-	s32 (*init_thermal_sensor_thresh)(struct ngbe_hw *hw);
+	int (*set_fw_drv_ver)(struct ngbe_hw *, u8, u8, u8, u8);
+	int (*get_thermal_sensor_data)(struct ngbe_hw *);
+	int (*init_thermal_sensor_thresh)(struct ngbe_hw *hw);
 	void (*get_rtrup2tc)(struct ngbe_hw *hw, u8 *map);
 	void (*disable_rx)(struct ngbe_hw *hw);
 	void (*enable_rx)(struct ngbe_hw *hw);
 	void (*set_source_address_pruning)(struct ngbe_hw *, bool,
 					   unsigned int);
 	void (*set_ethertype_anti_spoofing)(struct ngbe_hw *, bool, int);
-	s32 (*dmac_config)(struct ngbe_hw *hw);
-	s32 (*setup_eee)(struct ngbe_hw *hw, bool enable_eee);
+	int (*dmac_config)(struct ngbe_hw *hw);
+	int (*setup_eee)(struct ngbe_hw *hw, bool enable_eee);
 };
 
 struct ngbe_phy_operations {
-	s32 (*identify)(struct ngbe_hw *);
-	s32 (*identify_sfp)(struct ngbe_hw *);
-	s32 (*init)(struct ngbe_hw *);
-	s32 (*reset)(struct ngbe_hw *);
-	s32 (*read_reg)(struct ngbe_hw *, u32, u32, u16 *);
-	s32 (*write_reg)(struct ngbe_hw *, u32, u32, u16);
-	s32 (*read_reg_mdi)(struct ngbe_hw *, u32, u32, u16 *);
-	s32 (*write_reg_mdi)(struct ngbe_hw *, u32, u32, u16);
+	int (*identify)(struct ngbe_hw *);
+	int (*identify_sfp)(struct ngbe_hw *);
+	int (*init)(struct ngbe_hw *);
+	int (*reset)(struct ngbe_hw *);
+	int (*read)(struct ngbe_hw *, int, int);
+	int (*write)(struct ngbe_hw *, int, int, u16);
+	int (*read_reg)(struct ngbe_hw *, u32, u32, u16 *);
+	int (*write_reg)(struct ngbe_hw *, u32, u32, u16);
+	int (*read_reg_mdi)(struct ngbe_hw *, u32, u32, u16 *);
+	int (*write_reg_mdi)(struct ngbe_hw *, u32, u32, u16);
 	u32 (*setup_link)(struct ngbe_hw *, u32, bool);
-	s32 (*setup_internal_link)(struct ngbe_hw *);
+	int (*phy_suspend)(struct ngbe_hw *hw);
+	int (*phy_resume)(struct ngbe_hw *hw);
+	u32 (*phy_led_ctrl)(struct ngbe_hw *);
+	int (*setup_internal_link)(struct ngbe_hw *);
 	u32 (*setup_link_speed)(struct ngbe_hw *, u32, bool);
-	s32 (*check_link)(struct ngbe_hw *, u32 *, bool *);
-	s32 (*check_overtemp)(struct ngbe_hw *);
-	s32 (*check_event)(struct ngbe_hw *);
-	s32 (*get_adv_pause)(struct ngbe_hw *, u8 *);
-	s32 (*get_lp_adv_pause)(struct ngbe_hw *, u8 *);
-	s32 (*set_adv_pause)(struct ngbe_hw *, u16);
-	s32 (*setup_once)(struct ngbe_hw *);
+	int (*check_link)(struct ngbe_hw *, u32 *, bool *);
+	int (*check_overtemp)(struct ngbe_hw *);
+	int (*check_event)(struct ngbe_hw *);
+	int (*get_adv_pause)(struct ngbe_hw *, u8 *);
+	int (*get_lp_adv_pause)(struct ngbe_hw *, u8 *);
+	int (*set_adv_pause)(struct ngbe_hw *, u16);
+	int (*setup_once)(struct ngbe_hw *);
 };
 
 struct ngbe_eeprom_info {
@@ -2688,7 +2716,7 @@ struct ngbe_mac_info {
 #define NGBE_MAX_MTA                   128
 #define NGBE_MAX_VFTA_ENTRIES          128
 	u32 mta_shadow[NGBE_MAX_MTA];
-	s32 mc_filter_type;
+	int mc_filter_type;
 	u32 mcft_size;
 	u32 vft_shadow[NGBE_MAX_VFTA_ENTRIES];
 	u32 vft_size;
@@ -2740,13 +2768,13 @@ struct ngbe_phy_info {
 
 struct ngbe_mbx_operations {
 	void (*init_params)(struct ngbe_hw *hw);
-	s32  (*read)(struct ngbe_hw *, u32 *, u16,  u16);
-	s32  (*write)(struct ngbe_hw *, u32 *, u16, u16);
-	s32  (*read_posted)(struct ngbe_hw *, u32 *, u16,  u16);
-	s32  (*write_posted)(struct ngbe_hw *, u32 *, u16, u16);
-	s32  (*check_for_msg)(struct ngbe_hw *, u16);
-	s32  (*check_for_ack)(struct ngbe_hw *, u16);
-	s32  (*check_for_rst)(struct ngbe_hw *, u16);
+	int  (*read)(struct ngbe_hw *, u32 *, u16,  u16);
+	int  (*write)(struct ngbe_hw *, u32 *, u16, u16);
+	int  (*read_posted)(struct ngbe_hw *, u32 *, u16,  u16);
+	int  (*write_posted)(struct ngbe_hw *, u32 *, u16, u16);
+	int  (*check_for_msg)(struct ngbe_hw *, u16);
+	int  (*check_for_ack)(struct ngbe_hw *, u16);
+	int  (*check_for_rst)(struct ngbe_hw *, u16);
 };
 
 struct ngbe_mbx_stats {
@@ -2779,6 +2807,12 @@ enum ngbe_link_status {
 	NGBE_LINK_STATUS_KX4
 };
 
+enum em_mac_type {
+	em_mac_type_unknown = 0,
+	em_mac_type_mdi,
+	em_mac_type_rgmii
+};
+
 struct ngbe_hw {
 	u8 IOMEM *hw_addr;
 	void *back;
@@ -2790,6 +2824,8 @@ struct ngbe_hw {
 	struct ngbe_flash_info flash;
 	struct ngbe_bus_info bus;
 	struct ngbe_mbx_info mbx;
+	enum em_mac_type mac_type;
+
 	u16 device_id;
 	u16 vendor_id;
 	u16 subsystem_device_id;
@@ -2803,10 +2839,13 @@ struct ngbe_hw {
 	bool wol_enabled;
 	enum ngbe_link_status link_status;
 	u16 tpid[8];
+	bool gpio_ctl;
+	bool ncsi_enabled;
+	u8 restart_an;
+	u16 oem_ssid;
+	u16 oem_svid;
+	spinlock_t phy_lock;
 };
-
-#define TCALL(hw, func, args...) (((hw)->func != NULL) \
-		? (hw)->func((hw), ##args) : NGBE_NOT_IMPLEMENTED)
 
 /* Error Codes */
 #define NGBE_OK                                 0
@@ -2873,6 +2912,9 @@ struct ngbe_hw {
 
 #define NGBE_FAILED_READ_REG       0xffffffffU
 #define NGBE_FAILED_READ_REG64     0xffffffffffffffffULL
+
+#define NGBE_LLDP_REG 			0xf1000
+#define NGBE_LLDP_ON 			0x0000000f
 
 static inline bool NGBE_REMOVED(void __iomem *addr)
 {
@@ -2958,7 +3000,7 @@ wr32m(struct ngbe_hw *hw, u32 reg, u32 mask, u32 field)
 #define NGBE_MDIO_TIMEOUT 1000
 #define NGBE_I2C_TIMEOUT  1000
 #define NGBE_SPI_TIMEOUT  1000
-static inline s32
+static inline int
 po32m(struct ngbe_hw *hw, u32 reg,
 		u32 mask, u32 field, int usecs, int count)
 {

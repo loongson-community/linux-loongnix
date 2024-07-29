@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-2.0
+/* Copyright(c) 2022 - 2023 Mucse Corporation. */
 #include <linux/pci.h>
 #include <linux/delay.h>
 #include "rnpm.h"
@@ -392,10 +394,27 @@ rnpm_write_mbx_pf(struct rnpm_hw *hw, u32 *msg, u16 size, enum MBX_ID mbx_id)
 		(mbx_id == MBX_CM3CPU) ? CPU_PF_SHM_DATA : PF_VF_SHM_DATA(mbx_id);
 	u32 CTRL_REG =
 		(mbx_id == MBX_CM3CPU) ? PF2CPU_MBOX_CTRL : PF2VF_MBOX_CTRL(mbx_id);
+	u32 wait_msg_free_cnt = 4;
 
 	if (size > RNPM_VFMAILBOX_SIZE) {
 		printk("%s: size:%d should <%d\n", __func__, size, RNPM_VFMAILBOX_SIZE);
 		return -EINVAL;
+	}
+
+	if (rnpm_logd_level(LOG_MBX_OUT)) {
+		printk("%x mbx_out:", hw->pfvfnum);
+		for (i = 0; i < 4; i++) {
+			printk("0x%08x ", msg[i]);
+		}
+		printk("\n");
+	}
+
+retry:
+	wait_msg_free_cnt--;
+	if (wait_msg_free_cnt > 0 && mbx_rd32(hw, DATA_REG) != 0) {
+		udelay(1000);
+		// unlock
+		goto retry;
 	}
 
 	/* lock the mailbox to prevent pf/vf/cpu race condition */
@@ -479,6 +498,8 @@ rnpm_read_mbx_pf(struct rnpm_hw *hw, u32 *msg, u16 size, enum MBX_ID mbx_id)
 		msg[i] = mbx_rd32(hw, BUF_REG + 4 * i);
 #endif
 	}
+	// zero opcode
+	mbx_wr32(hw, BUF_REG, 0);
 
 	/* update req. used by rnpmvf_check_for_msg_vf  */
 	if (mbx_id == MBX_CM3CPU) {
@@ -493,6 +514,14 @@ rnpm_read_mbx_pf(struct rnpm_hw *hw, u32 *msg, u16 size, enum MBX_ID mbx_id)
 	/* free ownership of the buffer */
 	mbx_wr32(hw, CTRL_REG, 0);
 
+	if (rnpm_logd_level(LOG_MBX_IN)) {
+		printk("%x mbx_in :", hw->pfvfnum);
+		for (i = 0; i < 16; i++) {
+			printk("0x%08x ", msg[i]);
+		}
+		printk("\n");
+	}
+
 out_no_read:
 
 	return ret_val;
@@ -502,33 +531,33 @@ static void rnpm_mbx_reset(struct rnpm_hw *hw)
 {
 	int idx, v;
 #if 0
-    int i;
-    // u32 BUF_REG = (mbx_id == MBX_CM3CPU) ? CPU_PF_SHM_DATA : PF_VF_SHM_DATA(mbx_id);
+	int i;
+	// u32 BUF_REG = (mbx_id == MBX_CM3CPU) ? CPU_PF_SHM_DATA : PF_VF_SHM_DATA(mbx_id);
 
-    for (idx = 0; idx < RNP_MAX_VF_FUNCTIONS; idx++) {
-		v = mbx_rd32(hw, VF2PF_COUNTER(idx));
+	for (idx = 0; idx < RNP_MAX_VF_FUNCTIONS; idx++) {
+		v                   = mbx_rd32(hw, VF2PF_COUNTER(idx));
 		hw->mbx.vf_req[idx] = v & 0xffff;
 		hw->mbx.vf_ack[idx] = (v >> 16) & 0xffff;
 
 		// release pf<->vf pfu buffer lock
 		mbx_wr32(hw, PF2VF_MBOX_CTRL(idx), 0);
-    }
+	}
 
-    for (i = 0; i < 14; i += 1) {
+	for (i = 0; i < 14; i += 1) {
 		mbx_wr32(hw, CPU_PF_SHM_DATA + 4 * i, 0x0);
-    }
+	}
 
-    wr32(hw, PF_VF_MBOX_MASK_LO, 0xffffffff); // disable irq
-    wr32(hw, PF_VF_MBOX_MASK_HI, 0xffffffff); // disable irq
+	wr32(hw, PF_VF_MBOX_MASK_LO, 0xffffffff); // disable irq
+	wr32(hw, PF_VF_MBOX_MASK_HI, 0xffffffff); // disable irq
 
-    // disable CM3CPU to PF MBX IRQ
-    wr32(hw, CPU_PF_MBOX_MASK, 0xffffffff);
+	// disable CM3CPU to PF MBX IRQ
+	wr32(hw, CPU_PF_MBOX_MASK, 0xffffffff);
 
-    // reset vf->pf status/ctrl
-    for (idx = 0; idx < RNP_MAX_VF_FUNCTIONS; idx++)
+	// reset vf->pf status/ctrl
+	for (idx = 0; idx < RNP_MAX_VF_FUNCTIONS; idx++)
 		mbx_wr32(hw, PF2VF_MBOX_CTRL(idx), 0);
-    // reset pf->cm3 ctrl
-    mbx_wr32(hw, PF2CPU_MBOX_CTRL, 0);
+	// reset pf->cm3 ctrl
+	mbx_wr32(hw, PF2CPU_MBOX_CTRL, 0);
 #else
 
 #if 1
@@ -572,7 +601,7 @@ static int rnpm_mbx_configure_pf(struct rnpm_hw *hw, int nr_vec, bool enable)
 	// dump_stack();
 
 	if (enable) {
-		hw->mbx.irq_enabled = true;
+		// hw->mbx.irq_enabled = true;
 		for (idx = 0; idx < RNPM_MAX_VF_FUNCTIONS; idx++) {
 			v = mbx_rd32(hw, VF2PF_COUNTER(idx));
 			hw->mbx.vf_req[idx] = v & 0xffff;
@@ -603,7 +632,7 @@ static int rnpm_mbx_configure_pf(struct rnpm_hw *hw, int nr_vec, bool enable)
 		// allow CM3CPU to PF MBX IRQ
 		wr32(hw, CPU_PF_MBOX_MASK, 0);
 	} else {
-		hw->mbx.irq_enabled = false;
+		// hw->mbx.irq_enabled = false;
 
 		wr32(hw, PF_VF_MBOX_MASK_LO, 0xffffffff); // disable irq
 		wr32(hw, PF_VF_MBOX_MASK_HI, 0xffffffff); // disable irq
@@ -647,15 +676,19 @@ s32 rnpm_init_mbx_params_pf(struct rnpm_hw *hw)
 	mbx->size = RNPM_VFMAILBOX_SIZE;
 
 	mbx->reply_dma_size = 4096;
-	//mbx->reply_dma = pci_alloc_consistent(
-	//	hw->pdev, mbx->reply_dma_size, &mbx->reply_dma_phy);
 	mbx->reply_dma = dma_alloc_coherent(
 		&hw->pdev->dev, mbx->reply_dma_size, &mbx->reply_dma_phy, GFP_ATOMIC);
-	if (mbx->reply_dma == NULL) {
-		printk(
-			"%s: pci_alloc_consistent faild! %p\n", __func__, mbx->reply_dma);
-		mbx->reply_dma = NULL;
-		mbx->reply_dma_size = 0;
+	if (!mbx->reply_dma) {
+		mbx->reply_dma = dma_alloc_coherent(&hw->pdev->dev,
+											mbx->reply_dma_size,
+											&mbx->reply_dma_phy,
+											GFP_ATOMIC);
+		if (!mbx->reply_dma) {
+			printk(
+				"%s: dma_alloc_coherent faild! %p\n", __func__, mbx->reply_dma);
+			mbx->reply_dma = NULL;
+			mbx->reply_dma_size = 0;
+		}
 	}
 
 	rnpm_mbx_reset(hw);

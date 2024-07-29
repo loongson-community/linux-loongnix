@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: GPL-2.0 */
+/* Copyright(c) 2022 - 2023 Mucse Corporation. */
+
 #ifndef _RNP_H_
 #define _RNP_H_
 
@@ -11,7 +14,7 @@
 #include <linux/jiffies.h>
 #include <linux/clocksource.h>
 //#include <linux/timecounter.h>
-
+#include <linux/interrupt.h>
 #include <linux/net_tstamp.h>
 #include <linux/ptp_clock_kernel.h>
 
@@ -27,8 +30,15 @@
 #undef pr_fmt
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
+#define RNP_ALLOC_PAGE_ORDER 0
+#define RNP_PAGE_BUFFER_NUMS(ring)                               \
+	((1 << RNP_ALLOC_PAGE_ORDER) * PAGE_SIZE /               \
+	 ALIGN((rnp_rx_offset(ring) + rnp_rx_bufsz(ring) +       \
+		SKB_DATA_ALIGN(sizeof(struct skb_shared_info)) + \
+		RNP_RX_HWTS_OFFSET),                             \
+	       1024))
 
-#define RNP_DEFAULT_TX_WORK            (128)
+#define RNP_DEFAULT_TX_WORK (128)
 #define RNP_MIN_TX_WORK (32)
 #define RNP_MAX_TX_WORK (512)
 #define RNP_MIN_RX_WORK (32)
@@ -44,16 +54,18 @@
 #define RNP_MIN_RX_USEC (10)
 #define RNP_MAX_RX_USEC (10000)
 
-#define RNP_MAX_TXD     (4096)
-#define RNP_MIN_TXD	(256)
+#define RNP_MAX_TXD (4096)
+#define RNP_MIN_TXD (64)
 
+#define ACTION_TO_MPE (130)
+#define MPE_PORT (10)
+#define AUTO_ALL_MODES 0
 /* TX/RX descriptor defines */
 #ifdef FEITENG
 #define RNP_DEFAULT_TXD 4096
 #else
 #define RNP_DEFAULT_TXD 512
 #endif
-
 
 #define RNP_REQ_TX_DESCRIPTOR_MULTIPLE 8
 #define RNP_REQ_RX_DESCRIPTOR_MULTIPLE 8
@@ -64,7 +76,7 @@
 #define RNP_DEFAULT_RXD 512
 #endif
 #define RNP_MAX_RXD 4096
-#define RNP_MIN_RXD 256
+#define RNP_MIN_RXD 64
 
 /* flow control */
 #define RNP_MIN_FCRTL 0x40
@@ -72,8 +84,10 @@
 #define RNP_MIN_FCRTH 0x600
 #define RNP_MAX_FCRTH 0x7FFF0
 #define RNP_DEFAULT_FCPAUSE 0xFFFF
-#define RNP_DEFAULT_HIGH_WATER 0x320
-#define RNP_DEFAULT_LOW_WATER 0x270
+#define RNP10_DEFAULT_HIGH_WATER 0x320
+#define RNP10_DEFAULT_LOW_WATER 0x270
+#define RNP500_DEFAULT_HIGH_WATER 400
+#define RNP500_DEFAULT_LOW_WATER 256
 #define RNP_MIN_FCPAUSE 0
 #define RNP_MAX_FCPAUSE 0xFFFF
 
@@ -85,19 +99,19 @@
 #define RNP_RXBUFFER_4K 4096
 #define RNP_MAX_RXBUFFER 16384 /* largest size for a single descriptor */
 #define RNP_RXBUFFER_MAX (RNP_RXBUFFER_2K)
-#ifdef CONFIG_IXGBE_DISABLE_PACKET_SPLIT
+#ifdef CONFIG_RNP_DISABLE_PACKET_SPLIT
 #define RNP_RXBUFFER_7K 7168
 #define RNP_RXBUFFER_8K 8192
 #define RNP_RXBUFFER_15K 15360
-#endif /* CONFIG_IXGBE_DISABLE_PACKET_SPLIT */
+#endif /* CONFIG_RNP_DISABLE_PACKET_SPLIT */
 
 #define MAX_Q_VECTORS 128
 
 #define RNP_RING_COUNTS_PEER_PF 8
 #ifdef NETIF_F_GSO_PARTIAL
-#define RNP_GSO_PARTIAL_FEATURES                                               \
-	(NETIF_F_GSO_GRE | NETIF_F_GSO_GRE_CSUM | NETIF_F_GSO_UDP_TUNNEL |     \
-	 NETIF_F_GSO_UDP_TUNNEL_CSUM)
+#define RNP_GSO_PARTIAL_FEATURES                  \
+	(NETIF_F_GSO_GRE | NETIF_F_GSO_GRE_CSUM | \
+	 NETIF_F_GSO_UDP_TUNNEL | NETIF_F_GSO_UDP_TUNNEL_CSUM)
 #endif /* NETIF_F_GSO_PARTIAL */
 
 /*
@@ -111,13 +125,19 @@
 #define RNP_RX_HDR_SIZE RNP_RXBUFFER_256
 
 #define RNP_ITR_ADAPTIVE_MIN_INC 2
-#define RNP_ITR_ADAPTIVE_MIN_USECS 10
-#define RNP_ITR_ADAPTIVE_MAX_USECS 126
-#define RNP_ITR_ADAPTIVE_LATENCY 0x80
+#define RNP_ITR_ADAPTIVE_MIN_USECS 5
+#define RNP_ITR_ADAPTIVE_MAX_USECS 800
+#define RNP_ITR_ADAPTIVE_LATENCY 0x400
 #define RNP_ITR_ADAPTIVE_BULK 0x00
+#define RNP_ITR_ADAPTIVE_MASK_USECS \
+	(RNP_ITR_ADAPTIVE_LATENCY - RNP_ITR_ADAPTIVE_MIN_INC)
 
 /* How many Rx Buffers do we bundle into one write to the hardware ? */
+#ifdef OPTM_WITH_LPAGE
+#define RNP_RX_BUFFER_WRITE (PAGE_SIZE / 2048) /* Must be power of 2 */
+#else
 #define RNP_RX_BUFFER_WRITE 16 /* Must be power of 2 */
+#endif
 enum rnp_tx_flags {
 	/* cmd_type flags */
 	RNP_TX_FLAGS_HW_VLAN = 0x01,
@@ -148,9 +168,17 @@ enum rnp_tx_flags {
 #define RNP_MAX_VF_FUNCTIONS RNP_MAX_VF_CNT
 #define RNP_MAX_VFTA_ENTRIES 128
 #define MAX_EMULATION_MAC_ADDRS 16
-#define RNP_MAX_PF_MACVLANS 15
+#define RNP_MAX_PF_MACVLANS_N10 15
+//#define RNP_MAX_PF_MACVLANS 15
 #define PF_RING_CNT_WHEN_IOV_ENABLED 2
 #define VMDQ_P(p) ((p) + adapter->ring_feature[RING_F_VMDQ].offset)
+
+enum vf_link_state {
+	rnp_link_state_on,
+	rnp_link_state_auto,
+	rnp_link_state_off,
+
+};
 
 struct vf_data_storage {
 	unsigned char vf_mac_addresses[ETH_ALEN];
@@ -164,9 +192,18 @@ struct vf_data_storage {
 	u16 vf_vlan; // vf just can set 1 vlan
 	u16 pf_qos;
 	u16 tx_rate;
+#ifdef HAVE_NDO_SET_VF_LINK_STATE
+	int link_state;
+#endif
 	u16 vlan_count;
 	u8 spoofchk_enabled;
+	u8 trusted;
+	unsigned long status;
 	unsigned int vf_api;
+};
+
+enum vf_state_t {
+	__VF_MBX_USED,
 };
 
 struct vf_macvlans {
@@ -197,7 +234,10 @@ struct rnp_tx_buffer {
 	struct sk_buff *skb;
 	unsigned int bytecount;
 	unsigned short gso_segs;
+	bool gso_need_padding;
+
 	__be16 protocol;
+	__be16 priv_tags;
 	DEFINE_DMA_UNMAP_ADDR(dma);
 	DEFINE_DMA_UNMAP_LEN(len);
 	union {
@@ -223,7 +263,7 @@ struct rnp_tx_buffer {
 struct rnp_rx_buffer {
 	struct sk_buff *skb;
 	dma_addr_t dma;
-#ifndef CONFIG_IXGBE_DISABLE_PACKET_SPLIT
+#ifndef CONFIG_RNP_DISABLE_PACKET_SPLIT
 	struct page *page;
 #if (BITS_PER_LONG > 32) || (PAGE_SIZE >= 65536)
 	__u32 page_offset;
@@ -232,8 +272,8 @@ struct rnp_rx_buffer {
 #endif
 	__u16 pagecnt_bias;
 #endif
-	//struct page *page;
-	//unsigned int page_offset;
+	// struct page *page;
+	// unsigned int page_offset;
 };
 
 struct rnp_queue_stats {
@@ -277,11 +317,11 @@ struct rnp_rx_queue_stats {
 	u64 rx_equal_count;
 	u64 rx_clean_times;
 	u64 rx_clean_count;
-	//u64 poll_count;
+	// u64 poll_count;
 };
 
 enum rnp_ring_state_t {
-#ifndef CONFIG_IXGBE_DISABLE_PACKET_SPLIT
+#ifndef CONFIG_RNP_DISABLE_PACKET_SPLIT
 	__RNP_RX_3K_BUFFER,
 	__RNP_RX_BUILD_SKB_ENABLED,
 #endif
@@ -295,14 +335,15 @@ enum rnp_ring_state_t {
 };
 
 #ifndef CONFIG_RNP_DISABLE_PACKET_SPLIT
-#define ring_uses_build_skb(ring)                                              \
+#define ring_uses_build_skb(ring) \
 	test_bit(__RNP_RX_BUILD_SKB_ENABLED, &(ring)->state)
 #endif
 
-#define check_for_tx_hang(ring) test_bit(__RNP_TX_DETECT_HANG, &(ring)->state)
-#define set_check_for_tx_hang(ring)                                            \
+#define check_for_tx_hang(ring) \
+	test_bit(__RNP_TX_DETECT_HANG, &(ring)->state)
+#define set_check_for_tx_hang(ring) \
 	set_bit(__RNP_TX_DETECT_HANG, &(ring)->state)
-#define clear_check_for_tx_hang(ring)                                          \
+#define clear_check_for_tx_hang(ring) \
 	clear_bit(__RNP_TX_DETECT_HANG, &(ring)->state)
 struct rnp_ring {
 	struct rnp_ring *next; /* pointer to next ring in q_vector */
@@ -324,13 +365,19 @@ struct rnp_ring {
 	dma_addr_t dma; /* phys. address of descriptor ring */
 	unsigned int size; /* length in bytes */
 	u32 ring_flags;
-#define RNP_RING_FLAG_DELAY_SETUP_RX_LEN (u32)(1 << 0)
-#define RNP_RING_FLAG_CHANGE_RX_LEN (u32)(1 << 1)
-#define RNP_RING_FLAG_DO_RESET_RX_LEN (u32)(1 << 2)
-#define RNP_RING_SKIP_TX_START (u32)(1 << 3)
-#define RNP_RING_NO_TUNNEL_SUPPORT (u32)(1 << 4)
-#define RNP_RING_SIZE_CHANGE_FIX (u32)(1 << 5)
-#define RNP_RING_SCATER_SETUP (u32)(1 << 6)
+#define RNP_RING_FLAG_DELAY_SETUP_RX_LEN ((u32)(1 << 0))
+#define RNP_RING_FLAG_CHANGE_RX_LEN ((u32)(1 << 1))
+#define RNP_RING_FLAG_DO_RESET_RX_LEN ((u32)(1 << 2))
+#define RNP_RING_SKIP_TX_START ((u32)(1 << 3))
+#define RNP_RING_NO_TUNNEL_SUPPORT ((u32)(1 << 4))
+#define RNP_RING_SIZE_CHANGE_FIX ((u32)(1 << 5))
+#define RNP_RING_SCATER_SETUP ((u32)(1 << 6))
+#define RNP_RING_STAGS_SUPPORT ((u32)(1 << 7))
+#define RNP_RING_DOUBLE_VLAN_SUPPORT ((u32)(1 << 8))
+#define RNP_RING_VEB_MULTI_FIX ((u32)(1 << 9))
+#define RNP_RING_IRQ_MISS_FIX ((u32)(1 << 10))
+#define RNP_RING_OUTER_VLAN_FIX ((u32)(1 << 11))
+#define RNP_RING_CHKSM_FIX ((u32)(1 << 12))
 	u8 pfvfnum;
 
 	u16 count; /* amount of descriptors */
@@ -339,18 +386,22 @@ struct rnp_ring {
 
 	u8 queue_index; /* queue_index needed for multiqueue queue management */
 	u8 rnp_queue_idx; /*the real ring,used by dma*/
-	u16 next_to_use; //tail (not-dma-mapped)
-	u16 next_to_clean; //soft-saved-head
+	u16 next_to_use; // tail (not-dma-mapped)
+	u16 next_to_clean; // soft-saved-head
 
 	u16 device_id;
-
+#ifdef OPTM_WITH_LPAGE
+	u16 rx_page_buf_nums;
+	u32 rx_per_buf_mem;
+	struct sk_buff *skb;
+#endif
 	union {
 #ifdef CONFIG_RNP_DISABLE_PACKET_SPLIT
 		u16 rx_buf_len;
 #else
 		u16 next_to_alloc;
 #endif
-		//u16 next_to_alloc; //RX
+		// u16 next_to_alloc; //RX
 		struct {
 			u8 atr_sample_rate;
 			u8 atr_count;
@@ -358,7 +409,6 @@ struct rnp_ring {
 	};
 
 	u8 dcb_tc;
-
 	struct rnp_queue_stats stats;
 #ifdef HAVE_NDO_GET_STATS64
 	struct u64_stats_sync syncp;
@@ -406,9 +456,9 @@ struct rnp_ring_feature {
 static inline unsigned int rnp_rx_bufsz(struct rnp_ring *ring)
 {
 	// 1 rx-desc trans max half page(2048), for jumbo frame sg is needed
-	//return RNP_RXBUFFER_MAX;
-	//return (RNP_RXBUFFER_1536 - NET_IP_ALIGN);
-	return RNP_RXBUFFER_1536;
+	// return RNP_RXBUFFER_MAX;
+	return (RNP_RXBUFFER_1536 - NET_IP_ALIGN);
+	//return RNP_RXBUFFER_1536;
 }
 
 // SG , 1 rx-desc use one page
@@ -425,31 +475,48 @@ struct rnp_ring_container {
 	unsigned long next_update; /* jiffies value of last update */
 	unsigned int total_bytes; /* total bytes processed this int */
 	unsigned int total_packets; /* total packets processed this int */
+	unsigned int total_packets_old;
 	u16 work_limit; /* total work allowed per interrupt */
-	u8 count; /* total number of rings in vector */
-	u8 itr; /* current ITR/MSIX vector setting for ring */
+	u16 count; /* total number of rings in vector */
+	u16 itr; /* current ITR/MSIX vector setting for ring */
+	u16 add_itr;
 };
 
 /* iterator for handling rings in ring container */
-#define rnp_for_each_ring(pos, head)                                           \
+#define rnp_for_each_ring(pos, head) \
 	for (pos = (head).ring; pos != NULL; pos = pos->next)
 
-#define MAX_RX_PACKET_BUFFERS ((adapter->flags & RNP_FLAG_DCB_ENABLED) ? 8 : 1)
+#define MAX_RX_PACKET_BUFFERS \
+	((adapter->flags & RNP_FLAG_DCB_ENABLED) ? 8 : 1)
 #define MAX_TX_PACKET_BUFFERS MAX_RX_PACKET_BUFFERS
 
 /* MAX_Q_VECTORS of these are allocated,
  * but we only use one per queue-specific vector.
  */
+
+#define SUPPORT_IRQ_AFFINITY_CHANGE
 struct rnp_q_vector {
+	int old_rx_count;
+	int new_rx_count;
+	int new_tx_count;
+	int large_times;
+	int small_times;
+	int too_small_times;
+	int middle_time;
+	int large_times_tx;
+	int small_times_tx;
+	int too_small_times_tx;
+	int middle_time_tx;
 	struct rnp_adapter *adapter;
 #ifdef CONFIG_RNP_DCA
 	int cpu; /* CPU for DCA */
 #endif
-	u16 v_idx;
+	int v_idx;
 	/* index of q_vector within array, also used for
 	 * finding the bit in EICR and friends that
 	 * represents the vector for this ring */
-	u16 itr;
+	u16 itr_rx;
+	u16 itr_tx;
 	struct rnp_ring_container rx, tx;
 
 	struct napi_struct napi;
@@ -465,9 +532,11 @@ struct rnp_q_vector {
 	struct rcu_head rcu; /* to avoid race with update stats on free */
 
 	u32 vector_flags;
-#define RNP_QVECTOR_FLAG_IRQ_MISS_CHECK (u32)(1 << 0)
+#define RNP_QVECTOR_FLAG_IRQ_MISS_CHECK ((u32)(1 << 0))
+#define RNP_QVECTOR_FLAG_ITR_FEATURE ((u32)(1 << 1))
+#define RNP_QVECTOR_FLAG_REDUCE_TX_IRQ_MISS ((u32)(1 << 2))
 	int irq_check_usecs;
-	struct hrtimer irq_miss_check_timer;  // to check irq miss
+	struct hrtimer irq_miss_check_timer; // to check irq miss
 
 	char name[IFNAMSIZ + 9];
 
@@ -475,7 +544,44 @@ struct rnp_q_vector {
 	struct rnp_ring ring[0] ____cacheline_internodealigned_in_smp;
 };
 
-/* rnp_test_staterr - tests bits in Rx descriptor status and error fields */
+static inline __le16 rnp_test_ext_cmd(union rnp_rx_desc *rx_desc,
+				      const u16 stat_err_bits)
+{
+	return rx_desc->wb.rev1 & cpu_to_le16(stat_err_bits);
+}
+
+#ifdef RNP_HWMON
+
+#define RNP_HWMON_TYPE_LOC 0
+#define RNP_HWMON_TYPE_TEMP 1
+#define RNP_HWMON_TYPE_CAUTION 2
+#define RNP_HWMON_TYPE_MAX 3
+#define RNP_HWMON_TYPE_NAME 4
+
+struct hwmon_attr {
+	struct device_attribute dev_attr;
+	struct rnp_hw *hw;
+	struct rnp_thermal_diode_data *sensor;
+	char name[12];
+};
+
+struct hwmon_buff {
+#ifdef HAVE_HWMON_DEVICE_REGISTER_WITH_GROUPS
+	struct attribute_group group;
+	const struct attribute_group *groups[2];
+	struct attribute *attrs[RNP_MAX_SENSORS * 4 + 1];
+	struct hwmon_attr hwmon_list[RNP_MAX_SENSORS * 4];
+#else
+	struct device *device;
+	struct hwmon_attr *hwmon_list;
+#endif /* HAVE_HWMON_DEVICE_REGISTER_WITH_GROUPS */
+	unsigned int n_hwmon;
+};
+#endif /* RNPM_HWMON */
+
+/* 
+	rnp_test_staterr - tests bits in Rx descriptor status and error fields 
+*/
 static inline __le16 rnp_test_staterr(union rnp_rx_desc *rx_desc,
 				      const u16 stat_err_bits)
 {
@@ -506,11 +612,12 @@ static inline u16 rnp_desc_unused_rx(struct rnp_ring *ring)
 
 #define RNP_RX_DESC(R, i) (&(((union rnp_rx_desc *)((R)->desc))[i]))
 #define RNP_TX_DESC(R, i) (&(((struct rnp_tx_desc *)((R)->desc))[i]))
-#define RNP_TX_CTXTDESC(R, i) (&(((struct rnp_tx_ctx_desc *)((R)->desc))[i]))
+#define RNP_TX_CTXTDESC(R, i) \
+	(&(((struct rnp_tx_ctx_desc *)((R)->desc))[i]))
 
 #define RNP_MAX_JUMBO_FRAME_SIZE 9590 /* Maximum Supported Size 9.5KB */
 #define RNP_MIN_MTU 68
-#define RNP500_MAX_JUMBO_FRAME_SIZE 9726 /* Maximum Supported Size 9728 */
+#define RNP500_MAX_JUMBO_FRAME_SIZE 9722 /* Maximum Supported Size 9728 */
 
 #define OTHER_VECTOR 1
 #define NON_Q_VECTORS (OTHER_VECTOR)
@@ -527,12 +634,18 @@ struct rnp_pfc_cfg {
 	u8 pfc_en; /* enabled the pfc feature or not */
 };
 
+struct rnp_dcb_num_tcs {
+	u8 pg_tcs;
+	u8 pfc_tcs;
+};
+
 struct rnp_dcb_cfg {
 	u8 tc_num;
 	u16 delay; /* pause time */
 	u8 dcb_en; /* enabled the dcb feature or not */
 	u8 dcbx_mode;
 	struct rnp_pfc_cfg pfc_cfg;
+	struct rnp_dcb_num_tcs num_tcs;
 
 	/* statistic info */
 
@@ -547,6 +660,28 @@ struct rnp_pps_cfg {
 	struct timespec64 period;
 };
 
+enum rss_func_mode_enum {
+	rss_func_top,
+	rss_func_xor,
+	rss_func_order,
+};
+
+enum outer_vlan_type_enum {
+	outer_vlan_type_88a8,
+#ifdef ETH_P_QINQ1
+	outer_vlan_type_9100,
+#endif
+#ifdef ETH_P_QINQ2
+	outer_vlan_type_9200,
+#endif
+	outer_vlan_type_max,
+};
+
+enum irq_mode_enum {
+	irq_mode_legency,
+	irq_mode_msi,
+	irq_mode_msix,
+};
 
 /* board specific private data structure */
 struct rnp_adapter {
@@ -555,17 +690,19 @@ struct rnp_adapter {
 	struct vlan_group *vlgrp; /* must be first, see rnp_receive_skb */
 #else
 	unsigned long active_vlans[BITS_TO_LONGS(VLAN_N_VID)];
+	unsigned long active_vlans_stags[BITS_TO_LONGS(VLAN_N_VID)];
 #endif
 
 #endif /* NETIF_F_HW_VLAN_TX || NETIF_F_HW_VLAN_CTAG_TX */
 	/* OS defined structs */
 	u16 vf_vlan;
 	u16 vlan_count;
+	int miss_time;
 	struct net_device *netdev;
 	struct pci_dev *pdev;
 	// juest for test
-	//struct page *page[512];
-	//int page_count;
+	// struct page *page[512];
+	// int page_count;
 
 	bool quit_poll_thread;
 	struct task_struct *rx_poll_thread;
@@ -575,6 +712,7 @@ struct rnp_adapter {
 	unsigned int indices;
 #endif
 #endif
+	spinlock_t link_stat_lock;
 
 	/* this var is used for auto itr modify */
 	/* hw not Supported well */
@@ -602,12 +740,12 @@ struct rnp_adapter {
 	int napi_budge;
 
 	union {
-		int phyid;
+		int phy_addr;
 		struct {
 			u8 mod_abs : 1;
-			u8 fault   : 1;
-			u8 tx_dis  : 1;
-			u8 los	   : 1;
+			u8 fault : 1;
+			u8 tx_dis : 1;
+			u8 los : 1;
 		} sfp;
 	};
 
@@ -620,61 +758,67 @@ struct rnp_adapter {
 
 	int speed;
 
-	u8 an		   : 1;
-	u8 fec		   : 1;
+	u8 an : 1;
+	u8 fec : 1;
 	u8 link_traing : 1;
-	u8 duplex	   : 1;
+	u8 duplex : 1;
+	u8 rpu_inited : 1;
 
 	/* Some features need tri-state capability,
 	 * thus the additional *_CAPABLE flags.
 	 */
 	u32 vf_num_for_pf;
 	u32 flags;
-#define RNP_FLAG_MSI_CAPABLE (u32)(1 << 0)
-#define RNP_FLAG_MSI_ENABLED (u32)(1 << 1)
-#define RNP_FLAG_MSIX_CAPABLE (u32)(1 << 2)
-#define RNP_FLAG_MSIX_ENABLED (u32)(1 << 3)
-#define RNP_FLAG_RX_1BUF_CAPABLE (u32)(1 << 4)
-#define RNP_FLAG_RX_PS_CAPABLE (u32)(1 << 5)
-#define RNP_FLAG_RX_PS_ENABLED (u32)(1 << 6)
-#define RNP_FLAG_IN_NETPOLL (u32)(1 << 7)
-#define RNP_FLAG_DCA_ENABLED (u32)(1 << 8)
-#define RNP_FLAG_DCA_CAPABLE (u32)(1 << 9)
-#define RNP_FLAG_IMIR_ENABLED (u32)(1 << 10)
-#define RNP_FLAG_MQ_CAPABLE (u32)(1 << 11)
-#define RNP_FLAG_DCB_ENABLED (u32)(1 << 12)
-#define RNP_FLAG_VMDQ_CAPABLE (u32)(1 << 13)
-#define RNP_FLAG_VMDQ_ENABLED (u32)(1 << 14)
-#define RNP_FLAG_FAN_FAIL_CAPABLE (u32)(1 << 15)
-#define RNP_FLAG_NEED_LINK_UPDATE (u32)(1 << 16)
-#define RNP_FLAG_NEED_LINK_CONFIG (u32)(1 << 17)
-#define RNP_FLAG_FDIR_HASH_CAPABLE (u32)(1 << 18)
-#define RNP_FLAG_FDIR_PERFECT_CAPABLE (u32)(1 << 19)
-#define RNP_FLAG_FCOE_CAPABLE (u32)(1 << 20)
-#define RNP_FLAG_FCOE_ENABLED (u32)(1 << 21)
-#define RNP_FLAG_SRIOV_CAPABLE (u32)(1 << 22)
-#define RNP_FLAG_SRIOV_ENABLED (u32)(1 << 23)
-#define RNP_FLAG_VXLAN_OFFLOAD_CAPABLE (u32)(1 << 24)
-#define RNP_FLAG_VXLAN_OFFLOAD_ENABLE (u32)(1 << 25)
-#define RNP_FLAG_SWITCH_LOOPBACK_EN	   (u32)(1 << 26)
-#define RNP_FLAG_SRIOV_INIT_DONE           (u32)(1 << 27)
+#define RNP_FLAG_MSI_CAPABLE ((u32)(1 << 0))
+#define RNP_FLAG_MSI_ENABLED ((u32)(1 << 1))
+#define RNP_FLAG_MSIX_CAPABLE ((u32)(1 << 2))
+#define RNP_FLAG_MSIX_ENABLED ((u32)(1 << 3))
+#define RNP_FLAG_RX_1BUF_CAPABLE ((u32)(1 << 4))
+#define RNP_FLAG_RX_PS_CAPABLE ((u32)(1 << 5))
+#define RNP_FLAG_RX_PS_ENABLED ((u32)(1 << 6))
+#define RNP_FLAG_IN_NETPOLL ((u32)(1 << 7))
+#define RNP_FLAG_DCA_ENABLED ((u32)(1 << 8))
+#define RNP_FLAG_DCA_CAPABLE ((u32)(1 << 9))
+#define RNP_FLAG_IMIR_ENABLED ((u32)(1 << 10))
+#define RNP_FLAG_MQ_CAPABLE ((u32)(1 << 11))
+#define RNP_FLAG_DCB_ENABLED ((u32)(1 << 12))
+#define RNP_FLAG_VMDQ_CAPABLE ((u32)(1 << 13))
+#define RNP_FLAG_VMDQ_ENABLED ((u32)(1 << 14))
+#define RNP_FLAG_FAN_FAIL_CAPABLE ((u32)(1 << 15))
+#define RNP_FLAG_NEED_LINK_UPDATE ((u32)(1 << 16))
+#define RNP_FLAG_NEED_LINK_CONFIG ((u32)(1 << 17))
+#define RNP_FLAG_FDIR_HASH_CAPABLE ((u32)(1 << 18))
+#define RNP_FLAG_FDIR_PERFECT_CAPABLE ((u32)(1 << 19))
+#define RNP_FLAG_FCOE_CAPABLE ((u32)(1 << 20))
+#define RNP_FLAG_FCOE_ENABLED ((u32)(1 << 21))
+#define RNP_FLAG_SRIOV_CAPABLE ((u32)(1 << 22))
+#define RNP_FLAG_SRIOV_ENABLED ((u32)(1 << 23))
+#define RNP_FLAG_VXLAN_OFFLOAD_CAPABLE ((u32)(1 << 24))
+#define RNP_FLAG_VXLAN_OFFLOAD_ENABLE ((u32)(1 << 25))
+#define RNP_FLAG_SWITCH_LOOPBACK_EN ((u32)(1 << 26))
+#define RNP_FLAG_SRIOV_INIT_DONE ((u32)(1 << 27))
+#define RNP_FLAG_IN_IRQ ((u32)(1 << 28))
+#define RNP_FLAG_VF_INIT_DONE ((u32)(1 << 29))
+#define RNP_FLAG_LEGACY_CAPABLE ((u32)(1 << 30))
+#define RNP_FLAG_LEGACY_ENABLED ((u32)(1 << 31))
 	u32 flags2;
-#define RNP_FLAG2_RSC_CAPABLE (u32)(1 << 0)
-#define RNP_FLAG2_RSC_ENABLED (u32)(1 << 1)
-#define RNP_FLAG2_TEMP_SENSOR_CAPABLE (u32)(1 << 2)
-#define RNP_FLAG2_TEMP_SENSOR_EVENT (u32)(1 << 3)
-#define RNP_FLAG2_SEARCH_FOR_SFP (u32)(1 << 4)
-#define RNP_FLAG2_SFP_NEEDS_RESET (u32)(1 << 5)
-#define RNP_FLAG2_RESET_REQUESTED (u32)(1 << 6)
-#define RNP_FLAG2_FDIR_REQUIRES_REINIT (u32)(1 << 7)
-#define RNP_FLAG2_RSS_FIELD_IPV4_UDP (u32)(1 << 8)
-#define RNP_FLAG2_RSS_FIELD_IPV6_UDP (u32)(1 << 9)
-#define RNP_FLAG2_PTP_ENABLED (u32)(1 << 10)
-#define RNP_FLAG2_PTP_PPS_ENABLED (u32)(1 << 11)
-#define RNP_FLAG2_BRIDGE_MODE_VEB (u32)(1 << 12)
-#define RNP_FLAG2_VLAN_STAGS_ENABLED (u32)(1 << 13)
-#define RNP_FLAG2_UDP_TUN_REREG_NEEDED (u32)(1 << 14)
-#define RNP_FLAG2_RESET_PF (u32)(1 << 15)
+#define RNP_FLAG2_RSC_CAPABLE ((u32)(1 << 0))
+#define RNP_FLAG2_RSC_ENABLED ((u32)(1 << 1))
+#define RNP_FLAG2_TEMP_SENSOR_CAPABLE ((u32)(1 << 2))
+#define RNP_FLAG2_TEMP_SENSOR_EVENT ((u32)(1 << 3))
+#define RNP_FLAG2_SEARCH_FOR_SFP ((u32)(1 << 4))
+#define RNP_FLAG2_SFP_NEEDS_RESET ((u32)(1 << 5))
+#define RNP_FLAG2_RESET_REQUESTED ((u32)(1 << 6))
+#define RNP_FLAG2_FDIR_REQUIRES_REINIT ((u32)(1 << 7))
+#define RNP_FLAG2_RSS_FIELD_IPV4_UDP ((u32)(1 << 8))
+#define RNP_FLAG2_RSS_FIELD_IPV6_UDP ((u32)(1 << 9))
+#define RNP_FLAG2_PTP_ENABLED ((u32)(1 << 10))
+#define RNP_FLAG2_PTP_PPS_ENABLED ((u32)(1 << 11))
+#define RNP_FLAG2_BRIDGE_MODE_VEB ((u32)(1 << 12))
+#define RNP_FLAG2_VLAN_STAGS_ENABLED ((u32)(1 << 13))
+#define RNP_FLAG2_UDP_TUN_REREG_NEEDED ((u32)(1 << 14))
+#define RNP_FLAG2_RESET_PF ((u32)(1 << 15))
+#define RNP_FLAG2_CHKSM_FIX ((u32)(1 << 16))
 
 	u32 priv_flags;
 #define RNP_PRIV_FLAG_MAC_LOOPBACK BIT(0)
@@ -685,12 +829,37 @@ struct rnp_adapter {
 #define RNP_PRIV_FLAG_PTP_DEBUG BIT(5)
 #define RNP_PRIV_FLAG_SIMUATE_DOWN BIT(6)
 #define RNP_PRIV_FLAG_VXLAN_INNER_MATCH BIT(7)
-#define RNP_PRIV_FLAG_REC_HDR_LEN_ERR BIT(8)
+#define RNP_PRIV_FLAG_ULTRA_SHORT BIT(8)
+#define RNP_PRIV_FLAG_DOUBLE_VLAN BIT(9)
+#define RNP_PRIV_FLAG_TCP_SYNC BIT(10)
+#define RNP_PRIV_FLAG_PAUSE_OWN BIT(11)
+#define RNP_PRIV_FLAG_JUMBO BIT(12)
+#define RNP_PRIV_FLAG_TX_PADDING BIT(13)
+#define RNP_PRIV_FLAG_RX_ALL BIT(14)
+#define RNP_PRIV_FLAG_REC_HDR_LEN_ERR BIT(15)
+#define RNP_PRIV_FLAG_RX_FCS BIT(16)
+#define RNP_PRIV_FLAG_DOUBLE_VLAN_RECEIVE BIT(17)
+#define RNP_PRIV_FLGA_TEST_TX_HANG BIT(18)
+#define RNP_PRIV_FLAG_RX_SKIP_EN BIT(19)
+#define RNP_PRIV_FLAG_TCP_SYNC_PRIO BIT(20)
+#define RNP_PRIV_FLAG_REMAP_PRIO BIT(21)
+#define RNP_PRIV_FLAG_8023_PRIO BIT(22)
+#define RNP_PRIV_FLAG_SRIOV_VLAN_MODE BIT(23)
+#define RNP_PRIV_FLAG_REMAP_MODE BIT(24)
+#define RNP_PRIV_FLAG_LLDP_EN_STAT BIT(25)
 
+#define PRIV_DATA_EN BIT(7)
+	int rss_func_mode;
+	int outer_vlan_type;
+	int tcp_sync_queue;
+	int priv_skip_count;
+
+	u64 rx_drop_status;
+	int drop_time;
 	/* Tx fast path data */
 	unsigned int num_tx_queues;
 	unsigned int max_ring_pair_counts;
-	//unsigned int txrx_queue_count;
+	// unsigned int txrx_queue_count;
 	u16 tx_work_limit;
 
 #if defined(HAVE_UDP_ENC_RX_OFFLOAD) || defined(HAVE_VXLAN_RX_OFFLOAD)
@@ -705,7 +874,8 @@ struct rnp_adapter {
 	u32 eth_queue_idx;
 	u32 max_rate[MAX_TX_QUEUES];
 	/* TX */
-	struct rnp_ring *tx_ring[MAX_TX_QUEUES] ____cacheline_aligned_in_smp;
+	struct rnp_ring
+		*tx_ring[MAX_TX_QUEUES] ____cacheline_aligned_in_smp;
 	int tx_ring_item_count;
 
 	u64 restart_queue;
@@ -726,6 +896,7 @@ struct rnp_adapter {
 	u32 alloc_rx_buff_failed;
 
 	int num_other_vectors;
+	int irq_mode;
 	struct rnp_q_vector *q_vector[MAX_Q_VECTORS];
 
 	/*used for IEEE 1588 ptp clock start*/
@@ -777,8 +948,10 @@ struct rnp_adapter {
 
 	u32 link_speed;
 	bool link_up;
+	bool duplex_status;
 	u32 link_speed_old;
 	bool link_up_old;
+	bool duplex_old;
 	unsigned long link_check_timeout;
 
 	struct timer_list service_timer;
@@ -791,17 +964,16 @@ struct rnp_adapter {
 	int fdir_mode;
 	int fdir_filter_count;
 	/* fixme to bitmap */
-	//unsigned long layer2_bit[BITS_TO_LONGS(RNP_MAX_LAYER2_FILTERS)];
+	// unsigned long layer2_bit[BITS_TO_LONGS(RNP_MAX_LAYER2_FILTERS)];
 	int layer2_count;
 	/* fixme to bitmap */
-	//unsigned long tuple5_bit[BITS_TO_LONGS(RNP_MAX_TCAM_FILTERS)];
+	// unsigned long tuple5_bit[BITS_TO_LONGS(RNP_MAX_TCAM_FILTERS)];
 	int tuple_5_count;
-	u32 fdir_pballoc; //total count
+	u32 fdir_pballoc; // total count
 	u32 atr_sample_rate;
 	spinlock_t fdir_perfect_lock;
-#ifdef FIX_VF_BUG
+
 	u8 __iomem *io_addr_bar0;
-#endif
 	u8 __iomem *io_addr;
 	u32 wol;
 
@@ -841,9 +1013,15 @@ struct rnp_adapter {
 	u32 timer_event_accumulator;
 	u32 vferr_refcount;
 	struct kobject *info_kobj;
-#ifdef CONFIG_RNP_HWMON
+#ifdef RNP_SYSFS
+#ifdef RNP_HWMON
+#ifdef HAVE_HWMON_DEVICE_REGISTER_WITH_GROUPS
+	struct hwmon_buff *rnp_hwmon_buff;
+#else
 	struct hwmon_buff rnp_hwmon_buff;
-#endif /* CONFIG_RNP_HWMON */
+#endif /* HAVE_HWMON_DEVICE_REGISTER_WITH_GROUPS */
+#endif /* RNP_HWMON */
+#endif /* RNPM_SYSFS */
 #ifdef CONFIG_DEBUG_FS
 	struct dentry *rnp_dbg_adapter;
 #endif /*CONFIG_DEBUG_FS*/
@@ -851,7 +1029,7 @@ struct rnp_adapter {
 	u8 default_up;
 	// u8 veb_vfnum;
 
-	u8 port;		   /* nr_pf_port: 0 or 1 */
+	u8 port; /* nr_pf_port: 0 or 1 */
 	u8 portid_of_card; /* port num in card*/
 
 #define RNP_MAX_RETA_ENTRIES 512
@@ -865,7 +1043,14 @@ struct rnp_adapter {
 	u8 rss_key[RNP_RSS_KEY_SIZE];
 	u32 rss_key_setup_flag;
 
-	//struct rnp_info* info;
+	u32 sysfs_is_phy_ext_reg;
+	u32 sysfs_phy_reg;
+	u32 sysfs_bar4_reg_val;
+	u32 sysfs_bar4_reg_addr;
+	u32 sysfs_pcs_lane_num;
+	int sysfs_input_arg_cnt;
+
+	// struct rnp_info* info;
 	bool dma2_in_1pf;
 
 	char name[60];
@@ -888,7 +1073,10 @@ enum rnp_state_t {
 	__RNP_IN_SFP_INIT,
 	__RNP_READ_I2C,
 	__RNP_PTP_TX_IN_PROGRESS,
-	__RNP_USE_VFINFI
+	__RNP_USE_VFINFI,
+	__RNP_IN_IRQ,
+	__RNP_REMOVE,
+	__RNP_SERVICE_CHECK,
 };
 
 struct rnp_cb {
@@ -904,14 +1092,13 @@ struct rnp_cb {
 
 enum rnp_boards {
 	board_n10_709_1pf_2x10G,
-	board_vu440_2ports,
-	board_n10_2ports,
-	board_n20_2ports,
-	board_n500,
+	board_vu440s,
+	board_n10,
+	board_n400,
 };
 
 #ifdef CONFIG_RNP_DCB
-extern const struct dcbnl_rtnl_ops rnp_dcbnl_ops;
+extern const struct dcbnl_rtnl_ops dcbnl_ops;
 #endif
 
 extern char rnp_driver_name[];
@@ -935,8 +1122,9 @@ extern int rnp_init_interrupt_scheme(struct rnp_adapter *adapter);
 extern int rnp_wol_supported(struct rnp_adapter *adapter, u16 device_id,
 			     u16 subdevice_id);
 extern void rnp_clear_interrupt_scheme(struct rnp_adapter *adapter);
-extern netdev_tx_t rnp_xmit_frame_ring(struct sk_buff *, struct rnp_adapter *,
-				       struct rnp_ring *);
+extern netdev_tx_t rnp_xmit_frame_ring(struct sk_buff *,
+				       struct rnp_adapter *,
+				       struct rnp_ring *, bool);
 extern void rnp_unmap_and_free_tx_resource(struct rnp_ring *,
 					   struct rnp_tx_buffer *);
 extern void rnp_alloc_rx_buffers(struct rnp_ring *, u16);
@@ -945,10 +1133,9 @@ extern int ethtool_ioctl(struct ifreq *ifr);
 extern s32 rnp_reinit_fdir_tables_n10(struct rnp_hw *hw);
 extern s32 rnp_init_fdir_signature_n10(struct rnp_hw *hw, u32 fdirctrl);
 extern s32 rnp_init_fdir_perfect_n10(struct rnp_hw *hw, u32 fdirctrl);
-extern s32 rnp_fdir_add_signature_filter_n10(struct rnp_hw *hw,
-					     union rnp_atr_hash_dword input,
-					     union rnp_atr_hash_dword common,
-					     u8 queue);
+extern s32 rnp_fdir_add_signature_filter_n10(
+	struct rnp_hw *hw, union rnp_atr_hash_dword input,
+	union rnp_atr_hash_dword common, u8 queue);
 
 extern void rnp_release_hw_control(struct rnp_adapter *adapter);
 extern void rnp_get_hw_control(struct rnp_adapter *adapter);
@@ -957,6 +1144,10 @@ extern s32 rnp_fdir_set_input_mask_n10(struct rnp_hw *hw,
 extern s32 rnp_fdir_write_perfect_filter_n10(struct rnp_hw *hw,
 					     union rnp_atr_input *input,
 					     u16 soft_id, u8 queue);
+extern s32 rnp_fdir_write_perfect_filter(int fdir_mode, struct rnp_hw *hw,
+					 union rnp_atr_input *filter,
+					 u16 hw_id, u8 queue,
+					 bool prio_flag);
 extern s32 rnp_fdir_erase_perfect_filter_n10(struct rnp_hw *hw,
 					     union rnp_atr_input *input,
 					     u16 soft_id);
@@ -967,12 +1158,18 @@ extern void rnp_set_rx_mode(struct net_device *netdev);
 #ifdef CONFIG_RNP_DCB
 extern void rnp_set_rx_drop_en(struct rnp_adapter *adapter);
 #endif
-extern int rnp_setup_tx_maxrate(struct rnp_ring *tx_ring, u64 max_rate, int sample_interval);
+extern int rnp_setup_tx_maxrate(struct rnp_ring *tx_ring, u64 max_rate,
+				int sample_interval);
 extern int rnp_setup_tc(struct net_device *dev, u8 tc);
+
+void rnp_check_options(struct rnp_adapter *adapter);
+
 extern int rnp_open(struct net_device *netdev);
 extern int rnp_close(struct net_device *netdev);
+
 void rnp_tx_ctxtdesc(struct rnp_ring *tx_ring, u32 mss_len_vf_num,
-		     u32 inner_vlan_tunnel_len, int ignore_vlan);
+		     u32 inner_vlan_tunnel_len, int ignore_vlan,
+		     bool crc_pad);
 void rnp_maybe_tx_ctxtdesc(struct rnp_ring *tx_ring,
 			   struct rnp_tx_buffer *first, u32 type_tucmd);
 
@@ -981,18 +1178,19 @@ extern void rnp_store_key(struct rnp_adapter *adapter);
 extern int rnp_init_rss_key(struct rnp_adapter *adapter);
 extern int rnp_init_rss_table(struct rnp_adapter *adapter);
 extern void rnp_setup_dma_rx(struct rnp_adapter *adapter, int count_in_dw);
-extern s32 rnp_fdir_write_perfect_filter(int fdir_mode, struct rnp_hw *hw,
-					 union rnp_atr_input *filter, u16 hw_id,
-					 u8 queue);
 extern s32 rnp_fdir_erase_perfect_filter(int fdir_mode, struct rnp_hw *hw,
-					 union rnp_atr_input *input, u16 hw_id);
+					 union rnp_atr_input *input,
+					 u16 hw_id);
 extern u32 rnp_rss_indir_tbl_entries(struct rnp_adapter *adapter);
 extern u32 rnp_tx_desc_unused_sw(struct rnp_ring *tx_ring);
-extern u32 rnp_tx_desc_unused_hw(struct rnp_hw *hw, struct rnp_ring *tx_ring);
-extern s32 rnp_disable_rxr_maxrate(struct net_device *netdev, u8 queue_index);
-extern s32 rnp_enable_rxr_maxrate(struct net_device *netdev, u8 queue_index,
-				  u32 maxrate);
-extern u32 rnp_rx_desc_used_hw(struct rnp_hw *hw, struct rnp_ring *rx_ring);
+extern u32 rnp_tx_desc_unused_hw(struct rnp_hw *hw,
+				 struct rnp_ring *tx_ring);
+extern s32 rnp_disable_rxr_maxrate(struct net_device *netdev,
+				   u8 queue_index);
+extern s32 rnp_enable_rxr_maxrate(struct net_device *netdev,
+				  u8 queue_index, u32 maxrate);
+extern u32 rnp_rx_desc_used_hw(struct rnp_hw *hw,
+			       struct rnp_ring *rx_ring);
 extern void rnp_do_reset(struct net_device *netdev);
 #ifdef CONFIG_RNP_HWMON
 extern void rnp_sysfs_exit(struct rnp_adapter *adapter);
@@ -1045,10 +1243,11 @@ static inline void rnp_ptp_rx_hwtstamp(struct rnp_ring *rx_ring,
 }
 
 static inline int ignore_veb_vlan(struct rnp_adapter *adapter,
-				     union rnp_rx_desc *rx_desc)
+				  union rnp_rx_desc *rx_desc)
 {
 	if (unlikely((adapter->flags & RNP_FLAG_SRIOV_ENABLED) &&
-		     (cpu_to_le16(rx_desc->wb.rev1) & VEB_VF_IGNORE_VLAN))) {
+		     (cpu_to_le16(rx_desc->wb.rev1) &
+		      VEB_VF_IGNORE_VLAN))) {
 		return 1;
 	}
 	return 0;
@@ -1065,17 +1264,19 @@ static inline int ignore_veb_pkg_err(struct rnp_adapter *adapter,
 }
 
 int rnp_update_ethtool_fdir_entry(struct rnp_adapter *adapter,
-				  struct rnp_fdir_filter *input, u16 sw_idx);
+				  struct rnp_fdir_filter *input,
+				  u16 sw_idx);
 
-static inline int rnp_is_pf1(struct pci_dev *pdev)
+static inline int rnp_is_pf1(struct rnp_hw *hw)
 {
-	return ((pdev->devfn & 0x1) ? 1 : 0);
-
-	/*
-	return ((pdev->device == ((u16)RNP_DEV_ID_N10_PF0) ||
-		(pdev->device == ((u16)PCI_DEVICE_ID_N10_PF0))) ? 0 : 1);
-	*/
+	// return ((pdev->devfn & 0x1) ? 1 : 0);
+	return !!(hw->pfvfnum & BIT(PF_BIT));
 }
+static inline int rnp_is_pf0(struct rnp_hw *hw)
+{
+	return !rnp_is_pf1(hw);
+}
+
 static inline int rnp_get_fuc(struct pci_dev *pdev)
 {
 	return pdev->devfn;
@@ -1106,5 +1307,16 @@ static inline bool rnp_removed(void __iomem *addr)
 #define RNP_REMOVED(a) rnp_removed(a)
 int rnp_fw_msg_handler(struct rnp_adapter *adapter);
 
-int rnp_fw_update(struct rnp_hw *hw, int partition, const u8 *fw_bin, int bytes);
+int rnp500_fw_update(struct rnp_hw *hw, int partition, const u8 *fw_bin,
+		     int bytes);
+
+int rnp_fw_update(struct rnp_hw *hw, int partition, const u8 *fw_bin,
+		  int bytes);
+#define RNPM_FW_VERSION_NEW_ETHTOOL 0x00050010
+static inline bool rnp_fw_is_old_ethtool(struct rnp_hw *hw)
+{
+	return hw->fw_version >= RNPM_FW_VERSION_NEW_ETHTOOL ? false :
+							       true;
+}
+
 #endif /* _RNP_H_ */

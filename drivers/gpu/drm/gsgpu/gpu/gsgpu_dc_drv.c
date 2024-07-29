@@ -533,6 +533,9 @@ static void gsgpu_dc_commit_planes(struct drm_atomic_state *state,
 		struct dc_timing_info timing;
 		struct dc_plane_update plane;
 		struct drm_display_mode *mode = &pcrtc->mode;
+		struct gsgpu_bridge_phy *bridge = NULL;
+		struct drm_framebuffer *drm_fb;
+		int align = 8;
 		uint64_t address;
 
 		struct gsgpu_framebuffer *afb =
@@ -568,12 +571,40 @@ static void gsgpu_dc_commit_planes(struct drm_atomic_state *state,
 		timing.vtotal = mode->vtotal;
 		timing.vsync_start = mode->vsync_start;
 		timing.vsync_end = mode->vsync_end;
-		timing.use_dma32 = 0;
+		timing.use_dma = 0;
 
-		if (x != 0 && x % 64 && dc_crtc->array_mode == 0)
-			timing.use_dma32 = 1;
+
+		/* The width of FB is used to calculate the DMA length when
+		 * the screen is rotated */
+		mutex_lock(&dev->mode_config.fb_lock);
+		drm_for_each_fb(drm_fb, dev) {
+			struct gsgpu_framebuffer *lfb = to_gsgpu_framebuffer(drm_fb);
+			if (drm_fb->width < 480 || drm_fb->flags != 0)
+				continue;
+			if (x != 0 && (lfb != afb) && dc_crtc->array_mode == 0) {
+				align = 64;
+				if (!(drm_fb->width % 64))
+					timing.use_dma = CRTC_CFG_DMA_256;
+				else if (!(drm_fb->width % 32))
+					timing.use_dma = CRTC_CFG_DMA_128;
+			}
+		}
+		mutex_unlock(&dev->mode_config.fb_lock);
+
+		/* x is used to calculate the DMA length when the dual screen
+		 * is arranged horizontally */
+		if (x != 0 && dc_crtc->array_mode == 0 && align == 8) {
+			if (!(x % 64))
+				timing.use_dma = CRTC_CFG_DMA_256;
+			else if (!(x % 32))
+				timing.use_dma = CRTC_CFG_DMA_128;
+		}
 
 		dc_submit_timing_update(adev->dc, acrtc->crtc_id, &timing);
+
+		bridge = adev->mode_info.encoders[acrtc->crtc_id]->bridge;
+		if (bridge)
+			bridge_phy_mode_set(bridge, mode, NULL);
 
 		DRM_DEBUG_DRIVER("gsgpu crtc-%d hdisplay %d vdisplay %d x %d y %d cpp %d stride %d\n",
 				 acrtc->crtc_id, timing.hdisplay, timing.vdisplay,
@@ -582,7 +613,7 @@ static void gsgpu_dc_commit_planes(struct drm_atomic_state *state,
 		plane.type = DC_PLANE_PRIMARY;
 		switch (dc_crtc->array_mode) {
 		case 0:
-			address = afb->address + y * timing.stride + ALIGN(x, 8) * cpp;
+			address = afb->address + y * timing.stride + ALIGN(x, align) * cpp;
 			break;
 		case 2:
 			y = (y + 3) & ~3;
@@ -966,6 +997,7 @@ static int dc_suspend(void *handle)
 	gsgpu_hdmi_suspend(adev);
 	gsgpu_dc_meta_disable(adev);
 	gsgpu_dc_hpd_disable(adev);
+	gsgpu_bridge_suspend(adev);
 
 	return 0;
 }
@@ -989,6 +1021,7 @@ static int dc_resume(void *handle)
 	gsgpu_dc_meta_enable(adev, true);
 	gsgpu_dc_hpd_init(adev);
 	gsgpu_hdmi_resume(adev);
+	gsgpu_bridge_resume(adev);
 
 	return 0;
 }

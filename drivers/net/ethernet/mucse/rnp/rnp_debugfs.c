@@ -1,8 +1,12 @@
+// SPDX-License-Identifier: GPL-2.0
+/* Copyright(c) 2022 - 2023 Mucse Corporation. */
+
 #include <linux/debugfs.h>
 #include <linux/module.h>
 
 #include "rnp.h"
 
+#ifdef HAVE_RNP_DEBUG_FS
 static struct dentry *rnp_dbg_root;
 
 static char rnp_dbg_reg_ops_buf[256] = "";
@@ -35,7 +39,8 @@ static ssize_t rnp_dbg_reg_ops_read(struct file *filp, char __user *buffer,
 		return -ENOSPC;
 	}
 
-	len = simple_read_from_buffer(buffer, count, ppos, buf, strlen(buf));
+	len = simple_read_from_buffer(buffer, count, ppos, buf,
+				      strlen(buf));
 
 	kfree(buf);
 	return len;
@@ -49,8 +54,8 @@ static ssize_t rnp_dbg_reg_ops_read(struct file *filp, char __user *buffer,
  * @ppos: file position offset
  **/
 static ssize_t rnp_dbg_reg_ops_write(struct file *filp,
-				     const char __user *buffer, size_t count,
-				     loff_t *ppos)
+				     const char __user *buffer,
+				     size_t count, loff_t *ppos)
 {
 	struct rnp_adapter *adapter = filp->private_data;
 	struct rnp_hw *hw = &adapter->hw;
@@ -74,11 +79,19 @@ static ssize_t rnp_dbg_reg_ops_write(struct file *filp,
 		u32 reg, value;
 		int cnt;
 
-		cnt = sscanf(&rnp_dbg_reg_ops_buf[5], "%x %x", &reg, &value);
+		cnt = sscanf(&rnp_dbg_reg_ops_buf[5], "%x %x", &reg,
+			     &value);
 		if (cnt == 2) {
-			rnp_wr_reg(hw->hw_addr + reg, value);
-			value = rnp_rd_reg(hw->hw_addr + reg);
-			e_dev_info("write: 0x%08x = 0x%08x\n", reg, value);
+			if (reg >= 0x30000000) {
+				rnp_mbx_reg_write(hw, reg, value);
+				e_dev_info("write: 0x%08x = 0x%08x\n", reg,
+					   value);
+			} else {
+				rnp_wr_reg(hw->hw_addr + reg, value);
+				value = rnp_rd_reg(hw->hw_addr + reg);
+				e_dev_info("write: 0x%08x = 0x%08x\n", reg,
+					   value);
+			}
 		} else {
 			e_dev_info("write <reg> <value>\n");
 		}
@@ -88,7 +101,14 @@ static ssize_t rnp_dbg_reg_ops_write(struct file *filp,
 
 		cnt = sscanf(&rnp_dbg_reg_ops_buf[4], "%x", &reg);
 		if (cnt == 1) {
-			value = rnp_rd_reg(hw->hw_addr + reg);
+			if (reg >= 0x30000000) {
+				value = rnp_mbx_fw_reg_read(hw, reg);
+			} else {
+				value = rnp_rd_reg(hw->hw_addr + reg);
+			}
+			snprintf(rnp_dbg_reg_ops_buf,
+				 sizeof(rnp_dbg_reg_ops_buf),
+				 "0x%08x: 0x%08x", reg, value);
 			e_dev_info("read 0x%08x = 0x%08x\n", reg, value);
 		} else {
 			e_dev_info("read <reg>\n");
@@ -118,11 +138,11 @@ static char rnp_dbg_netdev_ops_buf[256] = "";
  * @count: the size of the user's buffer
  * @ppos: file position offset
  **/
-static ssize_t rnp_dbg_netdev_ops_read(struct file *filp, char __user *buffer,
-				       size_t count, loff_t *ppos)
+static ssize_t rnp_dbg_netdev_ops_read(struct file *filp,
+				       char __user *buffer, size_t count,
+				       loff_t *ppos)
 {
 	struct rnp_adapter *adapter = filp->private_data;
-	struct rnp_hw *hw = &adapter->hw;
 	char *buf;
 	int len;
 
@@ -140,7 +160,8 @@ static ssize_t rnp_dbg_netdev_ops_read(struct file *filp, char __user *buffer,
 		return -ENOSPC;
 	}
 
-	len = simple_read_from_buffer(buffer, count, ppos, buf, strlen(buf));
+	len = simple_read_from_buffer(buffer, count, ppos, buf,
+				      strlen(buf));
 
 	kfree(buf);
 	return len;
@@ -154,8 +175,8 @@ static ssize_t rnp_dbg_netdev_ops_read(struct file *filp, char __user *buffer,
  * @ppos: file position offset
  **/
 static ssize_t rnp_dbg_netdev_ops_write(struct file *filp,
-					const char __user *buffer, size_t count,
-					loff_t *ppos)
+					const char __user *buffer,
+					size_t count, loff_t *ppos)
 {
 	struct rnp_adapter *adapter = filp->private_data;
 	int len;
@@ -167,8 +188,8 @@ static ssize_t rnp_dbg_netdev_ops_write(struct file *filp,
 		return -ENOSPC;
 
 	len = simple_write_to_buffer(rnp_dbg_netdev_ops_buf,
-				     sizeof(rnp_dbg_netdev_ops_buf) - 1, ppos,
-				     buffer, count);
+				     sizeof(rnp_dbg_netdev_ops_buf) - 1,
+				     ppos, buffer, count);
 	if (len < 0)
 		return len;
 
@@ -178,20 +199,23 @@ static ssize_t rnp_dbg_netdev_ops_write(struct file *filp,
 		rnp_info("adapter->stat=0x%lx\n", adapter->state);
 		rnp_info("adapter->tx_timeout_count=%d\n",
 			 adapter->tx_timeout_count);
-	} else if (strncmp(rnp_dbg_netdev_ops_buf, "tx_timeout", 10) == 0) {
+	} else if (strncmp(rnp_dbg_netdev_ops_buf, "tx_timeout", 10) ==
+		   0) {
 #ifdef HAVE_NET_DEVICE_OPS
 #ifdef HAVE_TX_TIMEOUT_TXQUEUE
-		adapter->netdev->netdev_ops->ndo_tx_timeout(adapter->netdev,
-				UINT_MAX);
+		adapter->netdev->netdev_ops->ndo_tx_timeout(
+			adapter->netdev, UINT_MAX);
 #else
-		adapter->netdev->netdev_ops->ndo_tx_timeout(adapter->netdev);
+		adapter->netdev->netdev_ops->ndo_tx_timeout(
+			adapter->netdev);
 #endif
 #else
 		adapter->netdev->tx_timeout(adapter->netdev);
 #endif
 		e_dev_info("tx_timeout called\n");
 	} else {
-		e_dev_info("Unknown command: %s\n", rnp_dbg_netdev_ops_buf);
+		e_dev_info("Unknown command: %s\n",
+			   rnp_dbg_netdev_ops_buf);
 		e_dev_info("Available commands:\n");
 		e_dev_info("    tx_timeout\n");
 	}
@@ -206,9 +230,8 @@ static const struct file_operations rnp_dbg_netdev_ops_fops = {
 };
 
 static ssize_t rnp_dbg_netdev_temp_read(struct file *filp,
-										char __user *buffer,
-										size_t count,
-										loff_t *ppos)
+					char __user *buffer, size_t count,
+					loff_t *ppos)
 {
 	struct rnp_adapter *adapter = filp->private_data;
 	struct rnp_hw *hw = &adapter->hw;
@@ -222,11 +245,8 @@ static ssize_t rnp_dbg_netdev_temp_read(struct file *filp,
 
 	temp = rnp_mbx_get_temp(hw, &voltage);
 
-	buf = kasprintf(GFP_KERNEL,
-					"%s: temp: %d oC voltage:%d mV\n",
-					adapter->name,
-					temp,
-					voltage);
+	buf = kasprintf(GFP_KERNEL, "%s: temp: %d oC voltage:%d mV\n",
+			adapter->name, temp, voltage);
 	if (!buf)
 		return -ENOMEM;
 
@@ -235,7 +255,8 @@ static ssize_t rnp_dbg_netdev_temp_read(struct file *filp,
 		return -ENOSPC;
 	}
 
-	len = simple_read_from_buffer(buffer, count, ppos, buf, strlen(buf));
+	len = simple_read_from_buffer(buffer, count, ppos, buf,
+				      strlen(buf));
 
 	kfree(buf);
 	return len;
@@ -259,21 +280,22 @@ void rnp_dbg_adapter_init(struct rnp_adapter *adapter)
 	adapter->rnp_dbg_adapter = debugfs_create_dir(name, rnp_dbg_root);
 	if (adapter->rnp_dbg_adapter) {
 		pfile = debugfs_create_file("reg_ops", 0600,
-					    adapter->rnp_dbg_adapter, adapter,
+					    adapter->rnp_dbg_adapter,
+					    adapter,
 					    &rnp_dbg_reg_ops_fops);
 		if (!pfile)
 			e_dev_err("debugfs reg_ops for %s failed\n", name);
 		pfile = debugfs_create_file("netdev_ops", 0600,
-					    adapter->rnp_dbg_adapter, adapter,
+					    adapter->rnp_dbg_adapter,
+					    adapter,
 					    &rnp_dbg_netdev_ops_fops);
 		if (!pfile)
-			e_dev_err("debugfs netdev_ops for %s failed\n", name);
+			e_dev_err("debugfs netdev_ops for %s failed\n",
+				  name);
 
-		pfile = debugfs_create_file("temp",
-									0600,
-									adapter->rnp_dbg_adapter,
-									adapter,
-									&rnp_dbg_netdev_temp);
+		pfile = debugfs_create_file("temp", 0600,
+					    adapter->rnp_dbg_adapter,
+					    adapter, &rnp_dbg_netdev_temp);
 		if (!pfile)
 			e_dev_err("debugfs temp for %s failed\n", name);
 	} else {
@@ -308,3 +330,4 @@ void rnp_dbg_exit(void)
 {
 	debugfs_remove_recursive(rnp_dbg_root);
 }
+#endif

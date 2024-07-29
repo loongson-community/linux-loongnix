@@ -1,33 +1,34 @@
 // SPDX-License-Identifier: GPL-2.0
-/* Copyright(c) 1999 - 2021 Intel Corporation. */
+/* Copyright(c) 2022 - 2023 Mucse Corporation. */
 
 #include "rnpvf_compat.h"
 
 /*****************************************************************************/
-#if ( LINUX_VERSION_CODE < KERNEL_VERSION(2,4,8) ) || defined __VMKLNX__
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(2, 4, 8)) || defined __VMKLNX__
 /* From lib/vsprintf.c */
 #include <asm/div64.h>
 
 static int skip_atoi(const char **s)
 {
-	int i=0;
+	int i = 0;
 
 	while (isdigit(**s))
-		i = i*10 + *((*s)++) - '0';
+		i = i * 10 + *((*s)++) - '0';
 	return i;
 }
 
-#define _kc_ZEROPAD	1		/* pad with zero */
-#define _kc_SIGN	2		/* unsigned/signed long */
-#define _kc_PLUS	4		/* show plus */
-#define _kc_SPACE	8		/* space if plus */
-#define _kc_LEFT	16		/* left justified */
-#define _kc_SPECIAL	32		/* 0x */
-#define _kc_LARGE	64		/* use 'ABCDEF' instead of 'abcdef' */
+#define _kc_ZEROPAD 1 /* pad with zero */
+#define _kc_SIGN 2 /* unsigned/signed long */
+#define _kc_PLUS 4 /* show plus */
+#define _kc_SPACE 8 /* space if plus */
+#define _kc_LEFT 16 /* left justified */
+#define _kc_SPECIAL 32 /* 0x */
+#define _kc_LARGE 64 /* use 'ABCDEF' instead of 'abcdef' */
 
-static char * number(char * buf, char * end, long long num, int base, int size, int precision, int type)
+static char *number(char *buf, char *end, long long num, int base,
+		    int size, int precision, int type)
 {
-	char c,sign,tmp[66];
+	char c, sign, tmp[66];
 	const char *digits;
 	const char small_digits[] = "0123456789abcdefghijklmnopqrstuvwxyz";
 	const char large_digits[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -61,14 +62,15 @@ static char * number(char * buf, char * end, long long num, int base, int size, 
 	}
 	i = 0;
 	if (num == 0)
-		tmp[i++]='0';
-	else while (num != 0)
-		tmp[i++] = digits[do_div(num,base)];
+		tmp[i++] = '0';
+	else
+		while (num != 0)
+			tmp[i++] = digits[do_div(num, base)];
 	if (i > precision)
 		precision = i;
 	size -= precision;
-	if (!(type&(_kc_ZEROPAD+_kc_LEFT))) {
-		while(size-->0) {
+	if (!(type & (_kc_ZEROPAD + _kc_LEFT))) {
+		while (size-- > 0) {
 			if (buf <= end)
 				*buf = ' ';
 			++buf;
@@ -80,11 +82,11 @@ static char * number(char * buf, char * end, long long num, int base, int size, 
 		++buf;
 	}
 	if (type & _kc_SPECIAL) {
-		if (base==8) {
+		if (base == 8) {
 			if (buf <= end)
 				*buf = '0';
 			++buf;
-		} else if (base==16) {
+		} else if (base == 16) {
 			if (buf <= end)
 				*buf = '0';
 			++buf;
@@ -126,24 +128,24 @@ int _kc_vsnprintf(char *buf, size_t size, const char *fmt, va_list args)
 	char *str, *end, c;
 	const char *s;
 
-	int flags;		/* flags to number() */
+	int flags; /* flags to number() */
 
-	int field_width;	/* width of output field */
-	int precision;		/* min. # of digits for integers; max
+	int field_width; /* width of output field */
+	int precision; /* min. # of digits for integers; max
 				   number of chars for from string */
-	int qualifier;		/* 'h', 'l', or 'L' for integer fields */
-				/* 'z' support added 23/7/1999 S.H.    */
-				/* 'z' changed to 'Z' --davidm 1/25/99 */
+	int qualifier; /* 'h', 'l', or 'L' for integer fields */
+	/* 'z' support added 23/7/1999 S.H.    */
+	/* 'z' changed to 'Z' --davidm 1/25/99 */
 
 	str = buf;
 	end = buf + size - 1;
 
 	if (end < buf - 1) {
-		end = ((void *) -1);
+		end = ((void *)-1);
 		size = end - buf + 1;
 	}
 
-	for (; *fmt ; ++fmt) {
+	for (; *fmt; ++fmt) {
 		if (*fmt != '%') {
 			if (str <= end)
 				*str = *fmt;
@@ -153,15 +155,25 @@ int _kc_vsnprintf(char *buf, size_t size, const char *fmt, va_list args)
 
 		/* process flags */
 		flags = 0;
-		repeat:
-			++fmt;		/* this also skips first '%' */
-			switch (*fmt) {
-				case '-': flags |= _kc_LEFT; goto repeat;
-				case '+': flags |= _kc_PLUS; goto repeat;
-				case ' ': flags |= _kc_SPACE; goto repeat;
-				case '#': flags |= _kc_SPECIAL; goto repeat;
-				case '0': flags |= _kc_ZEROPAD; goto repeat;
-			}
+repeat:
+		++fmt; /* this also skips first '%' */
+		switch (*fmt) {
+		case '-':
+			flags |= _kc_LEFT;
+			goto repeat;
+		case '+':
+			flags |= _kc_PLUS;
+			goto repeat;
+		case ' ':
+			flags |= _kc_SPACE;
+			goto repeat;
+		case '#':
+			flags |= _kc_SPECIAL;
+			goto repeat;
+		case '0':
+			flags |= _kc_ZEROPAD;
+			goto repeat;
+		}
 
 		/* get field width */
 		field_width = -1;
@@ -194,7 +206,8 @@ int _kc_vsnprintf(char *buf, size_t size, const char *fmt, va_list args)
 
 		/* get the conversion qualifier */
 		qualifier = -1;
-		if (*fmt == 'h' || *fmt == 'l' || *fmt == 'L' || *fmt =='Z') {
+		if (*fmt == 'h' || *fmt == 'l' || *fmt == 'L' ||
+		    *fmt == 'Z') {
 			qualifier = *fmt;
 			++fmt;
 		}
@@ -203,136 +216,141 @@ int _kc_vsnprintf(char *buf, size_t size, const char *fmt, va_list args)
 		base = 10;
 
 		switch (*fmt) {
-			case 'c':
-				if (!(flags & _kc_LEFT)) {
-					while (--field_width > 0) {
-						if (str <= end)
-							*str = ' ';
-						++str;
-					}
-				}
-				c = (unsigned char) va_arg(args, int);
-				if (str <= end)
-					*str = c;
-				++str;
+		case 'c':
+			if (!(flags & _kc_LEFT)) {
 				while (--field_width > 0) {
 					if (str <= end)
 						*str = ' ';
 					++str;
 				}
-				continue;
+			}
+			c = (unsigned char)va_arg(args, int);
+			if (str <= end)
+				*str = c;
+			++str;
+			while (--field_width > 0) {
+				if (str <= end)
+					*str = ' ';
+				++str;
+			}
+			continue;
 
-			case 's':
-				s = va_arg(args, char *);
-				if (!s)
-					s = "<NULL>";
+		case 's':
+			s = va_arg(args, char *);
+			if (!s)
+				s = "<NULL>";
 
-				len = strnlen(s, precision);
+			len = strnlen(s, precision);
 
-				if (!(flags & _kc_LEFT)) {
-					while (len < field_width--) {
-						if (str <= end)
-							*str = ' ';
-						++str;
-					}
-				}
-				for (i = 0; i < len; ++i) {
-					if (str <= end)
-						*str = *s;
-					++str; ++s;
-				}
+			if (!(flags & _kc_LEFT)) {
 				while (len < field_width--) {
 					if (str <= end)
 						*str = ' ';
 					++str;
 				}
-				continue;
+			}
+			for (i = 0; i < len; ++i) {
+				if (str <= end)
+					*str = *s;
+				++str;
+				++s;
+			}
+			while (len < field_width--) {
+				if (str <= end)
+					*str = ' ';
+				++str;
+			}
+			continue;
 
-			case 'p':
-				if ('M' == *(fmt+1)) {
-					str = get_mac(str, end, va_arg(args, unsigned char *));
-					fmt++;
-				} else	{
-					if (field_width == -1) {
-						field_width = 2*sizeof(void *);
-						flags |= _kc_ZEROPAD;
-					}
-					str = number(str, end,
-							(unsigned long) va_arg(args, void *),
-							16, field_width, precision, flags);
+		case 'p':
+			if ('M' == *(fmt + 1)) {
+				str = get_mac(str, end,
+					      va_arg(args,
+						     unsigned char *));
+				fmt++;
+			} else {
+				if (field_width == -1) {
+					field_width = 2 * sizeof(void *);
+					flags |= _kc_ZEROPAD;
 				}
-				continue;
+				str = number(str, end,
+					     (unsigned long)va_arg(args,
+								   void *),
+					     16, field_width, precision,
+					     flags);
+			}
+			continue;
 
-			case 'n':
-				/* FIXME:
+		case 'n':
+			/* FIXME:
 				* What does C99 say about the overflow case here? */
-				if (qualifier == 'l') {
-					long * ip = va_arg(args, long *);
-					*ip = (str - buf);
-				} else if (qualifier == 'Z') {
-					size_t * ip = va_arg(args, size_t *);
-					*ip = (str - buf);
-				} else {
-					int * ip = va_arg(args, int *);
-					*ip = (str - buf);
-				}
-				continue;
+			if (qualifier == 'l') {
+				long *ip = va_arg(args, long *);
+				*ip = (str - buf);
+			} else if (qualifier == 'Z') {
+				size_t *ip = va_arg(args, size_t *);
+				*ip = (str - buf);
+			} else {
+				int *ip = va_arg(args, int *);
+				*ip = (str - buf);
+			}
+			continue;
 
-			case '%':
+		case '%':
+			if (str <= end)
+				*str = '%';
+			++str;
+			continue;
+
+			/* integer number formats - set up the flags and "break" */
+		case 'o':
+			base = 8;
+			break;
+
+		case 'X':
+			flags |= _kc_LARGE;
+		case 'x':
+			base = 16;
+			break;
+
+		case 'd':
+		case 'i':
+			flags |= _kc_SIGN;
+		case 'u':
+			break;
+
+		default:
+			if (str <= end)
+				*str = '%';
+			++str;
+			if (*fmt) {
 				if (str <= end)
-					*str = '%';
+					*str = *fmt;
 				++str;
-				continue;
-
-				/* integer number formats - set up the flags and "break" */
-			case 'o':
-				base = 8;
-				break;
-
-			case 'X':
-				flags |= _kc_LARGE;
-			case 'x':
-				base = 16;
-				break;
-
-			case 'd':
-			case 'i':
-				flags |= _kc_SIGN;
-			case 'u':
-				break;
-
-			default:
-				if (str <= end)
-					*str = '%';
-				++str;
-				if (*fmt) {
-					if (str <= end)
-						*str = *fmt;
-					++str;
-				} else {
-					--fmt;
-				}
-				continue;
+			} else {
+				--fmt;
+			}
+			continue;
 		}
 		if (qualifier == 'L')
 			num = va_arg(args, long long);
 		else if (qualifier == 'l') {
 			num = va_arg(args, unsigned long);
 			if (flags & _kc_SIGN)
-				num = (signed long) num;
+				num = (signed long)num;
 		} else if (qualifier == 'Z') {
 			num = va_arg(args, size_t);
 		} else if (qualifier == 'h') {
-			num = (unsigned short) va_arg(args, int);
+			num = (unsigned short)va_arg(args, int);
 			if (flags & _kc_SIGN)
-				num = (signed short) num;
+				num = (signed short)num;
 		} else {
 			num = va_arg(args, unsigned int);
 			if (flags & _kc_SIGN)
-				num = (signed int) num;
+				num = (signed int)num;
 		}
-		str = number(str, end, num, base,
-				field_width, precision, flags);
+		str = number(str, end, num, base, field_width, precision,
+			     flags);
 	}
 	if (str <= end)
 		*str = '\0';
@@ -342,23 +360,23 @@ int _kc_vsnprintf(char *buf, size_t size, const char *fmt, va_list args)
 	/* the trailing null byte doesn't count towards the total
 	* ++str;
 	*/
-	return str-buf;
+	return str - buf;
 }
 
-int _kc_snprintf(char * buf, size_t size, const char *fmt, ...)
+int _kc_snprintf(char *buf, size_t size, const char *fmt, ...)
 {
 	va_list args;
 	int i;
 
 	va_start(args, fmt);
-	i = _kc_vsnprintf(buf,size,fmt,args);
+	i = _kc_vsnprintf(buf, size, fmt, args);
 	va_end(args);
 	return i;
 }
 #endif /* < 2.4.8 */
 
 /*****************************************************************************/
-#if ( LINUX_VERSION_CODE < KERNEL_VERSION(2,4,13) )
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(2, 4, 13))
 
 /**************************************/
 /* PCI DMA MAPPING */
@@ -369,29 +387,26 @@ int _kc_snprintf(char * buf, size_t size, const char *fmt, ...)
 #define PCI_DRAM_OFFSET 0
 #endif
 
-u64
-_kc_pci_map_page(struct pci_dev *dev, struct page *page, unsigned long offset,
-                 size_t size, int direction)
+u64 _kc_pci_map_page(struct pci_dev *dev, struct page *page,
+		     unsigned long offset, size_t size, int direction)
 {
-	return (((u64) (page - mem_map) << PAGE_SHIFT) + offset +
+	return (((u64)(page - mem_map) << PAGE_SHIFT) + offset +
 		PCI_DRAM_OFFSET);
 }
 
 #else /* CONFIG_HIGHMEM */
 
-u64
-_kc_pci_map_page(struct pci_dev *dev, struct page *page, unsigned long offset,
-                 size_t size, int direction)
+u64 _kc_pci_map_page(struct pci_dev *dev, struct page *page,
+		     unsigned long offset, size_t size, int direction)
 {
-	return pci_map_single(dev, (void *)page_address(page) + offset, size,
-			      direction);
+	return pci_map_single(dev, (void *)page_address(page) + offset,
+			      size, direction);
 }
 
 #endif /* CONFIG_HIGHMEM */
 
-void
-_kc_pci_unmap_page(struct pci_dev *dev, u64 dma_addr, size_t size,
-                   int direction)
+void _kc_pci_unmap_page(struct pci_dev *dev, u64 dma_addr, size_t size,
+			int direction)
 {
 	return pci_unmap_single(dev, dma_addr, size, direction);
 }
@@ -399,13 +414,12 @@ _kc_pci_unmap_page(struct pci_dev *dev, u64 dma_addr, size_t size,
 #endif /* 2.4.13 => 2.4.3 */
 
 /*****************************************************************************/
-#if ( LINUX_VERSION_CODE < KERNEL_VERSION(2,4,3) )
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(2, 4, 3))
 
 /**************************************/
 /* PCI DRIVER API */
 
-int
-_kc_pci_set_dma_mask(struct pci_dev *dev, dma_addr_t mask)
+int _kc_pci_set_dma_mask(struct pci_dev *dev, dma_addr_t mask)
 {
 	if (!pci_dma_supported(dev, mask))
 		return -EIO;
@@ -413,8 +427,7 @@ _kc_pci_set_dma_mask(struct pci_dev *dev, dma_addr_t mask)
 	return 0;
 }
 
-int
-_kc_pci_request_regions(struct pci_dev *dev, char *res_name)
+int _kc_pci_request_regions(struct pci_dev *dev, char *res_name)
 {
 	int i;
 
@@ -423,12 +436,16 @@ _kc_pci_request_regions(struct pci_dev *dev, char *res_name)
 			continue;
 
 		if (pci_resource_flags(dev, i) & IORESOURCE_IO) {
-			if (!request_region(pci_resource_start(dev, i), pci_resource_len(dev, i), res_name)) {
+			if (!request_region(pci_resource_start(dev, i),
+					    pci_resource_len(dev, i),
+					    res_name)) {
 				pci_release_regions(dev);
 				return -EBUSY;
 			}
 		} else if (pci_resource_flags(dev, i) & IORESOURCE_MEM) {
-			if (!request_mem_region(pci_resource_start(dev, i), pci_resource_len(dev, i), res_name)) {
+			if (!request_mem_region(pci_resource_start(dev, i),
+						pci_resource_len(dev, i),
+						res_name)) {
 				pci_release_regions(dev);
 				return -EBUSY;
 			}
@@ -437,8 +454,7 @@ _kc_pci_request_regions(struct pci_dev *dev, char *res_name)
 	return 0;
 }
 
-void
-_kc_pci_release_regions(struct pci_dev *dev)
+void _kc_pci_release_regions(struct pci_dev *dev)
 {
 	int i;
 
@@ -447,18 +463,19 @@ _kc_pci_release_regions(struct pci_dev *dev)
 			continue;
 
 		if (pci_resource_flags(dev, i) & IORESOURCE_IO)
-			release_region(pci_resource_start(dev, i), pci_resource_len(dev, i));
+			release_region(pci_resource_start(dev, i),
+				       pci_resource_len(dev, i));
 
 		else if (pci_resource_flags(dev, i) & IORESOURCE_MEM)
-			release_mem_region(pci_resource_start(dev, i), pci_resource_len(dev, i));
+			release_mem_region(pci_resource_start(dev, i),
+					   pci_resource_len(dev, i));
 	}
 }
 
 /**************************************/
 /* NETWORK DRIVER API */
 
-struct net_device *
-_kc_alloc_etherdev(int sizeof_priv)
+struct net_device *_kc_alloc_etherdev(int sizeof_priv)
 {
 	struct net_device *dev;
 	int alloc_size;
@@ -469,17 +486,19 @@ _kc_alloc_etherdev(int sizeof_priv)
 		return NULL;
 
 	if (sizeof_priv)
-		dev->priv = (void *) (((unsigned long)(dev + 1) + 31) & ~31);
+		dev->priv =
+			(void *)(((unsigned long)(dev + 1) + 31) & ~31);
 	dev->name[0] = '\0';
 	ether_setup(dev);
 
 	return dev;
 }
 
-int
-_kc_is_valid_ether_addr(u8 *addr)
+int _kc_is_valid_ether_addr(u8 *addr)
 {
-	const char zaddr[6] = { 0, };
+	const char zaddr[6] = {
+		0,
+	};
 
 	return !(addr[0] & 1) && memcmp(addr, zaddr, 6);
 }
@@ -487,16 +506,14 @@ _kc_is_valid_ether_addr(u8 *addr)
 #endif /* 2.4.3 => 2.4.0 */
 
 /*****************************************************************************/
-#if ( LINUX_VERSION_CODE < KERNEL_VERSION(2,4,6) )
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(2, 4, 6))
 
-int
-_kc_pci_set_power_state(struct pci_dev *dev, int state)
+int _kc_pci_set_power_state(struct pci_dev *dev, int state)
 {
 	return 0;
 }
 
-int
-_kc_pci_enable_wake(struct pci_dev *pdev, u32 state, int enable)
+int _kc_pci_enable_wake(struct pci_dev *pdev, u32 state, int enable)
 {
 	return 0;
 }
@@ -504,9 +521,9 @@ _kc_pci_enable_wake(struct pci_dev *pdev, u32 state, int enable)
 #endif /* 2.4.6 => 2.4.3 */
 
 /*****************************************************************************/
-#if ( LINUX_VERSION_CODE < KERNEL_VERSION(2,6,0) )
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 0))
 void _kc_skb_fill_page_desc(struct sk_buff *skb, int i, struct page *page,
-                            int off, int size)
+			    int off, int size)
 {
 	skb_frag_t *frag = &skb_shinfo(skb)->frags[i];
 	frag->page = page;
@@ -530,10 +547,10 @@ void _kc_skb_fill_page_desc(struct sk_buff *skb, int i, struct page *page,
  * @size: The maximum size to search
  */
 unsigned long find_next_bit(const unsigned long *addr, unsigned long size,
-                            unsigned long offset)
+			    unsigned long offset)
 {
 	const unsigned long *p = addr + BITOP_WORD(offset);
-	unsigned long result = offset & ~(BITS_PER_LONG-1);
+	unsigned long result = offset & ~(BITS_PER_LONG - 1);
 	unsigned long tmp;
 
 	if (offset >= size)
@@ -550,8 +567,9 @@ unsigned long find_next_bit(const unsigned long *addr, unsigned long size,
 		size -= BITS_PER_LONG;
 		result += BITS_PER_LONG;
 	}
-	while (size & ~(BITS_PER_LONG-1)) {
-		if ((tmp = *(p++)))
+	while (size & ~(BITS_PER_LONG - 1)) {
+		temp = *(p++);
+		if (tmp)
 			goto found_middle;
 		result += BITS_PER_LONG;
 		size -= BITS_PER_LONG;
@@ -562,8 +580,8 @@ unsigned long find_next_bit(const unsigned long *addr, unsigned long size,
 
 found_first:
 	tmp &= (~0UL >> (BITS_PER_LONG - size));
-	if (tmp == 0UL)		/* Are any bits set? */
-		return result + size;	/* Nope. */
+	if (tmp == 0UL) /* Are any bits set? */
+		return result + size; /* Nope. */
 found_middle:
 	return result + ffs(tmp);
 }
@@ -593,13 +611,13 @@ uint32_t __attribute__((weak)) _kc__div64_32(uint64_t *n, uint32_t base)
 	res = 0;
 	if (high >= base) {
 		high /= base;
-		res = (uint64_t) high << 32;
-		rem -= (uint64_t) (high*base) << 32;
+		res = (uint64_t)high << 32;
+		rem -= (uint64_t)(high * base) << 32;
 	}
 
 	while ((int64_t)b > 0 && b < rem) {
-		b = b+b;
-		d = d+d;
+		b = b + b;
+		d = d + d;
 	}
 
 	do {
@@ -619,8 +637,8 @@ uint32_t __attribute__((weak)) _kc__div64_32(uint64_t *n, uint32_t base)
 #endif /* 2.6.0 => 2.4.6 */
 
 /*****************************************************************************/
-#if ( LINUX_VERSION_CODE < KERNEL_VERSION(2,6,4) )
-int _kc_scnprintf(char * buf, size_t size, const char *fmt, ...)
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 4))
+int _kc_scnprintf(char *buf, size_t size, const char *fmt, ...)
 {
 	va_list args;
 	int i;
@@ -633,12 +651,12 @@ int _kc_scnprintf(char * buf, size_t size, const char *fmt, ...)
 #endif /* < 2.6.4 */
 
 /*****************************************************************************/
-#if ( LINUX_VERSION_CODE < KERNEL_VERSION(2,6,10) )
-DECLARE_BITMAP(_kcompat_node_online_map, MAX_NUMNODES) = {1};
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 10))
+DECLARE_BITMAP(_kcompat_node_online_map, MAX_NUMNODES) = { 1 };
 #endif /* < 2.6.10 */
 
 /*****************************************************************************/
-#if ( LINUX_VERSION_CODE < KERNEL_VERSION(2,6,13) )
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 13))
 char *_kc_kstrdup(const char *s, unsigned int gfp)
 {
 	size_t len;
@@ -656,7 +674,7 @@ char *_kc_kstrdup(const char *s, unsigned int gfp)
 #endif /* < 2.6.13 */
 
 /*****************************************************************************/
-#if ( LINUX_VERSION_CODE < KERNEL_VERSION(2,6,14) )
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 14))
 void *_kc_kzalloc(size_t size, int flags)
 {
 	void *ret = kmalloc(size, flags);
@@ -667,16 +685,16 @@ void *_kc_kzalloc(size_t size, int flags)
 #endif /* <= 2.6.13 */
 
 /*****************************************************************************/
-#if ( LINUX_VERSION_CODE < KERNEL_VERSION(2,6,19) )
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 19))
 int _kc_skb_pad(struct sk_buff *skb, int pad)
 {
 	int ntail;
 
-        /* If the skbuff is non linear tailroom is always zero.. */
-        if(!skb_cloned(skb) && skb_tailroom(skb) >= pad) {
-		memset(skb->data+skb->len, 0, pad);
+	/* If the skbuff is non linear tailroom is always zero.. */
+	if (!skb_cloned(skb) && skb_tailroom(skb) >= pad) {
+		memset(skb->data + skb->len, 0, pad);
 		return 0;
-        }
+	}
 
 	ntail = skb->data_len + pad - (skb->end - skb->tail);
 	if (likely(skb_cloned(skb) || ntail > 0)) {
@@ -685,36 +703,36 @@ int _kc_skb_pad(struct sk_buff *skb, int pad)
 	}
 
 #ifdef MAX_SKB_FRAGS
-	if (skb_is_nonlinear(skb) &&
-	    !__pskb_pull_tail(skb, skb->data_len))
+	if (skb_is_nonlinear(skb) && !__pskb_pull_tail(skb, skb->data_len))
 		goto free_skb;
 
 #endif
 	memset(skb->data + skb->len, 0, pad);
-        return 0;
+	return 0;
 
 free_skb:
 	kfree_skb(skb);
 	return -ENOMEM;
 }
 
-#if (!(RHEL_RELEASE_CODE && RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(5,4)))
+#if (!(RHEL_RELEASE_CODE && \
+       RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(5, 4)))
 int _kc_pci_save_state(struct pci_dev *pdev)
 {
 	struct adapter_struct *adapter = pci_get_drvdata(pdev);
 	int size = PCI_CONFIG_SPACE_LEN, i;
 	u16 pcie_cap_offset, pcie_link_status;
 
-#if ( LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,0) )
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 0))
 	/* no ->dev for 2.4 kernels */
 	WARN_ON(pdev->dev.driver_data == NULL);
 #endif
 	pcie_cap_offset = pci_find_capability(pdev, PCI_CAP_ID_EXP);
 	if (pcie_cap_offset) {
-		if (!pci_read_config_word(pdev,
-		                          pcie_cap_offset + PCIE_LINK_STATUS,
-		                          &pcie_link_status))
-		size = PCIE_CONFIG_SPACE_LEN;
+		if (!pci_read_config_word(
+			    pdev, pcie_cap_offset + PCIE_LINK_STATUS,
+			    &pcie_link_status))
+			size = PCIE_CONFIG_SPACE_LEN;
 	}
 	pci_config_space_ich8lan();
 #ifdef HAVE_PCI_ERS
@@ -728,7 +746,8 @@ int _kc_pci_save_state(struct pci_dev *pdev)
 		return -ENOMEM;
 	}
 	for (i = 0; i < (size / 4); i++)
-		pci_read_config_dword(pdev, i * 4, &adapter->config_space[i]);
+		pci_read_config_dword(pdev, i * 4,
+				      &adapter->config_space[i]);
 	return 0;
 }
 
@@ -740,16 +759,18 @@ void _kc_pci_restore_state(struct pci_dev *pdev)
 	u16 pcie_link_status;
 
 	if (adapter->config_space != NULL) {
-		pcie_cap_offset = pci_find_capability(pdev, PCI_CAP_ID_EXP);
+		pcie_cap_offset =
+			pci_find_capability(pdev, PCI_CAP_ID_EXP);
 		if (pcie_cap_offset &&
-		    !pci_read_config_word(pdev,
-		                          pcie_cap_offset + PCIE_LINK_STATUS,
-		                          &pcie_link_status))
+		    !pci_read_config_word(
+			    pdev, pcie_cap_offset + PCIE_LINK_STATUS,
+			    &pcie_link_status))
 			size = PCIE_CONFIG_SPACE_LEN;
 
 		pci_config_space_ich8lan();
 		for (i = 0; i < (size / 4); i++)
-		pci_write_config_dword(pdev, i * 4, adapter->config_space[i]);
+			pci_write_config_dword(pdev, i * 4,
+					       adapter->config_space[i]);
 #ifndef HAVE_PCI_ERS
 		kfree(adapter->config_space);
 		adapter->config_space = NULL;
@@ -790,7 +811,7 @@ void *_kc_kmemdup(const void *src, size_t len, unsigned gfp)
 #endif /* <= 2.6.19 */
 
 /*****************************************************************************/
-#if ( LINUX_VERSION_CODE < KERNEL_VERSION(2,6,21) )
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 21))
 struct pci_dev *_kc_netdev_to_pdev(struct net_device *netdev)
 {
 	return ((struct adapter_struct *)netdev_priv(netdev))->pdev;
@@ -798,11 +819,12 @@ struct pci_dev *_kc_netdev_to_pdev(struct net_device *netdev)
 #endif /* < 2.6.21 */
 
 /*****************************************************************************/
-#if ( LINUX_VERSION_CODE < KERNEL_VERSION(2,6,22) )
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 22))
 /* hexdump code taken from lib/hexdump.c */
-static void _kc_hex_dump_to_buffer(const void *buf, size_t len, int rowsize,
-			int groupsize, unsigned char *linebuf,
-			size_t linebuflen, bool ascii)
+static void _kc_hex_dump_to_buffer(const void *buf, size_t len,
+				   int rowsize, int groupsize,
+				   unsigned char *linebuf,
+				   size_t linebuflen, bool ascii)
 {
 	const u8 *ptr = buf;
 	u8 ch;
@@ -814,9 +836,9 @@ static void _kc_hex_dump_to_buffer(const void *buf, size_t len, int rowsize,
 
 	if (!len)
 		goto nil;
-	if (len > rowsize)		/* limit to one line at a time */
+	if (len > rowsize) /* limit to one line at a time */
 		len = rowsize;
-	if ((len % groupsize) != 0)	/* no mixed size output */
+	if ((len % groupsize) != 0) /* no mixed size output */
 		groupsize = 1;
 
 	switch (groupsize) {
@@ -825,9 +847,10 @@ static void _kc_hex_dump_to_buffer(const void *buf, size_t len, int rowsize,
 		int ngroups = len / groupsize;
 
 		for (j = 0; j < ngroups; j++)
-			lx += scnprintf((char *)(linebuf + lx), linebuflen - lx,
-				"%s%16.16llx", j ? " " : "",
-				(unsigned long long)*(ptr8 + j));
+			lx += scnprintf((char *)(linebuf + lx),
+					linebuflen - lx, "%s%16.16llx",
+					j ? " " : "",
+					(unsigned long long)*(ptr8 + j));
 		ascii_column = 17 * ngroups + 2;
 		break;
 	}
@@ -837,8 +860,9 @@ static void _kc_hex_dump_to_buffer(const void *buf, size_t len, int rowsize,
 		int ngroups = len / groupsize;
 
 		for (j = 0; j < ngroups; j++)
-			lx += scnprintf((char *)(linebuf + lx), linebuflen - lx,
-				"%s%8.8x", j ? " " : "", *(ptr4 + j));
+			lx += scnprintf((char *)(linebuf + lx),
+					linebuflen - lx, "%s%8.8x",
+					j ? " " : "", *(ptr4 + j));
 		ascii_column = 9 * ngroups + 2;
 		break;
 	}
@@ -848,8 +872,9 @@ static void _kc_hex_dump_to_buffer(const void *buf, size_t len, int rowsize,
 		int ngroups = len / groupsize;
 
 		for (j = 0; j < ngroups; j++)
-			lx += scnprintf((char *)(linebuf + lx), linebuflen - lx,
-				"%s%4.4x", j ? " " : "", *(ptr2 + j));
+			lx += scnprintf((char *)(linebuf + lx),
+					linebuflen - lx, "%s%4.4x",
+					j ? " " : "", *(ptr2 + j));
 		ascii_column = 5 * ngroups + 2;
 		break;
 	}
@@ -873,15 +898,15 @@ static void _kc_hex_dump_to_buffer(const void *buf, size_t len, int rowsize,
 	while (lx < (linebuflen - 1) && lx < (ascii_column - 1))
 		linebuf[lx++] = ' ';
 	for (j = 0; (j < len) && (lx + 2) < linebuflen; j++)
-		linebuf[lx++] = (isascii(ptr[j]) && isprint(ptr[j])) ? ptr[j]
-				: '.';
+		linebuf[lx++] = (isascii(ptr[j]) && isprint(ptr[j])) ?
+					ptr[j] :
+					'.';
 nil:
 	linebuf[lx++] = '\0';
 }
 
-void _kc_print_hex_dump(const char *level,
-			const char *prefix_str, int prefix_type,
-			int rowsize, int groupsize,
+void _kc_print_hex_dump(const char *level, const char *prefix_str,
+			int prefix_type, int rowsize, int groupsize,
 			const void *buf, size_t len, bool ascii)
 {
 	const u8 *ptr = buf;
@@ -894,16 +919,19 @@ void _kc_print_hex_dump(const char *level,
 	for (i = 0; i < len; i += rowsize) {
 		linelen = min(remaining, rowsize);
 		remaining -= rowsize;
-		_kc_hex_dump_to_buffer(ptr + i, linelen, rowsize, groupsize,
-				linebuf, sizeof(linebuf), ascii);
+		_kc_hex_dump_to_buffer(ptr + i, linelen, rowsize,
+				       groupsize, linebuf, sizeof(linebuf),
+				       ascii);
 
 		switch (prefix_type) {
 		case DUMP_PREFIX_ADDRESS:
 			printk("%s%s%*p: %s\n", level, prefix_str,
-				(int)(2 * sizeof(void *)), ptr + i, linebuf);
+			       (int)(2 * sizeof(void *)), ptr + i,
+			       linebuf);
 			break;
 		case DUMP_PREFIX_OFFSET:
-			printk("%s%s%.8x: %s\n", level, prefix_str, i, linebuf);
+			printk("%s%s%.8x: %s\n", level, prefix_str, i,
+			       linebuf);
 			break;
 		default:
 			printk("%s%s%s\n", level, prefix_str, linebuf);
@@ -915,7 +943,7 @@ void _kc_print_hex_dump(const char *level,
 #endif /* < 2.6.22 */
 
 /*****************************************************************************/
-#if ( LINUX_VERSION_CODE < KERNEL_VERSION(2,6,23) )
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 23))
 int ixgbe_dcb_netlink_register(void)
 {
 	return 0;
@@ -926,20 +954,20 @@ int ixgbe_dcb_netlink_unregister(void)
 	return 0;
 }
 
-int ixgbe_copy_dcb_cfg(struct ixgbe_adapter __always_unused *adapter, int __always_unused tc_max)
+int ixgbe_copy_dcb_cfg(struct ixgbe_adapter __always_unused *adapter,
+		       int __always_unused tc_max)
 {
 	return 0;
 }
 #endif /* < 2.6.23 */
 
 /*****************************************************************************/
-#if ( LINUX_VERSION_CODE < KERNEL_VERSION(2,6,24) )
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 24))
 #ifdef NAPI
 struct net_device *napi_to_poll_dev(const struct napi_struct *napi)
 {
-	struct adapter_q_vector *q_vector = container_of(napi,
-	                                                struct adapter_q_vector,
-	                                                napi);
+	struct adapter_q_vector *q_vector =
+		container_of(napi, struct adapter_q_vector, napi);
 	return &q_vector->poll_dev;
 }
 
@@ -958,7 +986,7 @@ int __kc_adapter_clean(struct net_device *netdev, int *budget)
 #endif /* <= 2.6.24 */
 
 /*****************************************************************************/
-#if ( LINUX_VERSION_CODE < KERNEL_VERSION(2,6,26) )
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 26))
 void _kc_pci_disable_link_state(struct pci_dev *pdev, int state)
 {
 	struct pci_dev *parent = pdev->bus->self;
@@ -970,15 +998,17 @@ void _kc_pci_disable_link_state(struct pci_dev *pdev, int state)
 
 	pos = pci_find_capability(parent, PCI_CAP_ID_EXP);
 	if (pos) {
-		pci_read_config_word(parent, pos + PCI_EXP_LNKCTL, &link_state);
+		pci_read_config_word(parent, pos + PCI_EXP_LNKCTL,
+				     &link_state);
 		link_state &= ~state;
-		pci_write_config_word(parent, pos + PCI_EXP_LNKCTL, link_state);
+		pci_write_config_word(parent, pos + PCI_EXP_LNKCTL,
+				      link_state);
 	}
 }
 #endif /* < 2.6.26 */
 
 /*****************************************************************************/
-#if ( LINUX_VERSION_CODE < KERNEL_VERSION(2,6,27) )
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 27))
 #ifdef HAVE_TX_MQ
 void _kc_netif_tx_stop_all_queues(struct net_device *netdev)
 {
@@ -1027,10 +1057,9 @@ void __kc_warn_slowpath(const char *file, int line, const char *fmt, ...)
 #endif /* __VMKLNX__ */
 
 /*****************************************************************************/
-#if ( LINUX_VERSION_CODE < KERNEL_VERSION(2,6,28) )
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 28))
 
-int
-_kc_pci_prepare_to_sleep(struct pci_dev *dev)
+int _kc_pci_prepare_to_sleep(struct pci_dev *dev)
 {
 	pci_power_t target_state;
 	int error;
@@ -1047,8 +1076,7 @@ _kc_pci_prepare_to_sleep(struct pci_dev *dev)
 	return error;
 }
 
-int
-_kc_pci_wake_from_d3(struct pci_dev *dev, bool enable)
+int _kc_pci_wake_from_d3(struct pci_dev *dev, bool enable)
 {
 	int err;
 
@@ -1064,7 +1092,7 @@ out:
 #endif /* < 2.6.28 */
 
 /*****************************************************************************/
-#if ( LINUX_VERSION_CODE < KERNEL_VERSION(2,6,29) )
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 29))
 static void __kc_pci_set_master(struct pci_dev *pdev, bool enable)
 {
 	u16 old_cmd, cmd;
@@ -1079,7 +1107,7 @@ static void __kc_pci_set_master(struct pci_dev *pdev, bool enable)
 			enable ? "enabling" : "disabling");
 		pci_write_config_word(pdev, PCI_COMMAND, cmd);
 	}
-#if ( LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,7) )
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 7))
 	pdev->is_busmaster = enable;
 #endif
 }
@@ -1090,8 +1118,8 @@ void _kc_pci_clear_master(struct pci_dev *dev)
 }
 #endif /* < 2.6.29 */
 
-#if ( LINUX_VERSION_CODE < KERNEL_VERSION(2,6,34) )
-#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,0))
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 34))
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6, 0))
 int _kc_pci_num_vf(struct pci_dev __maybe_unused *dev)
 {
 	int num_vf = 0;
@@ -1104,7 +1132,8 @@ int _kc_pci_num_vf(struct pci_dev __maybe_unused *dev)
 		if (vfdev->is_virtfn && vfdev->physfn == dev)
 			num_vf++;
 
-		vfdev = pci_get_class(PCI_CLASS_NETWORK_ETHERNET << 8, vfdev);
+		vfdev = pci_get_class(PCI_CLASS_NETWORK_ETHERNET << 8,
+				      vfdev);
 	}
 
 #endif
@@ -1113,11 +1142,13 @@ int _kc_pci_num_vf(struct pci_dev __maybe_unused *dev)
 #endif /* RHEL_RELEASE_CODE */
 #endif /* < 2.6.34 */
 
-#if ( LINUX_VERSION_CODE < KERNEL_VERSION(2,6,35) )
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 35))
 #ifdef HAVE_TX_MQ
-#if (!(RHEL_RELEASE_CODE && RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(6,0)))
+#if (!(RHEL_RELEASE_CODE && \
+       RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(6, 0)))
 #ifndef CONFIG_NETDEVICES_MULTIQUEUE
-int _kc_netif_set_real_num_tx_queues(struct net_device *dev, unsigned int txq)
+int _kc_netif_set_real_num_tx_queues(struct net_device *dev,
+				     unsigned int txq)
 {
 	unsigned int real_num = dev->real_num_tx_queues;
 	struct Qdisc *qdisc;
@@ -1146,30 +1177,31 @@ int _kc_netif_set_real_num_tx_queues(struct net_device *dev, unsigned int txq)
 #endif /* !(RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(6,0)) */
 #endif /* HAVE_TX_MQ */
 
-ssize_t _kc_simple_write_to_buffer(void *to, size_t available, loff_t *ppos,
-				   const void __user *from, size_t count)
+ssize_t _kc_simple_write_to_buffer(void *to, size_t available,
+				   loff_t *ppos, const void __user *from,
+				   size_t count)
 {
-        loff_t pos = *ppos;
-        size_t res;
+	loff_t pos = *ppos;
+	size_t res;
 
-        if (pos < 0)
-                return -EINVAL;
-        if (pos >= available || !count)
-                return 0;
-        if (count > available - pos)
-                count = available - pos;
-        res = copy_from_user(to + pos, from, count);
-        if (res == count)
-                return -EFAULT;
-        count -= res;
-        *ppos = pos + count;
-        return count;
+	if (pos < 0)
+		return -EINVAL;
+	if (pos >= available || !count)
+		return 0;
+	if (count > available - pos)
+		count = available - pos;
+	res = copy_from_user(to + pos, from, count);
+	if (res == count)
+		return -EFAULT;
+	count -= res;
+	*ppos = pos + count;
+	return count;
 }
 
 #endif /* < 2.6.35 */
 
 /*****************************************************************************/
-#if ( LINUX_VERSION_CODE < KERNEL_VERSION(2,6,36) )
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 36))
 static const u32 _kc_flags_dup_features =
 	(ETH_FLAG_LRO | ETH_FLAG_NTUPLE | ETH_FLAG_RXHASH);
 
@@ -1178,7 +1210,8 @@ u32 _kc_ethtool_op_get_flags(struct net_device *dev)
 	return dev->features & _kc_flags_dup_features;
 }
 
-int _kc_ethtool_op_set_flags(struct net_device *dev, u32 data, u32 supported)
+int _kc_ethtool_op_set_flags(struct net_device *dev, u32 data,
+			     u32 supported)
 {
 	if (data & ~supported)
 		return -EINVAL;
@@ -1190,8 +1223,9 @@ int _kc_ethtool_op_set_flags(struct net_device *dev, u32 data, u32 supported)
 #endif /* < 2.6.36 */
 
 /******************************************************************************/
-#if ( LINUX_VERSION_CODE < KERNEL_VERSION(2,6,39) )
-#if (!(RHEL_RELEASE_CODE && RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(6,0)))
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 39))
+#if (!(RHEL_RELEASE_CODE && \
+       RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(6, 0)))
 #ifdef HAVE_NETDEV_SELECT_QUEUE
 #include <net/ip.h>
 #include <linux/pkt_sched.h>
@@ -1229,14 +1263,14 @@ u16 ___kc_skb_tx_hash(struct net_device *dev, const struct sk_buff *skb,
 		hash = skb->sk->sk_hash;
 	else
 #ifdef NETIF_F_RXHASH
-		hash = (__force u16) skb->protocol ^ skb->rxhash;
+		hash = (__force u16)skb->protocol ^ skb->rxhash;
 #else
 		hash = skb->protocol;
 #endif
 
 	hash = jhash_1word(hash, _kc_hashrnd);
 
-	return (u16) (((u64) hash * qcount) >> 32) + qoffset;
+	return (u16)(((u64)hash * qcount) >> 32) + qoffset;
 }
 #endif /* HAVE_NETDEV_SELECT_QUEUE */
 
@@ -1261,7 +1295,8 @@ int _kc_netdev_set_num_tc(struct net_device *dev, u8 num_tc)
 	return 0;
 }
 
-u8 _kc_netdev_get_prio_tc_map(struct net_device __maybe_unused *dev, u8 __maybe_unused up)
+u8 _kc_netdev_get_prio_tc_map(struct net_device __maybe_unused *dev,
+			      u8 __maybe_unused up)
 {
 	struct adapter_struct *kc_adapter = netdev_priv(dev);
 
@@ -1272,7 +1307,7 @@ u8 _kc_netdev_get_prio_tc_map(struct net_device __maybe_unused *dev, u8 __maybe_
 #endif /* < 2.6.39 */
 
 /******************************************************************************/
-#if ( LINUX_VERSION_CODE < KERNEL_VERSION(3,4,0) )
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(3, 4, 0))
 void _kc_skb_add_rx_frag(struct sk_buff *skb, int i, struct page *page,
 			 int off, int size, unsigned int truesize)
 {
@@ -1282,20 +1317,20 @@ void _kc_skb_add_rx_frag(struct sk_buff *skb, int i, struct page *page,
 	skb->truesize += truesize;
 }
 
-#if !(SLE_VERSION_CODE && SLE_VERSION_CODE >= SLE_VERSION(11,3,0))
+#if !(SLE_VERSION_CODE && SLE_VERSION_CODE >= SLE_VERSION(11, 3, 0))
 int _kc_simple_open(struct inode *inode, struct file *file)
 {
-        if (inode->i_private)
-                file->private_data = inode->i_private;
+	if (inode->i_private)
+		file->private_data = inode->i_private;
 
-        return 0;
+	return 0;
 }
 #endif /* SLE_VERSION < 11,3,0 */
 
 #endif /* < 3.4.0 */
 
 /******************************************************************************/
-#if ( LINUX_VERSION_CODE < KERNEL_VERSION(3,7,0) )
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(3, 7, 0))
 static inline int __kc_pcie_cap_version(struct pci_dev *dev)
 {
 	int pos;
@@ -1308,7 +1343,8 @@ static inline int __kc_pcie_cap_version(struct pci_dev *dev)
 	return reg16 & PCI_EXP_FLAGS_VERS;
 }
 
-static inline bool __kc_pcie_cap_has_devctl(const struct pci_dev __always_unused *dev)
+static inline bool
+__kc_pcie_cap_has_devctl(const struct pci_dev __always_unused *dev)
 {
 	return true;
 }
@@ -1349,7 +1385,8 @@ static inline bool __kc_pcie_cap_has_rtctl(struct pci_dev *dev)
 	       type == PCI_EXP_TYPE_RC_EC;
 }
 
-static bool __kc_pcie_capability_reg_implemented(struct pci_dev *dev, int pos)
+static bool __kc_pcie_capability_reg_implemented(struct pci_dev *dev,
+						 int pos)
 {
 	if (!pci_is_pcie(dev))
 		return false;
@@ -1398,7 +1435,8 @@ int __kc_pcie_capability_read_word(struct pci_dev *dev, int pos, u16 *val)
 		return -EINVAL;
 
 	if (__kc_pcie_capability_reg_implemented(dev, pos)) {
-		ret = pci_read_config_word(dev, pci_pcie_cap(dev) + pos, val);
+		ret = pci_read_config_word(dev, pci_pcie_cap(dev) + pos,
+					   val);
 		/*
 		 * Reset *val to 0 if pci_read_config_word() fails, it may
 		 * have been written as 0xFFFF if hardware error happens
@@ -1433,7 +1471,8 @@ int __kc_pcie_capability_read_dword(struct pci_dev *dev, int pos, u32 *val)
 		return -EINVAL;
 
 	if (__kc_pcie_capability_reg_implemented(dev, pos)) {
-		ret = pci_read_config_dword(dev, pci_pcie_cap(dev) + pos, val);
+		ret = pci_read_config_dword(dev, pci_pcie_cap(dev) + pos,
+					    val);
 		/*
 		 * Reset *val to 0 if pci_read_config_dword() fails, it may
 		 * have been written as 0xFFFFFFFF if hardware error happens
@@ -1480,19 +1519,19 @@ int __kc_pcie_capability_clear_and_set_word(struct pci_dev *dev, int pos,
 }
 
 int __kc_pcie_capability_clear_word(struct pci_dev *dev, int pos,
-					     u16 clear)
+				    u16 clear)
 {
 	return __kc_pcie_capability_clear_and_set_word(dev, pos, clear, 0);
 }
 #endif /* < 3.7.0 */
 
 /******************************************************************************/
-#if ( LINUX_VERSION_CODE < KERNEL_VERSION(3,9,0) )
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(3, 9, 0))
 #ifdef CONFIG_XPS
 #if NR_CPUS < 64
-#define _KC_MAX_XPS_CPUS	NR_CPUS
+#define _KC_MAX_XPS_CPUS NR_CPUS
 #else
-#define _KC_MAX_XPS_CPUS	64
+#define _KC_MAX_XPS_CPUS 64
 #endif
 
 /*
@@ -1501,22 +1540,24 @@ int __kc_pcie_capability_clear_word(struct pci_dev *dev, int pos,
 struct _kc_netdev_queue_attribute {
 	struct attribute attr;
 	ssize_t (*show)(struct netdev_queue *queue,
-	    struct _kc_netdev_queue_attribute *attr, char *buf);
+			struct _kc_netdev_queue_attribute *attr,
+			char *buf);
 	ssize_t (*store)(struct netdev_queue *queue,
-	    struct _kc_netdev_queue_attribute *attr, const char *buf, size_t len);
+			 struct _kc_netdev_queue_attribute *attr,
+			 const char *buf, size_t len);
 };
 
-#define to_kc_netdev_queue_attr(_attr) container_of(_attr,		\
-    struct _kc_netdev_queue_attribute, attr)
+#define to_kc_netdev_queue_attr(_attr) \
+	container_of(_attr, struct _kc_netdev_queue_attribute, attr)
 
-int __kc_netif_set_xps_queue(struct net_device *dev, const struct cpumask *mask,
-			     u16 index)
+int __kc_netif_set_xps_queue(struct net_device *dev,
+			     const struct cpumask *mask, u16 index)
 {
 	struct netdev_queue *txq = netdev_get_tx_queue(dev, index);
-#if ( LINUX_VERSION_CODE < KERNEL_VERSION(2,6,38) )
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 38))
 	/* Redhat requires some odd extended netdev structures */
 	struct netdev_tx_queue_extended *txq_ext =
-					netdev_extended(dev)->_tx_ext + index;
+		netdev_extended(dev)->_tx_ext + index;
 	struct kobj_type *ktype = txq_ext->kobj.ktype;
 #else
 	struct kobj_type *ktype = txq->kobj.ktype;
@@ -1524,7 +1565,7 @@ int __kc_netif_set_xps_queue(struct net_device *dev, const struct cpumask *mask,
 	struct _kc_netdev_queue_attribute *xps_attr;
 	struct attribute *attr = NULL;
 	int i, len, err;
-#define _KC_XPS_BUFLEN	(DIV_ROUND_UP(_KC_MAX_XPS_CPUS, 32) * 9)
+#define _KC_XPS_BUFLEN (DIV_ROUND_UP(_KC_MAX_XPS_CPUS, 32) * 9)
 	char buf[_KC_XPS_BUFLEN];
 
 	if (!ktype)
@@ -1541,8 +1582,8 @@ int __kc_netif_set_xps_queue(struct net_device *dev, const struct cpumask *mask,
 		return -EINVAL;
 
 	/* copy the mask into a string */
-	len = bitmap_scnprintf(buf, _KC_XPS_BUFLEN,
-			       cpumask_bits(mask), _KC_MAX_XPS_CPUS);
+	len = bitmap_scnprintf(buf, _KC_XPS_BUFLEN, cpumask_bits(mask),
+			       _KC_MAX_XPS_CPUS);
 	if (!len)
 		return -ENOMEM;
 
@@ -1556,7 +1597,8 @@ int __kc_netif_set_xps_queue(struct net_device *dev, const struct cpumask *mask,
 }
 #endif /* CONFIG_XPS */
 #ifdef HAVE_NETDEV_SELECT_QUEUE
-static inline int kc_get_xps_queue(struct net_device *dev, struct sk_buff *skb)
+static inline int kc_get_xps_queue(struct net_device *dev,
+				   struct sk_buff *skb)
 {
 #ifdef CONFIG_XPS
 	struct xps_dev_maps *dev_maps;
@@ -1564,7 +1606,7 @@ static inline int kc_get_xps_queue(struct net_device *dev, struct sk_buff *skb)
 	int queue_index = -1;
 
 	rcu_read_lock();
-#if ( LINUX_VERSION_CODE < KERNEL_VERSION(2,6,38) )
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 38))
 	/* Redhat requires some odd extended netdev structures */
 	dev_maps = rcu_dereference(netdev_extended(dev)->xps_maps);
 #else
@@ -1572,7 +1614,7 @@ static inline int kc_get_xps_queue(struct net_device *dev, struct sk_buff *skb)
 #endif
 	if (dev_maps) {
 		map = rcu_dereference(
-		    dev_maps->cpu_map[raw_smp_processor_id()]);
+			dev_maps->cpu_map[raw_smp_processor_id()]);
 		if (map) {
 			if (map->len == 1)
 				queue_index = map->queues[0];
@@ -1581,13 +1623,15 @@ static inline int kc_get_xps_queue(struct net_device *dev, struct sk_buff *skb)
 				if (skb->sk && skb->sk->sk_hash)
 					hash = skb->sk->sk_hash;
 				else
-					hash = (__force u16) skb->protocol ^
-					    skb->rxhash;
+					hash = (__force u16)skb->protocol ^
+					       skb->rxhash;
 				hash = jhash_1word(hash, _kc_hashrnd);
-				queue_index = map->queues[
-				    ((u64)hash * map->len) >> 32];
+				queue_index = map->queues[((u64)hash *
+							   map->len) >>
+							  32];
 			}
-			if (unlikely(queue_index >= dev->real_num_tx_queues))
+			if (unlikely(queue_index >=
+				     dev->real_num_tx_queues))
 				queue_index = -1;
 		}
 	}
@@ -1600,8 +1644,8 @@ static inline int kc_get_xps_queue(struct net_device *dev, struct sk_buff *skb)
 
 	if (kc_adapter->flags & RNP_FLAG_FDIR_HASH_CAPABLE) {
 		queue_index = skb_rx_queue_recorded(skb) ?
-					   skb_get_rx_queue(skb) :
-					   smp_processor_id();
+				      skb_get_rx_queue(skb) :
+				      smp_processor_id();
 		while (unlikely(queue_index >= dev->real_num_tx_queues))
 			queue_index -= dev->real_num_tx_queues;
 		return queue_index;
@@ -1629,12 +1673,10 @@ u16 __kc_netdev_pick_tx(struct net_device *dev, struct sk_buff *skb)
 		new_index = skb_tx_hash(dev, skb);
 
 	if (queue_index != new_index && sk) {
-		struct dst_entry *dst =
-			    rcu_dereference(sk->sk_dst_cache);
+		struct dst_entry *dst = rcu_dereference(sk->sk_dst_cache);
 
 		if (dst && skb_dst(skb) == dst)
 			sk_tx_queue_set(sk, new_index);
-
 	}
 
 	return new_index;
@@ -1644,12 +1686,12 @@ u16 __kc_netdev_pick_tx(struct net_device *dev, struct sk_buff *skb)
 #endif /* 3.9.0 */
 
 /*****************************************************************************/
-#if ( LINUX_VERSION_CODE < KERNEL_VERSION(3,10,0) )
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(3, 10, 0))
 #ifdef HAVE_FDB_OPS
 #ifdef USE_CONST_DEV_UC_CHAR
 int __kc_ndo_dflt_fdb_add(struct ndmsg *ndm, struct nlattr *tb[],
-			  struct net_device *dev, const unsigned char *addr,
-			  u16 flags)
+			  struct net_device *dev,
+			  const unsigned char *addr, u16 flags)
 #else
 int __kc_ndo_dflt_fdb_add(struct ndmsg *ndm, struct net_device *dev,
 			  unsigned char *addr, u16 flags)
@@ -1661,7 +1703,8 @@ int __kc_ndo_dflt_fdb_add(struct ndmsg *ndm, struct net_device *dev,
 	 * implement its own handler for this.
 	 */
 	if (ndm->ndm_state && !(ndm->ndm_state & NUD_PERMANENT)) {
-		pr_info("%s: FDB only supports static addresses\n", dev->name);
+		pr_info("%s: FDB only supports static addresses\n",
+			dev->name);
 		return err;
 	}
 
@@ -1680,7 +1723,8 @@ int __kc_ndo_dflt_fdb_add(struct ndmsg *ndm, struct net_device *dev,
 #ifdef USE_CONST_DEV_UC_CHAR
 #ifdef HAVE_FDB_DEL_NLATTR
 int __kc_ndo_dflt_fdb_del(struct ndmsg *ndm, struct nlattr *tb[],
-			  struct net_device *dev, const unsigned char *addr)
+			  struct net_device *dev,
+			  const unsigned char *addr)
 #else
 int __kc_ndo_dflt_fdb_del(struct ndmsg *ndm, struct net_device *dev,
 			  const unsigned char *addr)
@@ -1696,7 +1740,8 @@ int __kc_ndo_dflt_fdb_del(struct ndmsg *ndm, struct net_device *dev,
 	 * implement its own handler for this.
 	 */
 	if (!(ndm->ndm_state & NUD_PERMANENT)) {
-		pr_info("%s: FDB only supports static addresses\n", dev->name);
+		pr_info("%s: FDB only supports static addresses\n",
+			dev->name);
 		return err;
 	}
 
@@ -1755,30 +1800,30 @@ int __kc_pci_vfs_assigned(struct pci_dev __maybe_unused *dev)
 #endif /* 3.10.0 */
 
 static const unsigned char __maybe_unused pcie_link_speed[] = {
-	PCI_SPEED_UNKNOWN,      /* 0 */
-	PCIE_SPEED_2_5GT,       /* 1 */
-	PCIE_SPEED_5_0GT,       /* 2 */
-	PCIE_SPEED_8_0GT,       /* 3 */
-	PCIE_SPEED_16_0GT,      /* 4 */
-	PCI_SPEED_UNKNOWN,      /* 5 */
-	PCI_SPEED_UNKNOWN,      /* 6 */
-	PCI_SPEED_UNKNOWN,      /* 7 */
-	PCI_SPEED_UNKNOWN,      /* 8 */
-	PCI_SPEED_UNKNOWN,      /* 9 */
-	PCI_SPEED_UNKNOWN,      /* A */
-	PCI_SPEED_UNKNOWN,      /* B */
-	PCI_SPEED_UNKNOWN,      /* C */
-	PCI_SPEED_UNKNOWN,      /* D */
-	PCI_SPEED_UNKNOWN,      /* E */
-	PCI_SPEED_UNKNOWN       /* F */
+	PCI_SPEED_UNKNOWN, /* 0 */
+	PCIE_SPEED_2_5GT, /* 1 */
+	PCIE_SPEED_5_0GT, /* 2 */
+	PCIE_SPEED_8_0GT, /* 3 */
+	PCIE_SPEED_16_0GT, /* 4 */
+	PCI_SPEED_UNKNOWN, /* 5 */
+	PCI_SPEED_UNKNOWN, /* 6 */
+	PCI_SPEED_UNKNOWN, /* 7 */
+	PCI_SPEED_UNKNOWN, /* 8 */
+	PCI_SPEED_UNKNOWN, /* 9 */
+	PCI_SPEED_UNKNOWN, /* A */
+	PCI_SPEED_UNKNOWN, /* B */
+	PCI_SPEED_UNKNOWN, /* C */
+	PCI_SPEED_UNKNOWN, /* D */
+	PCI_SPEED_UNKNOWN, /* E */
+	PCI_SPEED_UNKNOWN /* F */
 };
 
 /*****************************************************************************/
-#if ( LINUX_VERSION_CODE < KERNEL_VERSION(3,12,0) )
-int __kc_pcie_get_minimum_link(struct pci_dev *dev, enum pci_bus_speed *speed,
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(3, 12, 0))
+int __kc_pcie_get_minimum_link(struct pci_dev *dev,
+			       enum pci_bus_speed *speed,
 			       enum pcie_link_width *width)
 {
-
 	*speed = PCI_SPEED_UNKNOWN;
 	*width = PCIE_LNK_WIDTH_UNKNOWN;
 
@@ -1786,14 +1831,15 @@ int __kc_pcie_get_minimum_link(struct pci_dev *dev, enum pci_bus_speed *speed,
 		u16 lnksta;
 		enum pci_bus_speed next_speed;
 		enum pcie_link_width next_width;
-		int ret = pcie_capability_read_word(dev, PCI_EXP_LNKSTA, &lnksta);
+		int ret = pcie_capability_read_word(dev, PCI_EXP_LNKSTA,
+						    &lnksta);
 
 		if (ret)
 			return ret;
 
 		next_speed = pcie_link_speed[lnksta & PCI_EXP_LNKSTA_CLS];
 		next_width = (lnksta & PCI_EXP_LNKSTA_NLW) >>
-			PCI_EXP_LNKSTA_NLW_SHIFT;
+			     PCI_EXP_LNKSTA_NLW_SHIFT;
 
 		if (next_speed < *speed)
 			*speed = next_speed;
@@ -1807,7 +1853,7 @@ int __kc_pcie_get_minimum_link(struct pci_dev *dev, enum pci_bus_speed *speed,
 	return 0;
 }
 
-#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,7))
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6, 7))
 int _kc_pci_wait_for_pending_transaction(struct pci_dev *dev)
 {
 	int i;
@@ -1829,7 +1875,7 @@ int _kc_pci_wait_for_pending_transaction(struct pci_dev *dev)
 
 #endif /* <3.12 */
 
-#if ( LINUX_VERSION_CODE < KERNEL_VERSION(3,13,0) )
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(3, 13, 0))
 int __kc_dma_set_mask_and_coherent(struct device *dev, u64 mask)
 {
 	int err = dma_set_mask(dev, mask);
@@ -1844,7 +1890,7 @@ int __kc_dma_set_mask_and_coherent(struct device *dev, u64 mask)
 	return err;
 }
 
-#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,0))
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7, 0))
 static bool _kc_pci_bus_read_dev_vendor_id(struct pci_bus *bus, int devfn,
 					   u32 *l, int crs_timeout)
 {
@@ -1854,8 +1900,8 @@ static bool _kc_pci_bus_read_dev_vendor_id(struct pci_bus *bus, int devfn,
 		return false;
 
 	/* some broken boards return 0 or ~0 if a slot is empty: */
-	if (*l == 0xffffffff || *l == 0x00000000 ||
-	    *l == 0x0000ffff || *l == 0xffff0000)
+	if (*l == 0xffffffff || *l == 0x00000000 || *l == 0x0000ffff ||
+	    *l == 0xffff0000)
 		return false;
 
 	/* Configuration request Retry Status */
@@ -1865,14 +1911,15 @@ static bool _kc_pci_bus_read_dev_vendor_id(struct pci_bus *bus, int devfn,
 
 		msleep(delay);
 		delay *= 2;
-		if (pci_bus_read_config_dword(bus, devfn, PCI_VENDOR_ID, l))
+		if (pci_bus_read_config_dword(bus, devfn, PCI_VENDOR_ID,
+					      l))
 			return false;
 		/* Card hasn't responded in 60 seconds?  Must be stuck. */
 		if (delay > crs_timeout) {
 			printk(KERN_WARNING "pci %04x:%02x:%02x.%d: not "
-			       "responding\n", pci_domain_nr(bus),
-			       bus->number, PCI_SLOT(devfn),
-			       PCI_FUNC(devfn));
+					    "responding\n",
+			       pci_domain_nr(bus), bus->number,
+			       PCI_SLOT(devfn), PCI_FUNC(devfn));
 			return false;
 		}
 	}
@@ -1884,12 +1931,13 @@ bool _kc_pci_device_is_present(struct pci_dev *pdev)
 {
 	u32 v;
 
-	return _kc_pci_bus_read_dev_vendor_id(pdev->bus, pdev->devfn, &v, 0);
+	return _kc_pci_bus_read_dev_vendor_id(pdev->bus, pdev->devfn, &v,
+					      0);
 }
 #endif /* <RHEL7.0 */
 #endif /* 3.13.0 */
 
-#if ( LINUX_VERSION_CODE < KERNEL_VERSION(3,14,0) )
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(3, 14, 0))
 /******************************************************************************
  * ripped from linux/net/ipv6/exthdrs_core.c, GPL2, no direct copyright,
  * inferred copyright from kernel
@@ -1897,13 +1945,14 @@ bool _kc_pci_device_is_present(struct pci_dev *pdev)
 int __kc_ipv6_find_hdr(const struct sk_buff *skb, unsigned int *offset,
 		       int target, unsigned short *fragoff, int *flags)
 {
-	unsigned int start = skb_network_offset(skb) + sizeof(struct ipv6hdr);
+	unsigned int start =
+		skb_network_offset(skb) + sizeof(struct ipv6hdr);
 	u8 nexthdr = ipv6_hdr(skb)->nexthdr;
 	bool found;
 
-#define __KC_IP6_FH_F_FRAG	BIT(0)
-#define __KC_IP6_FH_F_AUTH	BIT(1)
-#define __KC_IP6_FH_F_SKIP_RH	BIT(2)
+#define __KC_IP6_FH_F_FRAG BIT(0)
+#define __KC_IP6_FH_F_AUTH BIT(1)
+#define __KC_IP6_FH_F_SKIP_RH BIT(2)
 
 	if (fragoff)
 		*fragoff = 0;
@@ -1911,7 +1960,8 @@ int __kc_ipv6_find_hdr(const struct sk_buff *skb, unsigned int *offset,
 	if (*offset) {
 		struct ipv6hdr _ip6, *ip6;
 
-		ip6 = skb_header_pointer(skb, *offset, sizeof(_ip6), &_ip6);
+		ip6 = skb_header_pointer(skb, *offset, sizeof(_ip6),
+					 &_ip6);
 		if (!ip6 || (ip6->version != 6)) {
 			printk(KERN_ERR "IPv6 header not found\n");
 			return -EBADMSG;
@@ -1952,13 +2002,13 @@ int __kc_ipv6_find_hdr(const struct sk_buff *skb, unsigned int *offset,
 			unsigned short _frag_off;
 			__be16 *fp;
 
-			if (flags)	/* Indicate that this is a fragment */
+			if (flags) /* Indicate that this is a fragment */
 				*flags |= __KC_IP6_FH_F_FRAG;
-			fp = skb_header_pointer(skb,
-						start+offsetof(struct frag_hdr,
-							       frag_off),
-						sizeof(_frag_off),
-						&_frag_off);
+			fp = skb_header_pointer(
+				skb,
+				start + offsetof(struct frag_hdr,
+						 frag_off),
+				sizeof(_frag_off), &_frag_off);
 			if (!fp)
 				return -EBADMSG;
 
@@ -1975,7 +2025,8 @@ int __kc_ipv6_find_hdr(const struct sk_buff *skb, unsigned int *offset,
 			}
 			hdrlen = 8;
 		} else if (nexthdr == NEXTHDR_AUTH) {
-			if (flags && (*flags & __KC_IP6_FH_F_AUTH) && (target < 0))
+			if (flags && (*flags & __KC_IP6_FH_F_AUTH) &&
+			    (target < 0))
 				break;
 			hdrlen = (hp->hdrlen + 2) << 2;
 		} else
@@ -1991,31 +2042,32 @@ int __kc_ipv6_find_hdr(const struct sk_buff *skb, unsigned int *offset,
 	return nexthdr;
 }
 
-int __kc_pci_enable_msix_range(struct pci_dev *dev, struct msix_entry *entries,
-			       int minvec, int maxvec)
+int __kc_pci_enable_msix_range(struct pci_dev *dev,
+			       struct msix_entry *entries, int minvec,
+			       int maxvec)
 {
-        int nvec = maxvec;
-        int rc;
+	int nvec = maxvec;
+	int rc;
 
-        if (maxvec < minvec)
-                return -ERANGE;
+	if (maxvec < minvec)
+		return -ERANGE;
 
-        do {
-                rc = pci_enable_msix(dev, entries, nvec);
-                if (rc < 0) {
-                        return rc;
-                } else if (rc > 0) {
-                        if (rc < minvec)
-                                return -ENOSPC;
-                        nvec = rc;
-                }
-        } while (rc);
+	do {
+		rc = pci_enable_msix(dev, entries, nvec);
+		if (rc < 0) {
+			return rc;
+		} else if (rc > 0) {
+			if (rc < minvec)
+				return -ENOSPC;
+			nvec = rc;
+		}
+	} while (rc);
 
-        return nvec;
+	return nvec;
 }
 #endif /* 3.14.0 */
 
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(3,15,0))
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(3, 15, 0))
 char *_kc_devm_kstrdup(struct device *dev, const char *s, gfp_t gfp)
 {
 	size_t size;
@@ -2034,33 +2086,34 @@ char *_kc_devm_kstrdup(struct device *dev, const char *s, gfp_t gfp)
 void __kc_netdev_rss_key_fill(void *buffer, size_t len)
 {
 	/* Set of random keys generated using kernel random number generator */
-	static const u8 seed[NETDEV_RSS_KEY_LEN] = {0xE6, 0xFA, 0x35, 0x62,
-				0x95, 0x12, 0x3E, 0xA3, 0xFB, 0x46, 0xC1, 0x5F,
-				0xB1, 0x43, 0x82, 0x5B, 0x6A, 0x49, 0x50, 0x95,
-				0xCD, 0xAB, 0xD8, 0x11, 0x8F, 0xC5, 0xBD, 0xBC,
-				0x6A, 0x4A, 0xB2, 0xD4, 0x1F, 0xFE, 0xBC, 0x41,
-				0xBF, 0xAC, 0xB2, 0x9A, 0x8F, 0x70, 0xE9, 0x2A,
-				0xD7, 0xB2, 0x80, 0xB6, 0x5B, 0xAA, 0x9D, 0x20};
+	static const u8 seed[NETDEV_RSS_KEY_LEN] = {
+		0xE6, 0xFA, 0x35, 0x62, 0x95, 0x12, 0x3E, 0xA3, 0xFB,
+		0x46, 0xC1, 0x5F, 0xB1, 0x43, 0x82, 0x5B, 0x6A, 0x49,
+		0x50, 0x95, 0xCD, 0xAB, 0xD8, 0x11, 0x8F, 0xC5, 0xBD,
+		0xBC, 0x6A, 0x4A, 0xB2, 0xD4, 0x1F, 0xFE, 0xBC, 0x41,
+		0xBF, 0xAC, 0xB2, 0x9A, 0x8F, 0x70, 0xE9, 0x2A, 0xD7,
+		0xB2, 0x80, 0xB6, 0x5B, 0xAA, 0x9D, 0x20
+	};
 
 	BUG_ON(len > NETDEV_RSS_KEY_LEN);
 	memcpy(buffer, seed, len);
 }
 #endif /* 3.15.0 */
 
-#if ( LINUX_VERSION_CODE < KERNEL_VERSION(3,16,0) )
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(3, 16, 0))
 #ifdef HAVE_SET_RX_MODE
 #ifdef NETDEV_HW_ADDR_T_UNICAST
-int __kc_hw_addr_sync_dev(struct netdev_hw_addr_list *list,
-		struct net_device *dev,
-		int (*sync)(struct net_device *, const unsigned char *),
-		int (*unsync)(struct net_device *, const unsigned char *))
+int __kc_hw_addr_sync_dev(
+	struct netdev_hw_addr_list *list, struct net_device *dev,
+	int (*sync)(struct net_device *, const unsigned char *),
+	int (*unsync)(struct net_device *, const unsigned char *))
 {
 	struct netdev_hw_addr *ha, *tmp;
 	int err;
 
 	/* first go through and flush out any stale entries */
 	list_for_each_entry_safe(ha, tmp, &list->list, list) {
-#if ( LINUX_VERSION_CODE < KERNEL_VERSION(3,10,0) )
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(3, 10, 0))
 		if (!ha->synced || ha->refcount != 1)
 #else
 		if (!ha->sync_cnt || ha->refcount != 1)
@@ -2077,7 +2130,7 @@ int __kc_hw_addr_sync_dev(struct netdev_hw_addr_list *list,
 
 	/* go through and sync new entries to the list */
 	list_for_each_entry_safe(ha, tmp, &list->list, list) {
-#if ( LINUX_VERSION_CODE < KERNEL_VERSION(3,10,0) )
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(3, 10, 0))
 		if (ha->synced)
 #else
 		if (ha->sync_cnt)
@@ -2087,7 +2140,7 @@ int __kc_hw_addr_sync_dev(struct netdev_hw_addr_list *list,
 		err = sync(dev, ha->addr);
 		if (err)
 			return err;
-#if ( LINUX_VERSION_CODE < KERNEL_VERSION(3,10,0) )
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(3, 10, 0))
 		ha->synced = true;
 #else
 		ha->sync_cnt++;
@@ -2099,13 +2152,14 @@ int __kc_hw_addr_sync_dev(struct netdev_hw_addr_list *list,
 }
 
 void __kc_hw_addr_unsync_dev(struct netdev_hw_addr_list *list,
-		struct net_device *dev,
-		int (*unsync)(struct net_device *, const unsigned char *))
+			     struct net_device *dev,
+			     int (*unsync)(struct net_device *,
+					   const unsigned char *))
 {
 	struct netdev_hw_addr *ha, *tmp;
 
 	list_for_each_entry_safe(ha, tmp, &list->list, list) {
-#if ( LINUX_VERSION_CODE < KERNEL_VERSION(3,10,0) )
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(3, 10, 0))
 		if (!ha->synced)
 #else
 		if (!ha->sync_cnt)
@@ -2115,7 +2169,7 @@ void __kc_hw_addr_unsync_dev(struct netdev_hw_addr_list *list,
 		if (unsync && unsync(dev, ha->addr))
 			continue;
 
-#if ( LINUX_VERSION_CODE < KERNEL_VERSION(3,10,0) )
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(3, 10, 0))
 		ha->synced = false;
 #else
 		ha->sync_cnt--;
@@ -2131,10 +2185,10 @@ void __kc_hw_addr_unsync_dev(struct netdev_hw_addr_list *list,
 
 #endif /* NETDEV_HW_ADDR_T_UNICAST  */
 #ifndef NETDEV_HW_ADDR_T_MULTICAST
-int __kc_dev_addr_sync_dev(struct dev_addr_list **list, int *count,
-		struct net_device *dev,
-		int (*sync)(struct net_device *, const unsigned char *),
-		int (*unsync)(struct net_device *, const unsigned char *))
+int __kc_dev_addr_sync_dev(
+	struct dev_addr_list **list, int *count, struct net_device *dev,
+	int (*sync)(struct net_device *, const unsigned char *),
+	int (*unsync)(struct net_device *, const unsigned char *))
 {
 	struct dev_addr_list *da, **next = list;
 	int err;
@@ -2169,8 +2223,9 @@ int __kc_dev_addr_sync_dev(struct dev_addr_list **list, int *count,
 }
 
 void __kc_dev_addr_unsync_dev(struct dev_addr_list **list, int *count,
-		struct net_device *dev,
-		int (*unsync)(struct net_device *, const unsigned char *))
+			      struct net_device *dev,
+			      int (*unsync)(struct net_device *,
+					    const unsigned char *))
 {
 	struct dev_addr_list *da;
 
@@ -2205,12 +2260,12 @@ void *__kc_devm_kmemdup(struct device *dev, const void *src, size_t len,
 #endif /* 3.16.0 */
 
 /******************************************************************************/
-#if ((LINUX_VERSION_CODE < KERNEL_VERSION(3,17,0)) && \
-     (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,5)))
+#if ((LINUX_VERSION_CODE < KERNEL_VERSION(3, 17, 0)) && \
+     (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7, 5)))
 #endif /* <3.17.0 && RHEL_RELEASE_CODE < RHEL7.5 */
 
 /******************************************************************************/
-#if ( LINUX_VERSION_CODE < KERNEL_VERSION(3,18,0) )
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(3, 18, 0))
 #ifndef NO_PTP_SUPPORT
 static void __kc_sock_efree(struct sk_buff *skb)
 {
@@ -2282,7 +2337,7 @@ u32 __kc_eth_get_headlen(const struct net_device __always_unused *dev,
 		struct ipv6hdr *ipv6;
 	} hdr;
 	__be16 proto;
-	u8 nexthdr = 0;	/* default to not TCP */
+	u8 nexthdr = 0; /* default to not TCP */
 	u8 hlen;
 
 	/* this should never happen, but better safe than sorry */
@@ -2309,7 +2364,8 @@ again:
 		goto again;
 	/* handle L3 protocols */
 	case __constant_htons(ETH_P_IP):
-		if ((hdr.network - data) > (max_len - sizeof(struct iphdr)))
+		if ((hdr.network - data) >
+		    (max_len - sizeof(struct iphdr)))
 			return max_len;
 
 		/* access ihl as a u8 to avoid unaligned access on ia64 */
@@ -2327,7 +2383,8 @@ again:
 		break;
 #ifdef NETIF_F_TSO6
 	case __constant_htons(ETH_P_IPV6):
-		if ((hdr.network - data) > (max_len - sizeof(struct ipv6hdr)))
+		if ((hdr.network - data) >
+		    (max_len - sizeof(struct ipv6hdr)))
 			return max_len;
 
 		/* record next protocol */
@@ -2347,7 +2404,8 @@ again:
 	/* finally sort out L4 */
 	switch (nexthdr) {
 	case IPPROTO_TCP:
-		if ((hdr.network - data) > (max_len - sizeof(struct tcphdr)))
+		if ((hdr.network - data) >
+		    (max_len - sizeof(struct tcphdr)))
 			return max_len;
 
 		/* access doff as a u8 to avoid unaligned access on ia64 */
@@ -2378,27 +2436,29 @@ again:
 #endif /* < 3.18.0 */
 
 /******************************************************************************/
-#if ( LINUX_VERSION_CODE < KERNEL_VERSION(3,19,0) )
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(3, 19, 0))
 #ifdef HAVE_NET_GET_RANDOM_ONCE
 static u8 __kc_netdev_rss_key[NETDEV_RSS_KEY_LEN];
 
 void __kc_netdev_rss_key_fill(void *buffer, size_t len)
 {
 	BUG_ON(len > sizeof(__kc_netdev_rss_key));
-	net_get_random_once(__kc_netdev_rss_key, sizeof(__kc_netdev_rss_key));
+	net_get_random_once(__kc_netdev_rss_key,
+			    sizeof(__kc_netdev_rss_key));
 	memcpy(buffer, __kc_netdev_rss_key, len);
 }
 #endif
 
 int _kc_bitmap_print_to_pagebuf(bool list, char *buf,
-				const unsigned long *maskp,
-				int nmaskbits)
+				const unsigned long *maskp, int nmaskbits)
 {
-	ptrdiff_t len = PTR_ALIGN(buf + PAGE_SIZE - 1, PAGE_SIZE) - buf - 2;
+	ptrdiff_t len =
+		PTR_ALIGN(buf + PAGE_SIZE - 1, PAGE_SIZE) - buf - 2;
 	int n = 0;
 
 	if (len > 1) {
-		n = list ? bitmap_scnlistprintf(buf, len, maskp, nmaskbits) :
+		n = list ? bitmap_scnlistprintf(buf, len, maskp,
+						nmaskbits) :
 			   bitmap_scnprintf(buf, len, maskp, nmaskbits);
 		buf[n++] = '\n';
 		buf[n] = '\0';
@@ -2408,10 +2468,11 @@ int _kc_bitmap_print_to_pagebuf(bool list, char *buf,
 #endif
 
 /******************************************************************************/
-#if ( LINUX_VERSION_CODE < KERNEL_VERSION(4,1,0) )
-#if !((RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(6,8) && RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,0)) && \
-      (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7,2)) && \
-      (SLE_VERSION_CODE > SLE_VERSION(12,1,0)))
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 1, 0))
+#if !((RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(6, 8) &&  \
+       RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7, 0)) && \
+      (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7, 2)) && \
+      (SLE_VERSION_CODE > SLE_VERSION(12, 1, 0)))
 unsigned int _kc_cpumask_local_spread(unsigned int i, int node)
 {
 	int cpu;
@@ -2419,7 +2480,7 @@ unsigned int _kc_cpumask_local_spread(unsigned int i, int node)
 	/* Wrap: we always want a cpu. */
 	i %= num_online_cpus();
 
-#if ( LINUX_VERSION_CODE < KERNEL_VERSION(2,6,28) )
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 28))
 	/* Kernels prior to 2.6.28 do not have for_each_cpu or
 	 * cpumask_of_node, so just use for_each_online_cpu()
 	 */
@@ -2435,7 +2496,8 @@ unsigned int _kc_cpumask_local_spread(unsigned int i, int node)
 				return cpu;
 	} else {
 		/* NUMA first. */
-		for_each_cpu_and(cpu, cpumask_of_node(node), cpu_online_mask)
+		for_each_cpu_and(cpu, cpumask_of_node(node),
+				 cpu_online_mask)
 			if (i-- == 0)
 				return cpu;
 
@@ -2455,9 +2517,9 @@ unsigned int _kc_cpumask_local_spread(unsigned int i, int node)
 #endif
 
 /******************************************************************************/
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4,3,0))
-#if (!(RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,4)) && \
-     !(SLE_VERSION_CODE >= SLE_VERSION(12,2,0)))
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 3, 0))
+#if (!(RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7, 4)) && \
+     !(SLE_VERSION_CODE >= SLE_VERSION(12, 2, 0)))
 /**
  * _kc_skb_flow_dissect_flow_keys - parse SKB to fill _kc_flow_keys
  * @skb: SKB used to fille _kc_flow_keys
@@ -2489,10 +2551,9 @@ unsigned int _kc_cpumask_local_spread(unsigned int i, int node)
  * flow passed in back to 0 and returns false. Otherwise the flow is populated
  * and returns true.
  */
-bool
-_kc_skb_flow_dissect_flow_keys(const struct sk_buff *skb,
-			       struct _kc_flow_keys *flow,
-			       unsigned int __always_unused flags)
+bool _kc_skb_flow_dissect_flow_keys(const struct sk_buff *skb,
+				    struct _kc_flow_keys *flow,
+				    unsigned int __always_unused flags)
 {
 	memset(flow, 0, sizeof(*flow));
 
@@ -2511,13 +2572,15 @@ _kc_skb_flow_dissect_flow_keys(const struct sk_buff *skb,
 		       sizeof(struct in6_addr));
 		break;
 	default:
-		netdev_dbg(skb->dev, "%s: Unsupported/unimplemented layer 3 protocol %04x\n", __func__, htons(flow->basic.n_proto));
+		netdev_dbg(
+			skb->dev,
+			"%s: Unsupported/unimplemented layer 3 protocol %04x\n",
+			__func__, htons(flow->basic.n_proto));
 		goto unsupported;
 	}
 
 	switch (flow->basic.ip_proto) {
-	case IPPROTO_TCP:
-	{
+	case IPPROTO_TCP: {
 		struct tcphdr *tcph;
 
 		tcph = tcp_hdr(skb);
@@ -2525,8 +2588,7 @@ _kc_skb_flow_dissect_flow_keys(const struct sk_buff *skb,
 		flow->ports.dst = tcph->dest;
 		break;
 	}
-	case IPPROTO_UDP:
-	{
+	case IPPROTO_UDP: {
 		struct udphdr *udph;
 
 		udph = udp_hdr(skb);
@@ -2535,7 +2597,10 @@ _kc_skb_flow_dissect_flow_keys(const struct sk_buff *skb,
 		break;
 	}
 	default:
-		netdev_dbg(skb->dev, "%s: Unsupported/unimplemented layer 4 protocol %02x\n", __func__, flow->basic.ip_proto);
+		netdev_dbg(
+			skb->dev,
+			"%s: Unsupported/unimplemented layer 4 protocol %02x\n",
+			__func__, flow->basic.ip_proto);
 		return false;
 	}
 
@@ -2549,8 +2614,8 @@ unsupported:
 #endif /* 4.3.0 */
 
 /******************************************************************************/
-#if ( LINUX_VERSION_CODE < KERNEL_VERSION(4,5,0) )
-#if (!(RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,3)))
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 5, 0))
+#if (!(RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7, 3)))
 #ifdef CONFIG_SPARC
 #include <asm/idprom.h>
 #include <asm/prom.h>
@@ -2558,8 +2623,10 @@ unsupported:
 int _kc_eth_platform_get_mac_address(struct device *dev __maybe_unused,
 				     u8 *mac_addr __maybe_unused)
 {
-#if (((LINUX_VERSION_CODE < KERNEL_VERSION(3,1,0)) && defined(CONFIG_OF) && \
-      !defined(HAVE_STRUCT_DEVICE_OF_NODE) || !defined(CONFIG_OF)) && \
+#if (((LINUX_VERSION_CODE < KERNEL_VERSION(3, 1, 0)) && \
+	      defined(CONFIG_OF) &&                     \
+	      !defined(HAVE_STRUCT_DEVICE_OF_NODE) ||   \
+      !defined(CONFIG_OF)) &&                           \
      !defined(CONFIG_SPARC))
 	return -ENODEV;
 #else
@@ -2598,9 +2665,10 @@ int _kc_eth_platform_get_mac_address(struct device *dev __maybe_unused,
 #endif /* < 4.5.0 */
 
 /*****************************************************************************/
-#if ((LINUX_VERSION_CODE < KERNEL_VERSION(4,14,0)) || \
-     (SLE_VERSION_CODE && (SLE_VERSION_CODE <= SLE_VERSION(12,3,0))) || \
-     (RHEL_RELEASE_CODE && (RHEL_RELEASE_CODE <= RHEL_RELEASE_VERSION(7,5))))
+#if ((LINUX_VERSION_CODE < KERNEL_VERSION(4, 14, 0)) ||                   \
+     (SLE_VERSION_CODE && (SLE_VERSION_CODE <= SLE_VERSION(12, 3, 0))) || \
+     (RHEL_RELEASE_CODE &&                                                \
+      (RHEL_RELEASE_CODE <= RHEL_RELEASE_VERSION(7, 5))))
 const char *_kc_phy_speed_to_str(int speed)
 {
 	switch (speed) {
@@ -2641,7 +2709,7 @@ const char *_kc_phy_speed_to_str(int speed)
 #endif /* (LINUX < 4.14.0) || (SLES <= 12.3.0) || (RHEL <= 7.5) */
 
 /******************************************************************************/
-#if ( LINUX_VERSION_CODE < KERNEL_VERSION(4,15,0) )
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0))
 void _kc_ethtool_intersect_link_masks(struct ethtool_link_ksettings *dst,
 				      struct ethtool_link_ksettings *src)
 {
@@ -2658,11 +2726,11 @@ void _kc_ethtool_intersect_link_masks(struct ethtool_link_ksettings *dst,
 #endif /* 4.15.0 */
 
 /*****************************************************************************/
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4,16,0))
-#if !(RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(8,0)) && \
-     !(SLE_VERSION_CODE >= SLE_VERSION(12,5,0) && \
-       SLE_VERSION_CODE < SLE_VERSION(15,0,0) || \
-       SLE_VERSION_CODE >= SLE_VERSION(15,1,0))
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+#if !(RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(8, 0)) &&     \
+	!(SLE_VERSION_CODE >= SLE_VERSION(12, 5, 0) &&        \
+		  SLE_VERSION_CODE < SLE_VERSION(15, 0, 0) || \
+	  SLE_VERSION_CODE >= SLE_VERSION(15, 1, 0))
 #if BITS_PER_LONG == 64
 /**
  * bitmap_from_arr32 - copy the contents of u32 array of bits to bitmap
@@ -2670,48 +2738,49 @@ void _kc_ethtool_intersect_link_masks(struct ethtool_link_ksettings *dst,
  * @buf: array of u32 (in host byte order), the source bitmap
  * @nbits: number of bits in @bitmap
  */
-void bitmap_from_arr32(unsigned long *bitmap, const u32 *buf, unsigned int nbits)
+void bitmap_from_arr32(unsigned long *bitmap, const u32 *buf,
+		       unsigned int nbits)
 {
 	unsigned int i, halfwords;
 
 	halfwords = DIV_ROUND_UP(nbits, 32);
 	for (i = 0; i < halfwords; i++) {
-		bitmap[i/2] = (unsigned long) buf[i];
+		bitmap[i / 2] = (unsigned long)buf[i];
 		if (++i < halfwords)
-			bitmap[i/2] |= ((unsigned long) buf[i]) << 32;
+			bitmap[i / 2] |= ((unsigned long)buf[i]) << 32;
 	}
 
 	/* Clear tail bits in last word beyond nbits. */
 	if (nbits % BITS_PER_LONG)
-		bitmap[(halfwords - 1) / 2] &= BITMAP_LAST_WORD_MASK(nbits);
+		bitmap[(halfwords - 1) / 2] &=
+			BITMAP_LAST_WORD_MASK(nbits);
 }
 #endif /* BITS_PER_LONG == 64 */
 #endif /* !(RHEL >= 8.0) && !(SLES >= 12.5 && SLES < 15.0 || SLES >= 15.1) */
 #endif /* 4.16.0 */
 
 /*****************************************************************************/
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4,17,0))
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 17, 0))
 /* PCIe link information */
-#define PCIE_SPEED2STR(speed) \
-	((speed) == PCIE_SPEED_16_0GT ? "16 GT/s" : \
-	 (speed) == PCIE_SPEED_8_0GT ? "8 GT/s" : \
-	 (speed) == PCIE_SPEED_5_0GT ? "5 GT/s" : \
-	 (speed) == PCIE_SPEED_2_5GT ? "2.5 GT/s" : \
-	 "Unknown speed")
+#define PCIE_SPEED2STR(speed)                        \
+	((speed) == PCIE_SPEED_16_0GT ? "16 GT/s" :  \
+	 (speed) == PCIE_SPEED_8_0GT  ? "8 GT/s" :   \
+	 (speed) == PCIE_SPEED_5_0GT  ? "5 GT/s" :   \
+	 (speed) == PCIE_SPEED_2_5GT  ? "2.5 GT/s" : \
+					"Unknown speed")
 
 /* PCIe speed to Mb/s reduced by encoding overhead */
-#define PCIE_SPEED2MBS_ENC(speed) \
-	((speed) == PCIE_SPEED_16_0GT ? 16000*128/130 : \
-	 (speed) == PCIE_SPEED_8_0GT  ?  8000*128/130 : \
-	 (speed) == PCIE_SPEED_5_0GT  ?  5000*8/10 : \
-	 (speed) == PCIE_SPEED_2_5GT  ?  2500*8/10 : \
-	 0)
+#define PCIE_SPEED2MBS_ENC(speed)                           \
+	((speed) == PCIE_SPEED_16_0GT ? 16000 * 128 / 130 : \
+	 (speed) == PCIE_SPEED_8_0GT  ? 8000 * 128 / 130 :  \
+	 (speed) == PCIE_SPEED_5_0GT  ? 5000 * 8 / 10 :     \
+	 (speed) == PCIE_SPEED_2_5GT  ? 2500 * 8 / 10 :     \
+					0)
 
-static u32
-_kc_pcie_bandwidth_available(struct pci_dev *dev,
-			     struct pci_dev **limiting_dev,
-			     enum pci_bus_speed *speed,
-			     enum pcie_link_width *width)
+static u32 _kc_pcie_bandwidth_available(struct pci_dev *dev,
+					struct pci_dev **limiting_dev,
+					enum pci_bus_speed *speed,
+					enum pcie_link_width *width)
 {
 	u16 lnksta;
 	enum pci_bus_speed next_speed;
@@ -2730,7 +2799,7 @@ _kc_pcie_bandwidth_available(struct pci_dev *dev,
 
 		next_speed = pcie_link_speed[lnksta & PCI_EXP_LNKSTA_CLS];
 		next_width = (lnksta & PCI_EXP_LNKSTA_NLW) >>
-			PCI_EXP_LNKSTA_NLW_SHIFT;
+			     PCI_EXP_LNKSTA_NLW_SHIFT;
 
 		next_bw = next_width * PCIE_SPEED2MBS_ENC(next_speed);
 
@@ -2800,20 +2869,22 @@ static enum pcie_link_width _kc_pcie_get_width_cap(struct pci_dev *dev)
 	return PCIE_LNK_WIDTH_UNKNOWN;
 }
 
-static u32
-_kc_pcie_bandwidth_capable(struct pci_dev *dev, enum pci_bus_speed *speed,
-			   enum pcie_link_width *width)
+static u32 _kc_pcie_bandwidth_capable(struct pci_dev *dev,
+				      enum pci_bus_speed *speed,
+				      enum pcie_link_width *width)
 {
 	*speed = _kc_pcie_get_speed_cap(dev);
 	*width = _kc_pcie_get_width_cap(dev);
 
-	if (*speed == PCI_SPEED_UNKNOWN || *width == PCIE_LNK_WIDTH_UNKNOWN)
+	if (*speed == PCI_SPEED_UNKNOWN ||
+	    *width == PCIE_LNK_WIDTH_UNKNOWN)
 		return 0;
 
 	return *width * PCIE_SPEED2MBS_ENC(*speed);
 }
 
-void _kc_pcie_print_link_status(struct pci_dev *dev) {
+void _kc_pcie_print_link_status(struct pci_dev *dev)
+{
 	enum pcie_link_width width, width_cap;
 	enum pci_bus_speed speed, speed_cap;
 	struct pci_dev *limiting_dev = NULL;
@@ -2824,28 +2895,37 @@ void _kc_pcie_print_link_status(struct pci_dev *dev) {
 						&width);
 
 	if (bw_avail >= bw_cap)
-		pci_info(dev, "%u.%03u Gb/s available PCIe bandwidth (%s x%d link)\n",
-			 bw_cap / 1000, bw_cap % 1000,
-			 PCIE_SPEED2STR(speed_cap), width_cap);
+		pci_info(
+			dev,
+			"%u.%03u Gb/s available PCIe bandwidth (%s x%d link)\n",
+			bw_cap / 1000, bw_cap % 1000,
+			PCIE_SPEED2STR(speed_cap), width_cap);
 	else
-		pci_info(dev, "%u.%03u Gb/s available PCIe bandwidth, limited by %s x%d link at %s (capable of %u.%03u Gb/s with %s x%d link)\n",
-			 bw_avail / 1000, bw_avail % 1000,
-			 PCIE_SPEED2STR(speed), width,
-			 limiting_dev ? pci_name(limiting_dev) : "<unknown>",
-			 bw_cap / 1000, bw_cap % 1000,
-			 PCIE_SPEED2STR(speed_cap), width_cap);
+		pci_info(
+			dev,
+			"%u.%03u Gb/s available PCIe bandwidth, limited by %s x%d link at %s (capable of %u.%03u Gb/s with %s x%d link)\n",
+			bw_avail / 1000, bw_avail % 1000,
+			PCIE_SPEED2STR(speed), width,
+			limiting_dev ? pci_name(limiting_dev) :
+				       "<unknown>",
+			bw_cap / 1000, bw_cap % 1000,
+			PCIE_SPEED2STR(speed_cap), width_cap);
 }
 #endif /* 4.17.0 */
 
 /*****************************************************************************/
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5,1,0)) || (RHEL_RELEASE_CODE && (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(8,1)))
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 1, 0)) || \
+	(RHEL_RELEASE_CODE &&                         \
+	 (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(8, 1)))
 #ifdef HAVE_TC_SETUP_CLSFLOWER
-#define FLOW_DISSECTOR_MATCH(__rule, __type, __out)				\
-	const struct flow_match *__m = &(__rule)->match;			\
-	struct flow_dissector *__d = (__m)->dissector;				\
-										\
-	(__out)->key = skb_flow_dissector_target(__d, __type, (__m)->key);	\
-	(__out)->mask = skb_flow_dissector_target(__d, __type, (__m)->mask);	\
+#define FLOW_DISSECTOR_MATCH(__rule, __type, __out)                 \
+	const struct flow_match *__m = &(__rule)->match;            \
+	struct flow_dissector *__d = (__m)->dissector;              \
+                                                                    \
+	(__out)->key =                                              \
+		skb_flow_dissector_target(__d, __type, (__m)->key); \
+	(__out)->mask =                                             \
+		skb_flow_dissector_target(__d, __type, (__m)->mask);
 
 void flow_rule_match_basic(const struct flow_rule *rule,
 			   struct flow_match_basic *out)
@@ -2926,14 +3006,14 @@ void flow_rule_match_ports(const struct flow_rule *rule,
 #endif /* 5.1.0 || (RHEL && RHEL < 8.1) */
 
 /*****************************************************************************/
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5,3,0))
-#if (!(RHEL_RELEASE_CODE && (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(8,2))))
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 3, 0))
+#if (!(RHEL_RELEASE_CODE && \
+       (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(8, 2))))
 #ifdef HAVE_TC_CB_AND_SETUP_QDISC_MQPRIO
-int _kc_flow_block_cb_setup_simple(struct flow_block_offload *f,
-				   struct list_head __always_unused *driver_list,
-				   tc_setup_cb_t *cb,
-				   void *cb_ident, void *cb_priv,
-				   bool ingress_only)
+int _kc_flow_block_cb_setup_simple(
+	struct flow_block_offload *f,
+	struct list_head __always_unused *driver_list, tc_setup_cb_t *cb,
+	void *cb_ident, void *cb_priv, bool ingress_only)
 {
 	if (ingress_only &&
 	    f->binder_type != TCF_BLOCK_BINDER_TYPE_CLSACT_INGRESS)
@@ -2943,10 +3023,11 @@ int _kc_flow_block_cb_setup_simple(struct flow_block_offload *f,
 	switch (f->command) {
 	case TC_BLOCK_BIND:
 #ifdef HAVE_TCF_BLOCK_CB_REGISTER_EXTACK
-		return tcf_block_cb_register(f->block, cb, cb_ident, cb_priv,
-					     f->extack);
+		return tcf_block_cb_register(f->block, cb, cb_ident,
+					     cb_priv, f->extack);
 #else
-		return tcf_block_cb_register(f->block, cb, cb_ident, cb_priv);
+		return tcf_block_cb_register(f->block, cb, cb_ident,
+					     cb_priv);
 #endif
 	case TC_BLOCK_UNBIND:
 		tcf_block_cb_unregister(f->block, cb, cb_ident);
@@ -2960,7 +3041,7 @@ int _kc_flow_block_cb_setup_simple(struct flow_block_offload *f,
 #endif /* 5.3.0 */
 
 /*****************************************************************************/
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5,7,0))
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 7, 0))
 u64 _kc_pci_get_dsn(struct pci_dev *dev)
 {
 	u32 dword;

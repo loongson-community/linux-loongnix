@@ -23,6 +23,15 @@
 
 #define VEC_COUNT_PER_REG	64
 
+typedef struct { DECLARE_BITMAP(bits, (NR_CPUS/CORES_PER_EXTIOI_NODE)); } extioi_node_map;
+
+#define EXTIOI_NODE_MASK_NONE							\
+((extioi_node_map) { {							\
+	[0 ... BITS_TO_LONGS(NR_CPUS/CORES_PER_EXTIOI_NODE)-1] =  0UL			\
+} })
+
+extioi_node_map extioi_node_maps = EXTIOI_NODE_MASK_NONE;
+
 struct extioi {
 	u32		vec_count;
 	u32		misc_func;
@@ -91,6 +100,7 @@ static void extioi_set_irq_route(int pos, unsigned int cpu, nodemask_t *node_map
 	unsigned char coremap;
 	uint32_t data, data_byte, data_mask;
 	unsigned int cpu_iter;
+	nodemask_t eio_node_map = *node_map;
 
 	pos_off = pos & ~3;
 	data_byte = pos & (3);
@@ -102,14 +112,15 @@ static void extioi_set_irq_route(int pos, unsigned int cpu, nodemask_t *node_map
 
 	for_each_online_cpu(cpu_iter) {
 		node = cpu_to_eio_node(cpu_iter);
-		if (node_isset(node, *node_map)) {
+		if (node_isset(node, eio_node_map)) {
 			data = 0ULL;
+			node_clear(node, eio_node_map);
 
 			/* extioi node 0 is in charge of inter-node interrupt dispatch */
 			route_node = (node == on_node) ? dst_node : node;
 			data |= ((coremap | (route_node << 4))
 				<< (data_byte * 8));
-			csr_any_send(LOONGARCH_IOCSR_EXTIOI_ROUTE_BASE + pos_off, data, data_mask, eio_node_to_cpu(node));
+			csr_any_send(LOONGARCH_IOCSR_EXTIOI_ROUTE_BASE + pos_off, data, data_mask, cpu_logical_map(cpu_iter));
 		}
 	}
 }
@@ -181,12 +192,21 @@ int ext_set_irq_affinity(struct irq_data *d, const struct cpumask *affinity,
 		iocsr_write32(extioi_en[pos_off],
 			LOONGARCH_IOCSR_EXTIOI_EN_BASE + (pos_off << 2));
 	} else {
+		unsigned int cpu_iter;
+
+		for_each_online_cpu(cpu_iter) {
+			if (cpu_to_eio_node(cpu_iter) == priv->node)
+				break;
+		}
+
 		csr_any_send(LOONGARCH_IOCSR_EXTIOI_EN_BASE + (pos_off << 2),
 				extioi_en[pos_off] &
-				(~((1 << (vector & 0x1F)))), 0x0, eio_node_to_cpu(priv->node));
+				(~((1 << (vector & 0x1F)))), 0x0,
+				cpu_logical_map(cpu_iter));
 		extioi_set_irq_route(vector, cpu, &priv->node_map, priv->node);
 		csr_any_send(LOONGARCH_IOCSR_EXTIOI_EN_BASE + (pos_off << 2),
-				extioi_en[pos_off], 0x0, eio_node_to_cpu(priv->node));
+				extioi_en[pos_off], 0x0,
+				cpu_logical_map(cpu_iter));
 	}
 
 	irq_data_update_effective_affinity(d, cpumask_of(cpu));
@@ -204,7 +224,6 @@ void extioi_init(void)
 
 	int extioi_node = cpu_to_eio_node(smp_processor_id());
 	int group = group_of_node(extioi_node);
-
 	if (group < 0) {
 		pr_err("Error: no node map for extioi group!\n");
 		return;
@@ -215,8 +234,7 @@ void extioi_init(void)
 			extioi_en[i] = -1;
 	}
 
-	/* Only the first cpu of a extioi node initializes this extioi controller */
-	if (cpu_to_eio_node_core(smp_processor_id()) == 0) {
+	if (!test_bit(extioi_node, (&extioi_node_maps)->bits)) {
 		eiointc_enable();
 
 		for (j = 0; j < 8; j++) {
@@ -246,7 +264,8 @@ void extioi_init(void)
 			} else {
 
 				/* route to node connected to bridge */
-				tmp = (extioi_priv[group]->node << 4) | 1;
+				tmp = (extioi_priv[group]->node << 4) |
+				BIT(cpu_to_eio_node_core(smp_processor_id()));
 				data = tmp | (tmp << 8) | (tmp << 16) | (tmp << 24);
 				iocsr_write32(data, LOONGARCH_IOCSR_EXTIOI_ROUTE_BASE + j*4);
 			}
@@ -254,9 +273,11 @@ void extioi_init(void)
 
 		for (j = 0; j < IOCSR_EXTIOI_VECTOR_NUM/32; j++) {
 			data = -1;
-			iocsr_write32(data, LOONGARCH_IOCSR_EXTIOI_BOUNCE_BASE + j*4);
+			iocsr_write32(0, LOONGARCH_IOCSR_EXTIOI_BOUNCE_BASE + j*4);
 			iocsr_write32(data, LOONGARCH_IOCSR_EXTIOI_EN_BASE + j*4);
 		}
+
+		set_bit(extioi_node, (&extioi_node_maps)->bits);
 	}
 }
 
@@ -472,6 +493,8 @@ static void extioi_irq_resume(void)
 	int i;
 	struct irq_desc *desc;
 	struct irq_data *irq_data;
+
+	extioi_node_maps = EXTIOI_NODE_MASK_NONE;
 	extioi_init();
 
 	for (i = 0; i < NR_IRQS; i++) {

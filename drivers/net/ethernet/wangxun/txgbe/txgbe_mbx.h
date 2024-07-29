@@ -118,6 +118,8 @@ enum txgbe_pfvf_api_rev {
 #define TXGBE_VF_GET_RETA      0x0a    /* VF request for RETA */
 #define TXGBE_VF_GET_RSS_KEY	0x0b    /* get RSS key */
 #define TXGBE_VF_UPDATE_XCAST_MODE	0x0c
+#define TXGBE_VF_GET_LINK_STATE 0x10 /* get vf link state */
+#define TXGBE_VF_GET_FW_VERSION 0x11 /* get fw version */
 #define TXGBE_VF_BACKUP		0x8001 /* VF requests backup */
 
 /* mode choices for IXGBE_VF_UPDATE_XCAST_MODE */

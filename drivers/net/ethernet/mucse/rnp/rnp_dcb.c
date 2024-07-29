@@ -1,5 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0
+/* Copyright(c) 2022 - 2023 Mucse Corporation. */
+
 #include <linux/dcbnl.h>
 
+#ifdef CONFIG_DCB
 #include "rnp.h"
 #include "rnp_dcb.h"
 #include "rnp_sriov.h"
@@ -18,13 +22,14 @@ static void rnp_config_prio_map(struct rnp_adapter *adapter, u8 pfc_map)
 		if (i > RNP_MAX_TCS_NUM)
 			break;
 		for (j = 0; j < RNP_MAX_USER_PRIO; j++) {
-			dbg("prio_tc[%d]==%d tc_num[%d] pfc_map 0x%.2x\n", j,
-			       prio_tc[j], i, pfc_map);
+			dbg("prio_tc[%d]==%d tc_num[%d] pfc_map 0x%.2x\n",
+			    j, prio_tc[j], i, pfc_map);
 			if ((prio_tc[j] == i) && (pfc_map & BIT(j))) {
-				dbg("match rule tc_num %d prio_%d\n", i, j);
+				dbg("match rule tc_num %d prio_%d\n", i,
+				    j);
 				prio_map |= (i << (2 * j));
 				dbg("match prio_tc change to 0x%.2x\n",
-				       prio_map);
+				    prio_map);
 			}
 		}
 	}
@@ -38,13 +43,13 @@ static void rnp_config_prio_map(struct rnp_adapter *adapter, u8 pfc_map)
 	dbg("tc_prio_map[%d] 0x%.2x\n", i, prio_map);
 
 	/* enable port prio_map config */
-	rnp_wr_reg(ioaddr + RNP_FC_EN_CONF_AVAILBLE, 1);
+	rnp_wr_reg(ioaddr + RNP_FC_EN_CONF_AVAILABLE, 1);
 }
 
 static int rnp_dcb_hw_pfc_config(struct rnp_adapter *adapter, u8 pfc_map)
 {
 	struct rnp_dcb_cfg *dcb = &adapter->dcb_cfg;
-	struct rnp_pfc_cfg *pfc = &dcb->pfc_cfg;
+	//struct rnp_pfc_cfg *pfc = &dcb->pfc_cfg;
 	void __iomem *ioaddr = adapter->hw.hw_addr;
 	u8 i = 0, j = 0;
 	u32 reg = 0;
@@ -86,9 +91,11 @@ static int rnp_dcb_hw_pfc_config(struct rnp_adapter *adapter, u8 pfc_map)
 			reg = RNP_TX_TFE |
 			      (RNP_PAUSE_28_SLOT_TIME
 			       << RNP_FC_TX_PLTH_OFFSET) |
-			      (RNP_DEFAULT_PAUSE_TIME << RNP_FC_TX_PT_OFFSET);
+			      (RNP_DEFAULT_PAUSE_TIME
+			       << RNP_FC_TX_PT_OFFSET);
 
-			rnp_wr_reg(ioaddr + RNP_MAC_Q0_TX_FLOW_CTRL(j), reg);
+			rnp_wr_reg(ioaddr + RNP_MAC_Q0_TX_FLOW_CTRL(j),
+				   reg);
 		}
 	}
 	/* the below configure can just use default config */
@@ -104,7 +111,7 @@ static int rnp_dcb_hw_pfc_config(struct rnp_adapter *adapter, u8 pfc_map)
 	return 0;
 }
 
-static int rnp_dcb_hw_fc_enable(struct rnp_adapter *adapter)
+__maybe_unused static int rnp_dcb_hw_fc_enable(struct rnp_adapter *adapter)
 {
 	void __iomem *ioaddr = adapter->hw.hw_addr;
 
@@ -175,7 +182,22 @@ static u8 rnp_dcbnl_getstate(struct net_device *netdev)
 {
 	struct rnp_adapter *adapter = netdev_priv(netdev);
 
-	return adapter->dcb_cfg.dcb_en;
+	return !!(adapter->flags & RNP_FLAG_DCB_ENABLED);
+}
+
+static u8 rnp_dcbnl_setstate(struct net_device *netdev, u8 state)
+{
+	struct rnp_adapter *adapter = netdev_priv(netdev);
+	int err = 0;
+
+	/* verify there is something to do, if not then exit */
+	if (!state == !(adapter->flags & RNP_FLAG_DCB_ENABLED))
+		goto out;
+
+	err = rnp_setup_tc(netdev,
+			   state ? adapter->dcb_cfg.num_tcs.pfc_tcs : 0);
+out:
+	return !!err;
 }
 
 static u8 rnp_dcbnl_getdcbx(struct net_device *net_dev)
@@ -195,7 +217,70 @@ static u8 rnp_dcbnl_setdcbx(struct net_device *net_dev, u8 mode)
 	return (mode != (adapter->dcb_cfg.dcbx_mode)) ? 1 : 0;
 }
 
-static int rnp_dcb_parse_config(struct rnp_dcb_cfg *dcb, struct ieee_pfc *pfc)
+#ifdef NUMTCS_RETURNS_U8
+static u8 rnp_dcbnl_getnumtcs(struct net_device *netdev, int tcid, u8 *num)
+#else
+static int rnp_dcbnl_getnumtcs(struct net_device *netdev, int tcid,
+			       u8 *num)
+#endif
+{
+	struct rnp_adapter *adapter = netdev_priv(netdev);
+	u8 rval = 0;
+
+	if (adapter->flags & RNP_FLAG_DCB_ENABLED) {
+		switch (tcid) {
+		//case DCB_NUMTCS_ATTR_PG:
+		//       *num = adapter->dcb_cfg.num_tcs.pg_tcs;
+		//      break;
+		case DCB_NUMTCS_ATTR_PFC:
+			if (adapter->dcb_cfg.num_tcs.pfc_tcs >
+			    RNP_MAX_TCS_NUM) {
+				rval = -EINVAL;
+				break;
+			}
+			*num = adapter->dcb_cfg.num_tcs.pfc_tcs;
+			break;
+		default:
+			rval = -EINVAL;
+			break;
+		}
+	} else {
+		rval = -EINVAL;
+	}
+
+	return rval;
+}
+
+#ifdef NUMTCS_RETURNS_U8
+static u8 rnp_dcbnl_setnumtcs(struct net_device *netdev, int tcid, u8 num)
+#else
+static int rnp_dcbnl_setnumtcs(struct net_device *netdev, int tcid, u8 num)
+#endif
+{
+	struct rnp_adapter *adapter = netdev_priv(netdev);
+	u8 rval = 0;
+
+	if (adapter->flags & RNP_FLAG_DCB_ENABLED) {
+		switch (tcid) {
+		//case DCB_NUMTCS_ATTR_PG:
+		//       adapter->dcb_cfg.num_tcs.pg_tcs = num;
+		//      break;
+		case DCB_NUMTCS_ATTR_PFC:
+			adapter->dcb_cfg.num_tcs.pfc_tcs = num;
+			break;
+		default:
+			rval = -EINVAL;
+			break;
+		}
+	} else {
+		rval = -EINVAL;
+	}
+
+	return rval;
+}
+
+static int rnp_dcb_parse_config(struct rnp_dcb_cfg *dcb,
+				struct ieee_pfc *pfc)
 {
 	u8 j = 0, pfc_en_num = 0, pfc_map = 0;
 
@@ -226,31 +311,11 @@ static int rnp_dcbnl_setpfc(struct net_device *dev, struct ieee_pfc *pfc)
 		rnp_dcb_hw_pfc_config(adapter, pfc_map);
 	} else {
 		/*set PAUSE mode */
-		rnp_dcb_hw_fc_enable(adapter);
+		// fc is controlled by ethtool
+		//rnp_dcb_hw_fc_enable(adapter);
 	}
 
 	return 0;
-}
-
-static int rnp_dcbnl_getnumtcs(struct net_device *netdev, int tcid, u8 *num)
-{
-	struct rnp_adapter *adapter = netdev_priv(netdev);
-	u8 rval = 0;
-
-	if (adapter->flags & RNP_FLAG_DCB_ENABLED) {
-		switch (tcid) {
-		case DCB_NUMTCS_ATTR_PFC:
-			*num = adapter->dcb_cfg.pfc_cfg.pfc_num;
-			break;
-		default:
-			rval = -EINVAL;
-			break;
-		}
-	} else {
-		rval = -EINVAL;
-	}
-
-	return rval;
 }
 
 static u8 rnp_dcbnl_getpfcstate(struct net_device *netdev)
@@ -276,8 +341,12 @@ const struct dcbnl_rtnl_ops rnp_dcbnl_ops = {
 	.getcap = rnp_dcbnl_getcap,
 	.setdcbx = rnp_dcbnl_setdcbx,
 	.getdcbx = rnp_dcbnl_getdcbx,
+	.getnumtcs = rnp_dcbnl_getnumtcs,
+	.setnumtcs = rnp_dcbnl_setnumtcs,
+
 	/*CEE*/
 	.getstate = rnp_dcbnl_getstate,
+	.setstate = rnp_dcbnl_setstate,
 
 	.getpfcstate = rnp_dcbnl_getpfcstate,
 	.setpfcstate = rnp_dcbnl_setpfcstate,
@@ -286,12 +355,20 @@ const struct dcbnl_rtnl_ops rnp_dcbnl_ops = {
 int rnp_dcb_init(struct net_device *dev, struct rnp_adapter *adapter)
 {
 	struct rnp_dcb_cfg *dcb = &adapter->dcb_cfg;
+	// only n10 can support this
+	struct rnp_hw *hw = &adapter->hw;
 
-	dcb->dcb_en = true;
+	if (hw->hw_type != rnp_hw_n10)
+		return 0;
+
+	//dcb->dcb_en = true;
+	dcb->dcb_en = false;
 	dcb->pfc_cfg.pfc_max = RNP_MAX_TCS_NUM;
+	dcb->num_tcs.pfc_tcs = RNP_MAX_TCS_NUM;
 	dcb->dcbx_mode = DCB_CAP_DCBX_HOST | DCB_CAP_DCBX_VER_IEEE;
 	dev->dcbnl_ops = &rnp_dcbnl_ops;
-	adapter->flags |= RNP_FLAG_DCB_ENABLED;
+	//adapter->flags |= RNP_FLAG_DCB_ENABLED;
 
 	return 0;
 }
+#endif

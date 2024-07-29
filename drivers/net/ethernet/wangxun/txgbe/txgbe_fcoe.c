@@ -434,7 +434,7 @@ int txgbe_fcoe_ddp(struct txgbe_adapter *adapter,
 		ddp->err = ddp_err;
 		ddp->sgl = NULL;
 		ddp->sgc = 0;
-		/* fall through */
+		fallthrough;
 	/* if DDP length is present pass it through to ULD */
 	case __constant_cpu_to_le32(TXGBE_RXD_STAT_FCSTAT_NODDP):
 		/* update length of DDPed data */

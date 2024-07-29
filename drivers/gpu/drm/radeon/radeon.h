@@ -1696,6 +1696,7 @@ int radeon_uvd_init(struct radeon_device *rdev);
 void radeon_uvd_fini(struct radeon_device *rdev);
 int radeon_uvd_suspend(struct radeon_device *rdev);
 int radeon_uvd_resume(struct radeon_device *rdev);
+void radeon_uvd_resume_handles(struct radeon_device *rdev);
 int radeon_uvd_get_create_msg(struct radeon_device *rdev, int ring,
 			      uint32_t handle, struct radeon_fence **fence);
 int radeon_uvd_get_destroy_msg(struct radeon_device *rdev, int ring,

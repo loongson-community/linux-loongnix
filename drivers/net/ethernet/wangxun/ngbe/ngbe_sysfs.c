@@ -42,10 +42,11 @@ static ssize_t ngbe_hwmon_show_temp(struct device __always_unused *dev,
 {
 	struct hwmon_attr *ngbe_attr = container_of(attr, struct hwmon_attr,
 						     dev_attr);
+	struct ngbe_hw *hw = ngbe_attr->hw;
 	unsigned int value;
 
 	/* reset the temp field */
-	TCALL(ngbe_attr->hw, mac.ops.get_thermal_sensor_data);
+	hw->mac.ops.get_thermal_sensor_data(hw);
 
 	value = ngbe_attr->sensor->temp;
 
@@ -170,6 +171,7 @@ void ngbe_sysfs_exit(struct ngbe_adapter *adapter)
 /* called from ngbe_main.c */
 int ngbe_sysfs_init(struct ngbe_adapter *adapter)
 {
+	struct ngbe_hw *hw = &adapter->hw;
 	int rc = 0;
 #ifdef NGBE_HWMON
 	struct hwmon_buff *ngbe_hwmon = &adapter->ngbe_hwmon_buff;
@@ -182,7 +184,7 @@ int ngbe_sysfs_init(struct ngbe_adapter *adapter)
 #ifdef NGBE_HWMON
 
 	/* Don't create thermal hwmon interface if no sensors present */
-	if (TCALL(&adapter->hw, mac.ops.init_thermal_sensor_thresh))
+	if (hw->mac.ops.init_thermal_sensor_thresh(hw))
 		goto no_thermal;
 
 	/*

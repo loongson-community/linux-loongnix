@@ -86,7 +86,7 @@ config LOONGARCH
 	select ARCH_HAS_ACPI_TABLE_UPGRADE	if ACPI
 	select ACPI_SYSTEM_POWER_STATES_SUPPORT	if ACPI
 	select ACPI_PPTT if ACPI
-	select HAVE_ARCH_KASAN if 64BIT
+	select HAVE_ARCH_KASAN if 64BIT && !RELOCATABLE
 	select GENERIC_PCI_IOMAP
 	select LOONGARCH_CRC32_SUPPORT
 	select ARCH_HAS_SG_CHAIN
@@ -811,6 +811,7 @@ config PGTABLE_LEVELS
 	int
 	default 4 if PAGE_SIZE_4KB && VA_BITS_48
 	default 2 if PAGE_SIZE_64KB && VA_BITS_40
+	default 4 if PAGE_SIZE_4KB && VA_BITS_40
 	default 3
 
 config LOONGARCH_AUTO_PFN_OFFSET
@@ -894,7 +895,7 @@ config NR_QUICK
 
 config LS_DUP
 	bool
-	default y
+	default n
 
 config MMU
 	bool

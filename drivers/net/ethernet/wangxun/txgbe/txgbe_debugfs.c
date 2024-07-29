@@ -138,11 +138,9 @@ txgbe_dbg_data_ops_read(struct file *filp, char __user *buffer,
 
 		return txgbe_simple_read_from_pcibar(adapter, bar, buffer, size,
 					       ppos);
-		break;
 	}
 	case TXGBE_FUNC_FLASH_READ: {
 		return txgbe_simple_read_from_flash(adapter, buffer, size, ppos);
-		break;
 	}
 	case TXGBE_FUNC_DUMP_RDESC: {
 		struct txgbe_ring *ring;
@@ -155,7 +153,6 @@ txgbe_dbg_data_ops_read(struct file *filp, char __user *buffer,
 
 		return simple_read_from_buffer(buffer, size, ppos,
 			ring->desc, ring->size);
-		break;
 	}
 	case TXGBE_FUNC_DUMP_TDESC: {
 		struct txgbe_ring *ring;
@@ -168,7 +165,6 @@ txgbe_dbg_data_ops_read(struct file *filp, char __user *buffer,
 
 		return simple_read_from_buffer(buffer, size, ppos,
 			ring->desc, ring->size);
-		break;
 	}
 	default:
 		break;
@@ -195,7 +191,6 @@ txgbe_dbg_data_ops_write(struct file *filp,
 			size = adapter->hw.flash.dword_size << 2;
 
 		return txgbe_simple_write_to_flash(adapter, buffer, size, ppos, size);
-		break;
 	}
 	default:
 		break;
@@ -409,7 +404,7 @@ txgbe_dbg_netdev_ops_write(struct file *filp,
 	if (strncmp(txgbe_dbg_netdev_ops_buf, "tx_timeout", 10) == 0) {
 #if defined(HAVE_TX_TIMEOUT_TXQUEUE)
 		adapter->netdev->netdev_ops->ndo_tx_timeout(adapter->netdev, 0);
-#elif defined(HAVE_NET_DEVICE_OPS)
+#elif defined(HAVE_NET_DEVICE_OPS) 
 		adapter->netdev->netdev_ops->ndo_tx_timeout(adapter->netdev);
 #else
 		adapter->netdev->tx_timeout(adapter->netdev);
@@ -540,6 +535,7 @@ static struct txgbe_reg_info txgbe_reg_info_tbl[] = {
 static void
 txgbe_regdump(struct txgbe_hw *hw, struct txgbe_reg_info *reg_info)
 {
+	#if 0
 	int i, n = 0;
 	u32 buffer[32*8];
 
@@ -584,6 +580,7 @@ txgbe_regdump(struct txgbe_hw *hw, struct txgbe_reg_info *reg_info)
 	}
 #endif
 	BUG_ON(n);
+#endif
 }
 
 /**
@@ -772,6 +769,7 @@ rx_ring_summary:
 					le64_to_cpu(u0->b),
 					rx_buffer_info->skb);
 			} else {
+#ifndef CONFIG_TXGBE_DISABLE_PACKET_SPLIT
 				pr_info("R  [0x%03X]     %016llX "
 					"%016llX %016llX %p", i,
 					le64_to_cpu(u0->a),
@@ -787,6 +785,7 @@ rx_ring_summary:
 						    rx_buffer_info->page_offset,
 					   txgbe_rx_bufsz(rx_ring), true);
 				}
+#endif
 			}
 
 			if (i == rx_ring->next_to_use)

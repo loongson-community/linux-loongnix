@@ -33,6 +33,7 @@
 #include <linux/mmc/sd.h>
 #include <linux/mmc/slot-gpio.h>
 #include <linux/of_dma.h>
+#include <linux/bitrev.h>
 
 #include "ls2kmci.h"
 #include <linux/gpio.h>
@@ -333,28 +334,50 @@ static void ls2k_cmd_data_fix(struct ls2k_mci_host *host,
 	int i, j;
 	u32 *data;
 
-	if (host->app_cmd != SD_APP_SEND_SCR &&
+	if (host->pdata->version == LOONGSON_SDIO_EMMC_VER_1_2) {
+		if (cmd->opcode != SD_SWITCH)
+			return;
+	} else if (host->app_cmd != SD_APP_SEND_SCR &&
 		host->app_cmd != SD_APP_SEND_NUM_WR_BLKS &&
 		host->app_cmd != SD_APP_SD_STATUS &&
-		cmd->opcode != MMC_SEND_WRITE_PROT)
+		cmd->opcode != MMC_SEND_WRITE_PROT &&
+		cmd->opcode != SD_SWITCH)
+		return;
+
+	/* Make sure there is data transfer on the data line */
+	if (!(cmd->flags & MMC_CMD_ADTC))
 		return;
 
 	for (i = 0; i < mdata->sg_len; i++) {
 		data = sg_virt(&mdata->sg[i]);
 		for (j = 0; j < (sg_dma_len(&mdata->sg[i]) / 4); j++)
-			data[j] = cpu_to_be32(data[j]);
+			if (cmd->opcode == SD_SWITCH)
+				data[j] = (bitrev8x4(data[j]));
+			else
+				data[j] = cpu_to_be32(data[j]);
 	}
+
 }
 
 static irqreturn_t ls2k_mci_irq(int irq, void *dev_id)
 {
 	struct ls2k_mci_host *host = dev_id;
 	struct mmc_command *cmd;
-	u32 mci_csta, mci_dsta, mci_imsk;
+	u32 mci_csta, mci_dsta, mci_imsk, mci_dclear;
 
 	mci_csta = readl(host->base + SDICMDSTA);
 	mci_imsk = readl(host->base + SDIINTMSK);
 	mci_dsta = readl(host->base + SDIDSTA);
+
+	if (mci_dsta & SDIDSTA_SDIOIRQDETECT) {
+		if (mci_imsk & SDIIMSK_SDIOIRQ) {
+			mci_dclear = SDIIMSK_SDIOIRQ;
+			writel(mci_dclear, host->base + SDIINTMSK);
+
+			mmc_signal_sdio_irq(host->mmc);
+			return IRQ_HANDLED;
+		}
+	}
 
 	if ((host->complete_what == COMPLETION_NONE) ||
 	    (host->complete_what == COMPLETION_FINALIZE)) {
@@ -470,9 +493,45 @@ irq_out:
 	return IRQ_HANDLED;
 }
 
+static void ls2k_dll_init(struct ls2k_mci_host *host)
+{
+	u32 dll_con, dll_val, pad_delay, rd_delay;
+	u32 times = 0x1000;
+
+	writel(readl(host->base + 0xf4) | (0xf << 26), host->base + 0xf4);
+
+	dll_con = (0xc8) | (0x1 << 8) | (0x1 << 16) | (0x3 << 24) | (3 << 26) | (3 << 28);
+
+	writel(dll_con, host->base + 0xf4);
+
+	while (times--) {
+		if (readl(host->base + 0xf0) & 0x100)
+			break;
+	}
+
+	if (times <= 0) {
+		dbg(host, dbg_debug, "dll lock failed\n");
+		return;
+	}
+
+	dll_val = (readl(host->base + 0xf0) & 0xff);
+
+	pad_delay = dll_val >> 1;
+	rd_delay  = pad_delay + 1;
+
+	dbg(host, dbg_debug, "dll_val:0x%x, pad_delay:0x%x, rd_delay:0x%x\n", dll_val, pad_delay, rd_delay);
+	writel((rd_delay << 8) | pad_delay, host->base + 0xf8);
+}
+
 static void ls2k_mci_set_clk(struct ls2k_mci_host *host, struct mmc_ios *ios)
 {
 	u32 mci_psc;
+
+	if (ios->timing == MMC_TIMING_UHS_DDR50 ||
+	    ios->timing == MMC_TIMING_MMC_DDR52) {
+		/* ddr mode enable */
+		writel(readl(host->base + 0xfc) | 0x1, host->base + 0xfc);
+	}
 
 	/* Set clock */
 	for (mci_psc = 1; mci_psc < 255; mci_psc++) {
@@ -486,6 +545,12 @@ static void ls2k_mci_set_clk(struct ls2k_mci_host *host, struct mmc_ios *ios)
 
 	host->prescaler = mci_psc;
 	writel(host->prescaler | SDIPRE_REVCLOCK, host->base + SDIPRE);
+
+	/* cal dll */
+	if (ios->timing == MMC_TIMING_UHS_DDR50 ||
+	    ios->timing == MMC_TIMING_MMC_DDR52) {
+		ls2k_dll_init(host);
+	}
 
 	/* If requested clock is 0, real_rate will be 0, too */
 	if (ios->clock == 0)
@@ -602,14 +667,14 @@ static int ls2k_mci_setup_data(struct ls2k_mci_host *host, struct mmc_data *data
 	writel(data->blksz, host->base + SDIBSIZE);
 
 	/* write TIMER register */
-	writel(0x007FFFFF, host->base + SDITIMER);
+	writel(0xFFFFFFFF, host->base + SDITIMER);
 
 	return 0;
 }
 
 static void ls2k_mci_send_request(struct mmc_host *mmc)
 {
-	int res;
+	int res, retry_n;
 	struct ls2k_mci_host *host = mmc_priv(mmc);
 	struct mmc_request *mrq = host->mrq;
 	struct mmc_command *cmd = host->cmd_is_stop ? mrq->stop : mrq->cmd;
@@ -634,6 +699,19 @@ static void ls2k_mci_send_request(struct mmc_host *mmc)
 				mmc_request_done(mmc, mrq);
 				return;
 			}
+	}
+
+	if ((cmd->opcode == MMC_WRITE_BLOCK) || (cmd->opcode == MMC_WRITE_MULTIPLE_BLOCK)) {
+		retry_n = 1000;
+		while (retry_n--) {
+			if ((readl(host->base + 0x2c) & (0x1 << 14)) &&
+					(readl(host->base + 0x38) & (0x1 << 11)))
+				break;
+			if (retry_n < 500)
+				udelay(10);
+		}
+		if (retry_n <= 0)
+			dbg(host, dbg_err, "may losing int when tx fifo is not full\n");
 	}
 
 	/* Send command */
@@ -669,13 +747,15 @@ static void ls2k_mci_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 		writel(SDICON_RESET, host->base + SDICON);
 		mdelay(100);
 		writel(0x3, host->base + SDICON);
-		if (host->pdata->version == LOONGSON_SDIO_EMMC_VER_1_1)
+		if (host->pdata->version > LOONGSON_SDIO_EMMC_VER_1_0)
 			writel(SDIINT_CLEARALL, host->base + SDIINTMSK);
 		writel(SDIINT_ENALL, host->base + SDIINTEN);
 		break;
 	case MMC_POWER_OFF:
 	default:
 		mci_con |= SDICON_RESET;
+		if (mmc->card)
+			mmc->card->state |= (1 << 4);
 		break;
 	}
 	ls2k_mci_set_clk(host, ios);
@@ -743,11 +823,30 @@ int ls2k_mci_gpio_get_cd(struct mmc_host *host)
 	return value;
 }
 
+static void ls2k_mci_enable_sdio_irq(struct mmc_host *mmc, int enable)
+{
+	struct ls2k_mci_host *host = mmc_priv(mmc);
+	u32 val;
+
+	if (enable) {
+		val = readl(host->base + SDIINTEN);
+		val |= SDIIMSK_SDIOIRQ;
+		writel(val, host->base + SDIINTEN);
+	} else {
+		val = readl(host->base + SDIINTEN);
+		val &= ~SDIIMSK_SDIOIRQ;
+		writel(val, host->base + SDIINTEN);
+	}
+
+	return;
+}
+
 static struct mmc_host_ops ls2k_mci_ops = {
 	.request	= ls2k_mci_request,
 	.set_ios	= ls2k_mci_set_ios,
 	.get_ro		= ls2k_mci_get_ro,
 	.get_cd		= ls2k_mci_gpio_get_cd,
+	.enable_sdio_irq = ls2k_mci_enable_sdio_irq,
 };
 
 static struct ls2k_mci_pdata ls2k_mci_v1_0_pdata = {
@@ -760,6 +859,11 @@ static struct ls2k_mci_pdata ls2k_mci_v1_0_pdata = {
 static struct ls2k_mci_pdata ls2k_mci_v1_1_pdata = {
 	 .irq_fixup = ls2k_cmd_data_fix,
 	 .version = LOONGSON_SDIO_EMMC_VER_1_1,
+};
+
+static struct ls2k_mci_pdata ls2k_mci_v1_2_pdata = {
+	 .irq_fixup = ls2k_cmd_data_fix,
+	 .version = LOONGSON_SDIO_EMMC_VER_1_2,
 };
 
 static struct ls2k_mci_host *hotpug_host;
@@ -813,6 +917,10 @@ static int ls2k_mci_probe(struct platform_device *pdev)
 
 	platform_device_add_data(pdev, pdata, sizeof(*pdata));
 	host->pdata = pdata;
+	val = iocsr_read64(0x20);
+	if (!strncmp((char *)&val, "2K2000AA", 8) || !strncmp((char *)&val, "2K1500AA", 8)) {
+		host->pdata->version = LOONGSON_SDIO_EMMC_VER_1_1;
+	}
 
 	spin_lock_init(&host->complete_lock);
 	tasklet_init(&host->pio_tasklet, pio_tasklet, (unsigned long) host);
@@ -829,6 +937,7 @@ static int ls2k_mci_probe(struct platform_device *pdev)
 		ret = -ENODEV;
 		goto probe_free_host;
 	}
+	host->mem       = r;
 	host->phys_base = r->start;
 	if (r->start == LS2K1000_SDIO_REG_BASE)
 		is_ls2k1000_controller = true;
@@ -976,6 +1085,7 @@ static int ls2k_mci_remove(struct platform_device *pdev)
 static const struct of_device_id sdio_ls2k_dt_match[] = {
 	{.compatible = "loongson,ls2k_sdio", .data = &ls2k_mci_v1_0_pdata},
 	{.compatible = "loongson,ls2k_sdio_1.1", .data = &ls2k_mci_v1_1_pdata},
+	{.compatible = "loongson,ls2k_sdio_1.2", .data = &ls2k_mci_v1_2_pdata},
 	{},
 };
 MODULE_DEVICE_TABLE(of, sdio_ls2k_dt_match);

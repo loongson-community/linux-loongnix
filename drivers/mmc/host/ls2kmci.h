@@ -118,8 +118,8 @@
 #define SDIDCNT_BLKNUM_SHIFT  (12)
 
 #define SDIDSTA_RDYWAITREQ    (1<<10)
-#define SDIDSTA_SDIOIRQDETECT (1<<9)
-#define SDIDSTA_FIFOFAIL      (1<<8)
+#define SDIDSTA_FIFOFAIL      (1<<9)
+#define SDIDSTA_SDIOIRQDETECT (1<<8)
 #define SDIDSTA_CRCFAIL       (1<<7)
 #define SDIDSTA_RXCRCFAIL     (1<<6)
 #define SDIDSTA_DATATIMEOUT   (1<<5)
@@ -138,15 +138,10 @@
 #define SDIFSTA_RFEMPTY        (1<<7)
 #define SDIFSTA_COUNTMASK      (0x7f)
 
-#define SDIIMSK_RESPONSEND     (1<<14)
-#define SDIIMSK_READWAIT       (1<<13)
-#define SDIIMSK_SDIOIRQ        (1<<12)
-#define SDIIMSK_FIFOFAIL       (1<<11)
-
-
 #define SDIIMSK_RESPONSECRC    (1<<8)
 #define SDIIMSK_CMDTIMEOUT     (1<<7)
 #define SDIIMSK_CMDSENT        (1<<6)
+#define SDIIMSK_SDIOIRQ        (1<<5)
 #define SDIIMSK_PROGERR        (1<<4)
 #define SDIIMSK_TXCRCFAIL      (1<<3)
 #define SDIIMSK_RXCRCFAIL      (1<<2)
@@ -274,6 +269,7 @@ struct ls2k_mci_pdata {
 	unsigned int	gpio_wprotect;
 #define LOONGSON_SDIO_EMMC_VER_1_0	0x100
 #define LOONGSON_SDIO_EMMC_VER_1_1	0x110
+#define LOONGSON_SDIO_EMMC_VER_1_2	0x120
 	unsigned int	version;
 	unsigned long	ocr_avail;
 	void	(*set_power)(unsigned char power_mode,

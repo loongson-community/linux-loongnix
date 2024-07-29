@@ -37,15 +37,29 @@
 #include "txgbe_type.h"
 #include "txgbe_sriov.h"
 
+static void txgbe_set_vf_rx_tx(struct txgbe_adapter *adapter, int vf);
+
+
 #ifdef CONFIG_PCI_IOV
 static int __txgbe_enable_sriov(struct txgbe_adapter *adapter)
 {
 	struct txgbe_hw *hw = &adapter->hw;
 	int num_vf_macvlans, i;
 	struct vf_macvlans *mv_list;
+	u32 value = 0;
 
 	adapter->flags |= TXGBE_FLAG_SRIOV_ENABLED;
 	e_dev_info("SR-IOV enabled with %d VFs\n", adapter->num_vfs);
+
+	if (adapter->num_vfs != 1) {
+		if (adapter->ring_feature[RING_F_RSS].indices == 4)
+			value = TXGBE_CFG_PORT_CTL_NUM_VT_32;
+		else /* adapter->ring_feature[RING_F_RSS].indices <= 2 */
+			value = TXGBE_CFG_PORT_CTL_NUM_VT_64;
+	}
+	wr32m(hw, TXGBE_CFG_PORT_CTL,
+	      TXGBE_CFG_PORT_CTL_NUM_VT_MASK,
+	      value);
 
 	/* Enable VMDq flag so device will be set in VM mode */
 	adapter->flags |= TXGBE_FLAG_VMDQ_ENABLED;
@@ -114,6 +128,7 @@ static int __txgbe_enable_sriov(struct txgbe_adapter *adapter)
 	for (i = 0; i < adapter->num_vfs; i++) {
 		/* enable spoof checking for all VFs */
 		adapter->vfinfo[i].spoofchk_enabled = true;
+		adapter->vfinfo[i].link_enable = true;
 
 #ifdef HAVE_NDO_SET_VF_RSS_QUERY_EN
 		/* We support VF RSS querying only for 82599 and x540
@@ -140,32 +155,30 @@ static int __txgbe_enable_sriov(struct txgbe_adapter *adapter)
 static int txgbe_vf_backup(struct txgbe_adapter *adapter, u16 vf)
 {
 	struct vf_data_storage *vfinfo = &adapter->vfinfo[vf];
-	int i;
 
 	if (!vfinfo->b4_addr)
 		return -1;
-
+#if 0
 	for (i = 0; i < 16; i++) {
-		vfinfo->b4_buf[i] =
+		vfinfo->b4_buf[i] = 
 			txgbe_rd32(TXGBE_BA4_ADDR(vfinfo, i * 4));
 	}
-
+#endif
 	return 0;
 }
 
 static int txgbe_vf_restore(struct txgbe_adapter *adapter, u16 vf)
 {
 	struct vf_data_storage *vfinfo = &adapter->vfinfo[vf];
-	int i;
 
 	if (!vfinfo->b4_addr)
 		return -1;
-
+#if 0
 	for (i = 0; i < 16; i++) {
 		txgbe_wr32(TXGBE_BA4_ADDR(vfinfo, i * 4),
 			   vfinfo->b4_buf[i]);
 	}
-
+#endif
 	return 0;
 }
 
@@ -298,6 +311,21 @@ int txgbe_disable_sriov(struct txgbe_adapter *adapter)
 {
 	struct txgbe_hw *hw = &adapter->hw;
 
+#ifdef CONFIG_PCI_IOV
+	/*
+	 * If our VFs are assigned we cannot shut down SR-IOV
+	 * without causing issues, so just leave the hardware
+	 * available but disabled
+	 */
+	if (pci_vfs_assigned(adapter->pdev)) {
+		e_dev_warn("Unloading driver while VFs are assigned -"
+			   "VFs will not be deallocated\n");
+		return -EPERM;
+	}
+	/* disable iov and allow time for transactions to clear */
+	pci_disable_sriov(adapter->pdev);
+#endif
+
 	/* set num VFs to 0 to prevent access to vfinfo */
 	adapter->num_vfs = 0;
 
@@ -318,6 +346,7 @@ int txgbe_disable_sriov(struct txgbe_adapter *adapter)
 	if (!(adapter->flags & TXGBE_FLAG_SRIOV_ENABLED))
 		return 0;
 
+#if 0
 #ifdef CONFIG_PCI_IOV
 	/*
 	 * If our VFs are assigned we cannot shut down SR-IOV
@@ -332,7 +361,7 @@ int txgbe_disable_sriov(struct txgbe_adapter *adapter)
 	/* disable iov and allow time for transactions to clear */
 	pci_disable_sriov(adapter->pdev);
 #endif
-
+#endif
 	/* set default pool back to 0 */
 	wr32m(hw, TXGBE_PSR_VM_CTL,
 		TXGBE_PSR_VM_CTL_POOL_MASK, 0);
@@ -343,7 +372,9 @@ int txgbe_disable_sriov(struct txgbe_adapter *adapter)
 	/* take a breather then clean up driver data */
 	msleep(100);
 
-	adapter->flags &= ~TXGBE_FLAG_SRIOV_ENABLED;
+	adapter->flags &= ~(TXGBE_FLAG_SRIOV_ENABLED |
+						TXGBE_FLAG_SRIOV_L2SWITCH_ENABLE |
+			  			TXGBE_FLAG_SRIOV_REPLICATION_ENABLE);
 
 	/* Disable VMDq flag so device will be set in VM mode */
 	if (adapter->ring_feature[RING_F_VMDQ].limit == 1) {
@@ -474,7 +505,7 @@ static int txgbe_set_vf_lpe(struct txgbe_adapter *adapter, u32 max_frame,
 		 */
 		if (pf_max_frame > ETH_FRAME_LEN)
 			break;
-		/* fall through */
+		fallthrough;
 	default:
 		/*
 		 * If the PF or VF are running w/ jumbo frames enabled
@@ -657,9 +688,9 @@ static int txgbe_get_vf_queues(struct txgbe_adapter *adapter,
 		msgbuf[TXGBE_VF_TRANS_VLAN] = 0;
 
 	/* notify VF of default queue */
-	if (adapter->vf_mode == 63)
+	if(adapter->vf_mode == 63)
 		msgbuf[TXGBE_VF_DEF_QUEUE] = default_tc;
-	else if (adapter->vf_mode == 31)
+	else if( adapter->vf_mode == 31)
 		msgbuf[TXGBE_VF_DEF_QUEUE] = 4;
 	else
 		msgbuf[TXGBE_VF_DEF_QUEUE] = default_tc;
@@ -791,7 +822,8 @@ static int txgbe_vf_reset_msg(struct txgbe_adapter *adapter, u16 vf)
 {
 	struct txgbe_hw *hw = &adapter->hw;
 	unsigned char *vf_mac = adapter->vfinfo[vf].vf_mac_addresses;
-	u32 reg, reg_offset, vf_shift;
+	u32 reg = 0;
+	u32 reg_offset, vf_shift;
 	u32 msgbuf[4] = {0, 0, 0, 0};
 	u8 *addr = (u8 *)(&msgbuf[1]);
 	struct net_device *dev = adapter->netdev;
@@ -813,16 +845,11 @@ static int txgbe_vf_reset_msg(struct txgbe_adapter *adapter, u16 vf)
 	vf_shift = vf % 32;
 	reg_offset = vf / 32;
 
-	/* enable transmit for vf */
-	wr32m(hw, TXGBE_TDM_VF_TE(reg_offset),
-		1 << vf_shift, 1 << vf_shift);
-
 	/* force drop enable for all VF Rx queues */
 	txgbe_write_qde(adapter, vf, 1);
 
-	/* enable receive for vf */
-	reg = rd32(hw, TXGBE_RDM_VF_RE(reg_offset));
-	reg |= 1 << vf_shift;
+	/* set transmit and receive for vf */
+	txgbe_set_vf_rx_tx(adapter, vf);
 
 	pf_max_frame = dev->mtu + ETH_HLEN;
 
@@ -833,8 +860,8 @@ static int txgbe_vf_reset_msg(struct txgbe_adapter *adapter, u16 vf)
 #endif /* CONFIG_FCOE */
 
 	if (pf_max_frame > ETH_FRAME_LEN)
-		reg &= ~(1 << vf_shift);
-	wr32(hw, TXGBE_RDM_VF_RE(reg_offset), reg);
+		reg = (1 << vf_shift);
+	wr32(hw, TXGBE_RDM_VFRE_CLR(reg_offset), reg);
 
 	/* enable VF mailbox for further messages */
 	adapter->vfinfo[vf].clear_to_send = true;
@@ -929,7 +956,7 @@ static int txgbe_set_vf_vlan_msg(struct txgbe_adapter *adapter,
 		       "configuration\n"
 		       "Reload the VF driver to resume operations\n",
 		       vf);
-		return -1;
+		return 0;
 	}
 
 	if (add)
@@ -1004,7 +1031,7 @@ static int txgbe_set_vf_macvlan_msg(struct txgbe_adapter *adapter,
 		e_warn(drv,
 			"VF %d requested MACVLAN filter but is administratively denied\n",
 			vf);
-		return -1;
+		return 0;
 	}
 
 	/* An non-zero index indicates the VF is setting a filter */
@@ -1038,7 +1065,7 @@ static int txgbe_update_vf_xcast_mode(struct txgbe_adapter *adapter,
 {
 	struct txgbe_hw *hw = &adapter->hw;
 	int xcast_mode = msgbuf[1];
-	u32 vmolr, fctrl, disable, enable;
+	u32 vmolr, disable, enable;
 
 	/* verify the PF is supporting the correct APIs */
 	switch (adapter->vfinfo[vf].vf_api) {
@@ -1070,13 +1097,6 @@ static int txgbe_update_vf_xcast_mode(struct txgbe_adapter *adapter,
 		enable = TXGBE_PSR_VM_L2CTL_BAM | TXGBE_PSR_VM_L2CTL_ROMPE | TXGBE_PSR_VM_L2CTL_MPE;
 		break;
 	case TXGBEVF_XCAST_MODE_PROMISC:
-		fctrl = rd32(hw, TXGBE_PSR_CTL);
-		if (!(fctrl & TXGBE_PSR_CTL_UPE)) {
-			/* VF promisc requires PF in promisc */
-			e_warn(drv,
-			       "Enabling VF promisc requires PF in promisc\n");
-			return -EPERM;
-		}
 		disable = 0;
 		enable = TXGBE_PSR_VM_L2CTL_BAM | TXGBE_PSR_VM_L2CTL_ROMPE |
 			 TXGBE_PSR_VM_L2CTL_MPE | TXGBE_PSR_VM_L2CTL_UPE | TXGBE_PSR_VM_L2CTL_VPE;
@@ -1094,6 +1114,47 @@ static int txgbe_update_vf_xcast_mode(struct txgbe_adapter *adapter,
 
 out:
 	msgbuf[1] = xcast_mode;
+
+	return 0;
+}
+
+static int txgbe_get_vf_link_state(struct txgbe_adapter *adapter,
+				   u32 *msgbuf, u32 vf)
+{
+	u32 *link_state = &msgbuf[1];
+
+	/* verify the PF is supporting the correct API */
+	switch (adapter->vfinfo[vf].vf_api) {
+	case txgbe_mbox_api_12:
+	case txgbe_mbox_api_13:
+		break;
+	default:
+		return -EOPNOTSUPP;
+	}
+
+	*link_state = adapter->vfinfo[vf].link_enable;
+
+	return 0;
+}
+
+static int txgbe_get_fw_version(struct txgbe_adapter *adapter,
+				  u32 *msgbuf, u32 vf)
+{
+	u32 *fw_version = &msgbuf[1];
+	char *end = NULL;
+
+	/* verify the PF is supporting the correct API */
+	switch (adapter->vfinfo[vf].vf_api) {
+	case txgbe_mbox_api_12:
+	case txgbe_mbox_api_13:
+		break;
+	default:
+		return -EOPNOTSUPP;
+	}
+
+	*fw_version = simple_strtoul(adapter->eeprom_id, &end, 16);
+	if (adapter->eeprom_id == end || strlen(end))
+		return -EOPNOTSUPP;
 
 	return 0;
 }
@@ -1162,6 +1223,12 @@ static int txgbe_rcv_msg_from_vf(struct txgbe_adapter *adapter, u16 vf)
 	case TXGBE_VF_UPDATE_XCAST_MODE:
 		retval = txgbe_update_vf_xcast_mode(adapter, msgbuf, vf);
 		break;
+	case TXGBE_VF_GET_LINK_STATE:
+		retval = txgbe_get_vf_link_state(adapter, msgbuf, vf);
+		break;
+	case TXGBE_VF_GET_FW_VERSION:
+		retval = txgbe_get_fw_version(adapter, msgbuf, vf);
+		break;
 	case TXGBE_VF_BACKUP:
 #ifdef CONFIG_PCI_IOV
 		retval = txgbe_vf_backup(adapter, vf);
@@ -1228,7 +1295,6 @@ void txgbe_disable_tx_rx(struct txgbe_adapter *adapter)
 	wr32(hw, TXGBE_RDM_VF_RE(1), 0);
 }
 
-#ifdef HAVE_NDO_SET_VF_TRUST
 static inline void txgbe_ping_vf(struct txgbe_adapter *adapter, int vf)
 {
 	struct txgbe_hw *hw = &adapter->hw;
@@ -1239,7 +1305,6 @@ static inline void txgbe_ping_vf(struct txgbe_adapter *adapter, int vf)
 		ping |= TXGBE_VT_MSGTYPE_CTS;
 	txgbe_write_mbx(hw, &ping, 1, vf);
 }
-#endif
 
 void txgbe_ping_all_vfs(struct txgbe_adapter *adapter)
 {
@@ -1252,6 +1317,22 @@ void txgbe_ping_all_vfs(struct txgbe_adapter *adapter)
 		if (adapter->vfinfo[i].clear_to_send)
 			ping |= TXGBE_VT_MSGTYPE_CTS;
 		txgbe_write_mbx(hw, &ping, 1, i);
+	}
+}
+
+/**
+ * ixgbe_set_all_vfs - update vfs queues
+ * @adapter: Pointer to adapter struct
+ *
+ * Update setting transmit and receive queues for all vfs
+ **/
+void txgbe_set_all_vfs(struct txgbe_adapter *adapter)
+{
+	int i;
+
+	for (i = 0 ; i < adapter->num_vfs; i++) {
+		txgbe_set_vf_link_state(adapter, i,
+					adapter->vfinfo[i].link_state);
 	}
 }
 
@@ -1282,9 +1363,9 @@ int txgbe_ndo_set_vf_trust(struct net_device *netdev, int vf, bool setting)
 static int txgbe_pci_sriov_enable(struct pci_dev __maybe_unused *dev,
 	int __maybe_unused num_vfs)
 {
+	int err = 0;
 #ifdef CONFIG_PCI_IOV
 	struct txgbe_adapter *adapter = pci_get_drvdata(dev);
-	int err = 0;
 	int i;
 	int pre_existing_vfs = pci_num_vf(dev);
 
@@ -1321,21 +1402,23 @@ static int txgbe_pci_sriov_enable(struct pci_dev __maybe_unused *dev,
 	for (i = 0; i < adapter->num_vfs; i++)
 		txgbe_vf_configuration(dev, (i | 0x10000000));
 
+	/* reset before enabling SRIOV to avoid mailbox issues */
+	txgbe_sriov_reinit(adapter);
+
 	err = pci_enable_sriov(dev, num_vfs);
 	if (err) {
 		e_dev_warn("Failed to enable PCI sriov: %d\n", err);
 		goto err_out;
 	}
 	txgbe_get_vfs(adapter);
-	txgbe_sriov_reinit(adapter);
 
 out:
 	return num_vfs;
 
 err_out:
-	return err;
 #endif
-	return 0;
+
+	return err;
 }
 
 static int txgbe_pci_sriov_disable(struct pci_dev *dev)
@@ -1466,7 +1549,7 @@ int txgbe_ndo_set_vf_vlan(struct net_device *netdev, int vf, u16 vlan, u8 qos)
 	if ((vf >= adapter->num_vfs) || (vlan > VLAN_VID_MASK-1) || (qos > 7))
 		return -EINVAL;
 #ifdef IFLA_VF_VLAN_INFO_MAX
-	if (vlan_proto != htons(ETH_P_8021Q))
+	if (vlan_proto != htons(ETH_P_8021Q) && vlan_proto != htons(ETH_P_8021AD))
 		return -EPROTONOSUPPORT;
 #endif
 	if (vlan || qos) {
@@ -1604,6 +1687,130 @@ int txgbe_ndo_set_vf_spoofchk(struct net_device *netdev, int vf, bool setting)
 	return 0;
 }
 #endif /* HAVE_VF_SPOOFCHK_CONFIGURE */
+
+/**
+ * ixgbe_set_vf_rx_tx - Set VF rx tx
+ * @adapter: Pointer to adapter struct
+ * @vf: VF identifier
+ *
+ * Set or reset correct transmit and receive for vf
+ **/
+static void txgbe_set_vf_rx_tx(struct txgbe_adapter *adapter, int vf)
+{
+	struct txgbe_hw *hw = &adapter->hw;
+	u32 reg_cur_tx, reg_cur_rx, reg_req_tx, reg_req_rx;
+	u32 reg_offset, vf_shift;
+
+	vf_shift = vf % 32;
+	reg_offset = vf / 32;
+
+	reg_cur_tx = rd32(hw, TXGBE_TDM_VF_TE(reg_offset));
+	reg_cur_rx = rd32(hw, TXGBE_RDM_VF_RE(reg_offset));
+
+	if (adapter->vfinfo[vf].link_enable) {
+		reg_req_tx = reg_cur_tx | 1 << vf_shift;
+		reg_req_rx = reg_cur_rx | 1 << vf_shift;
+		/* Enable particular VF */
+		if (reg_cur_tx != reg_req_tx)
+			wr32(hw, TXGBE_TDM_VF_TE(reg_offset), reg_req_tx);
+		if (reg_cur_rx != reg_req_rx)
+			wr32(hw, TXGBE_RDM_VF_RE(reg_offset), reg_req_rx);
+	} else {
+		reg_req_tx = 1 << vf_shift;
+		reg_req_rx = 1 << vf_shift;
+		/* Disable particular VF */
+		if (reg_cur_tx & reg_req_tx)
+			wr32(hw, TXGBE_TDM_VFTE_CLR(reg_offset), reg_req_tx);
+		if (reg_cur_rx & reg_req_rx)
+			wr32(hw, TXGBE_RDM_VFRE_CLR(reg_offset), reg_req_rx);
+	}
+
+}
+
+/**
+ * txgbe_set_vf_link_state - Set link state
+ * @adapter: Pointer to adapter struct
+ * @vf: VF identifier
+ * @state: required link state
+ *
+ * Set a link force state on/off a single vf
+ **/
+void txgbe_set_vf_link_state(struct txgbe_adapter *adapter, int vf, int state)
+{
+	adapter->vfinfo[vf].link_state = state;
+
+	switch (state) {
+	case IFLA_VF_LINK_STATE_AUTO:
+		if (test_bit(__TXGBE_DOWN, &adapter->state))
+			adapter->vfinfo[vf].link_enable = false;
+		else
+			adapter->vfinfo[vf].link_enable = true;
+		break;
+	case IFLA_VF_LINK_STATE_ENABLE:
+		adapter->vfinfo[vf].link_enable = true;
+		break;
+	case IFLA_VF_LINK_STATE_DISABLE:
+		adapter->vfinfo[vf].link_enable = false;
+		break;
+	}
+
+	txgbe_set_vf_rx_tx(adapter, vf);
+
+	/* restart the VF */
+	adapter->vfinfo[vf].clear_to_send = false;
+	txgbe_ping_vf(adapter, vf);
+
+}
+
+#ifdef HAVE_NDO_SET_VF_LINK_STATE
+
+/**
+ * txgbe_ndo_set_vf_link_state - Set link state
+ * @netdev: network interface device structure
+ * @vf: VF identifier
+ * @state: required link state
+ *
+ * Set the link state of a specified VF, regardless of physical link state
+ **/
+int txgbe_ndo_set_vf_link_state(struct net_device *netdev, int vf, int state)
+{
+	struct txgbe_adapter *adapter = netdev_priv(netdev);
+	int ret = 0;
+
+	if (vf < 0 || vf >= adapter->num_vfs) {
+		dev_err(pci_dev_to_dev(adapter->pdev),
+			"NDO set VF link - invalid VF identifier %d\n", vf);
+		ret = -EINVAL;
+		goto out;
+	}
+
+	switch (state) {
+	case IFLA_VF_LINK_STATE_ENABLE:
+		dev_info(pci_dev_to_dev(adapter->pdev),
+			 "NDO set VF %d link state %d - not supported\n",
+			vf, state);
+		break;
+	case IFLA_VF_LINK_STATE_DISABLE:
+		dev_info(pci_dev_to_dev(adapter->pdev),
+			 "NDO set VF %d link state disable\n", vf);
+		txgbe_set_vf_link_state(adapter, vf, state);
+		break;
+	case IFLA_VF_LINK_STATE_AUTO:
+		dev_info(pci_dev_to_dev(adapter->pdev),
+			 "NDO set VF %d link state auto\n", vf);
+		txgbe_set_vf_link_state(adapter, vf, state);
+		break;
+	default:
+		dev_err(pci_dev_to_dev(adapter->pdev),
+			"NDO set VF %d - invalid link state %d\n", vf, state);
+		ret = -EINVAL;
+	}
+out:
+	return ret;
+}
+#endif /* HAVE_NDO_SET_VF_LINK_STATE */
+
+
 int txgbe_ndo_get_vf_config(struct net_device *netdev,
 			    int vf, struct ifla_vf_info *ivi)
 {
@@ -1627,6 +1834,9 @@ int txgbe_ndo_get_vf_config(struct net_device *netdev,
 #endif
 #ifdef HAVE_NDO_SET_VF_TRUST
 	ivi->trusted = adapter->vfinfo[vf].trusted;
+#endif
+#ifdef HAVE_NDO_SET_VF_LINK_STATE
+	ivi->linkstate = adapter->vfinfo[vf].link_state;
 #endif
 
 	return 0;

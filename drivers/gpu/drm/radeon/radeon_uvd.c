@@ -270,8 +270,6 @@ int radeon_uvd_suspend(struct radeon_device *rdev)
 			radeon_fence_wait(fence, false);
 			radeon_fence_unref(&fence);
 
-			rdev->uvd.filp[i] = NULL;
-			atomic_set(&rdev->uvd.handles[i], 0);
 		}
 	}
 
@@ -297,6 +295,27 @@ int radeon_uvd_resume(struct radeon_device *rdev)
 	memset(ptr, 0, size);
 
 	return 0;
+}
+
+void radeon_uvd_resume_handles(struct radeon_device *rdev)
+{
+	struct radeon_fence *fence;
+	int i, r;
+	uint32_t handle;
+
+	for (i = 0; i < rdev->uvd.max_handles; ++i)	{
+		handle = atomic_read(&rdev->uvd.handles[i]);
+		if (handle != 0) {
+			r = radeon_uvd_get_create_msg(rdev,
+				R600_RING_TYPE_UVD_INDEX, handle, &fence);
+			if (r) {
+				DRM_ERROR("radeon: failed to get create msg for 0x%x (%d)!\n", handle, r);
+				return;
+			}
+			radeon_fence_wait(fence, false);
+			radeon_fence_unref(&fence);
+		}
+	}
 }
 
 void radeon_uvd_force_into_uvd_segment(struct radeon_bo *rbo,

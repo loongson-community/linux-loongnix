@@ -183,6 +183,8 @@ static bool gsgpu_sa_bo_next_hole(struct gsgpu_sa_manager *sa_manager,
 	for (i = 0; i < GSGPU_SA_NUM_FENCE_LISTS; ++i) {
 		struct gsgpu_sa_bo *sa_bo;
 
+		fences[i] = NULL;
+
 		if (list_empty(&sa_manager->flist[i]))
 			continue;
 
@@ -253,10 +255,8 @@ int gsgpu_sa_bo_new(struct gsgpu_sa_manager *sa_manager,
 
 	spin_lock(&sa_manager->wq.lock);
 	do {
-		for (i = 0; i < GSGPU_SA_NUM_FENCE_LISTS; ++i) {
-			fences[i] = NULL;
+		for (i = 0; i < GSGPU_SA_NUM_FENCE_LISTS; ++i)
 			tries[i] = 0;
-		}
 
 		do {
 			gsgpu_sa_bo_try_free(sa_manager);

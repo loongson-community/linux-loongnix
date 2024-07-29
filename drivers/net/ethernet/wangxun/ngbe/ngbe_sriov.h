@@ -32,6 +32,8 @@ int ngbe_set_vf_mac(struct ngbe_adapter *adapter,
 		     u16 vf, unsigned char *mac_addr);
 void ngbe_disable_tx_rx(struct ngbe_adapter *adapter);
 void ngbe_ping_all_vfs(struct ngbe_adapter *adapter);
+void ngbe_ping_all_vfs_with_link_status(struct ngbe_adapter *adapter, bool link_up);
+
 #ifdef IFLA_VF_MAX
 int ngbe_ndo_set_vf_mac(struct net_device *netdev, int queue, u8 *mac);
 #ifdef IFLA_VF_VLAN_INFO_MAX

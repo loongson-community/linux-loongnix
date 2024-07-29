@@ -9,3 +9,5 @@ obj-y				+= init.o cache.o tlbex.o extable.o fault.o \
 obj-$(CONFIG_64BIT)		+= pgtable-64.o
 obj-$(CONFIG_HUGETLB_PAGE)	+= hugetlbpage.o
 obj-$(CONFIG_KASAN)		+= kasan_init.o
+
+KASAN_SANITIZE_kasan_init.o     := n

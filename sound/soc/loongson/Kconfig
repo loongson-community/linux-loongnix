@@ -1,14 +1,36 @@
-menuconfig SND_SOC_LOONGSON
-	tristate "ASoC support for loongson"
+# SPDX-License-Identifier: GPL-2.0
+menu "SoC Audio for Loongson CPUs"
+	depends on LOONGARCH || COMPILE_TEST
 
-if SND_SOC_LOONGSON
+config SND_SOC_LOONGSON_I2S_PCI
+	tristate "Loongson I2S controller as pci device"
+	depends on PCI
+	help
+	  Say Y or M if you want to add support for codecs attached to
+	  the I2S interface. You will also need to select the Audio
+	  interfaces to support below.
 
-config SND_SOC_LOONGSON_ES8323
-	tristate "SoC I2S Audio support for ES8323 on LOONGSON"
-	select SND_LS
-	select SND_LS_PCM
-	select SND_SOC_ES8323_I2C
+	  The controller is found in loongson bridge chips or SoCs,
+	  and works as a PCI device.
 
+config SND_SOC_LOONGSON_CARD
+	tristate "Loongson ASoC Sound Card Driver"
+	select SND_SOC_LOONGSON_I2S
+	help
+	  Say Y or M if you want to add support for SoC audio using
+	  loongson I2S controller.
+
+	  The driver adds support for ALSA SoC Audio support using
+	  loongson I2S controller.
+
+menuconfig LOONGSON_I2S_COMPAT
+        bool "Loongson I2S driver for compatibility"
+	default y
+        help
+          Say Y or N if you want to keep compatible with old Loongson
+	  old I2S driver.
+
+if LOONGSON_I2S_COMPAT
 config SND_LS
 	tristate "SoC Audio for ls-i2s"
 	help
@@ -19,6 +41,12 @@ config SND_LS
 config SND_LS_PCM
 	tristate "SoC Audio for ls-pcm"
 
+config SND_SOC_LOONGSON_ES8323
+	tristate "SoC I2S Audio support for ES8323 on LOONGSON"
+	select SND_LS
+	select SND_LS_PCM
+	select SND_SOC_ES8323_I2C
 
+endif #LOONGSON_I2S_COMPAT
 
-endif #SND_SOC_LOONGSON
+endmenu

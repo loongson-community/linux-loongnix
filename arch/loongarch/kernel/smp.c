@@ -36,6 +36,7 @@
 #include <linux/err.h>
 #include <linux/ftrace.h>
 #include <linux/irqdomain.h>
+#include <linux/irq_work.h>
 #include <linux/of.h>
 #include <linux/of_irq.h>
 #include <linux/sched/task_stack.h>
@@ -56,10 +57,6 @@ EXPORT_SYMBOL(__cpu_number_map);
 
 int __cpu_logical_map[NR_CPUS];		/* Map logical to physical */
 EXPORT_SYMBOL(__cpu_logical_map);
-
-/* Number of TCs (or siblings in Intel speak) per CPU core */
-int smp_num_siblings = 1;
-EXPORT_SYMBOL(smp_num_siblings);
 
 /* Representing the TCs (or siblings in Intel speak) of each logical CPU */
 cpumask_t cpu_sibling_map[NR_CPUS] __read_mostly;
@@ -89,21 +86,21 @@ cpumask_t cpu_coherent_mask;
 
 struct secondary_data cpuboot_data;
 
+unsigned int __max_packages __read_mostly;
+EXPORT_SYMBOL(__max_packages);
+
 static inline void set_cpu_sibling_map(int cpu)
 {
 	int i;
 
 	cpumask_set_cpu(cpu, &cpu_sibling_setup_map);
 
-	if (smp_num_siblings > 1) {
-		for_each_cpu(i, &cpu_sibling_setup_map) {
-			if (cpus_are_siblings(cpu, i)) {
-				cpumask_set_cpu(i, &cpu_sibling_map[cpu]);
-				cpumask_set_cpu(cpu, &cpu_sibling_map[i]);
-			}
+	for_each_cpu(i, &cpu_sibling_setup_map) {
+		if (cpus_are_siblings(cpu, i)) {
+			cpumask_set_cpu(i, &cpu_sibling_map[cpu]);
+			cpumask_set_cpu(cpu, &cpu_sibling_map[i]);
 		}
-	} else
-		cpumask_set_cpu(cpu, &cpu_sibling_map[cpu]);
+	}
 }
 
 static inline void set_cpu_core_map(int cpu)
@@ -224,6 +221,13 @@ static void stop_this_cpu(void *dummy)
 	local_irq_disable();
 	while (1);
 }
+
+#ifdef CONFIG_IRQ_WORK
+void arch_irq_work_raise(void)
+{
+	mp_ops->send_ipi_single(smp_processor_id(), SMP_IRQ_WORK);
+}
+#endif
 
 void smp_send_stop(void)
 {

@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0 */
-/* Copyright(c) 1999 - 2021 Intel Corporation. */
+/* Copyright(c) 2021 - 2023 Mucse Corporation. */
 
 #ifndef _KCOMPAT_STD_DEFS_H_
 #define _KCOMPAT_STD_DEFS_H_
@@ -93,7 +93,17 @@
 
 /*****************************************************************************/
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0))
-#define NEED_SKB_FRAG_OFF_ACCESSORS
+#define NEED_SKB_FRAG_OFF_ADD
+#define NEED_SKB_FRAG_OFF
+#if (LINUX_VERSION_CODE > KERNEL_VERSION(4, 14, 241) &&                        \
+     LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0))
+#undef NEED_SKB_FRAG_OFF
+#endif /* > 4.14.241 && < 4.15.0 */
+#if (LINUX_VERSION_CODE > KERNEL_VERSION(4, 19, 200) &&                        \
+     LINUX_VERSION_CODE < KERNEL_VERSION(4, 20, 0))
+#undef NEED_SKB_FRAG_OFF
+#endif /* > 4.19.200 && < 4.20.0 */
+
 #define NEED_FLOW_INDR_BLOCK_CB_REGISTER
 #else /* >= 5.4.0 */
 #endif /* 5.4.0 */
@@ -157,5 +167,9 @@
 #define HAVE_XDP_DO_FLUSH
 #define HAVE_ETHTOOL_EXTENDED_RINGPARAMS
 #endif /* 5.17.0 */
-#endif /* _KCOMPAT_STD_DEFS_H_ */
 
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 19, 0))
+#else /* >=5.19.0*/
+#define HAVE_NETIF_NAPI_ADD_WEIGHT
+#endif /* 5.19.0 */
+#endif /* _KCOMPAT_STD_DEFS_H_ */

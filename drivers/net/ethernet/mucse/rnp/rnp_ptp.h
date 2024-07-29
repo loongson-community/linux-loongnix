@@ -1,29 +1,35 @@
+/* SPDX-License-Identifier: GPL-2.0 */
+/* Copyright(c) 2022 - 2023 Mucse Corporation. */
+
 #ifndef __RNP_PTP_H__
 #define __RNP_PTP_H__
 
 struct rnp_hwtimestamp {
 	void (*config_hw_tstamping)(void __iomem *ioaddr, u32 data);
-	void (*config_sub_second_increment)(void __iomem *ioaddr, u32 ptp_clock,
-			int gmac4, u32 *ssinc);
+	void (*config_sub_second_increment)(void __iomem *ioaddr,
+					    u32 ptp_clock, int gmac4,
+					    u32 *ssinc);
 	void (*config_mac_irq_enable)(void __iomem *ioaddr, bool on);
 	int (*init_systime)(void __iomem *ioaddr, u32 sec, u32 nsec);
 	int (*config_addend)(void __iomem *ioaddr, u32 addend);
 	int (*adjust_systime)(void __iomem *ioaddr, u32 sec, u32 nsec,
-			int add_sub, int gmac4);
+			      int add_sub, int gmac4);
 	void (*get_systime)(void __iomem *ioaddr, u64 *systime);
 };
 /* IEEE 1588 PTP register offsets */
-#define PTP_TCR         0x00    /* Timestamp Control Reg */
-#define PTP_SSIR        0x04    /* Sub-Second Increment Reg */
-#define PTP_STSR        0x08    /* System Time – Seconds Regr */
-#define PTP_STNSR       0x0c    /* System Time – Nanoseconds Reg */
-#define PTP_STSUR       0x10    /* System Time – Seconds Update Reg */
-#define PTP_STNSUR      0x14    /* System Time – Nanoseconds Update Reg */
-#define PTP_TAR         0x18    /* Timestamp Addend Reg */
+#define PTP_TCR 0x00 /* Timestamp Control Reg */
+#define PTP_SSIR 0x04 /* Sub-Second Increment Reg */
+#define PTP_STSR 0x08 /* System Time – Seconds Regr */
+#define PTP_STNSR 0x0c /* System Time – Nanoseconds Reg */
+#define PTP_STSUR 0x10 /* System Time – Seconds Update Reg */
+#define PTP_STNSUR 0x14 /* System Time – Nanoseconds Update Reg */
+#define PTP_TAR 0x18 /* Timestamp Addend Reg */
 
 #define RNP_PTP_STNSUR_ADDSUB_SHIFT 31
-#define RNP_PTP_DIGITAL_ROLLOVER_MODE       0x3B9ACA00      /* 10e9-1 ns */
-#define RNP_PTP_BINARY_ROLLOVER_MODE        0x80000000      /* ~0.466 ns */
+#define RNP_PTP_DIGITAL_ROLLOVER_MODE 0x3B9ACA00 /* 10e9-1 ns */
+//#define RNP_PTP_DIGITAL_ROLLOVER_MODE     0x3B9AC9ff 10e9-1 ns
+#define RNP_PTP_BINARY_ROLLOVER_MODE 0x80000000 /* ~0.466 ns */
+//#define RNP_PTP_BINARY_ROLLOVER_MODE      0x7fffffff  ~0.466 ns
 
 /* PTP Timestamp control register defines */
 #define RNP_PTP_TCR_TSENA BIT(0) /*Timestamp Enable*/
@@ -33,18 +39,19 @@ struct rnp_hwtimestamp {
 #define RNP_PTP_TCR_TSTRIG BIT(4) /* Timestamp Interrupt Trigger Enable */
 #define RNP_PTP_TCR_TSADDREG BIT(5) /* Addend Reg Update */
 #define RNP_PTP_TCR_TSENALL BIT(8) /* Enable Timestamp for All Frames */
-#define RNP_PTP_TCR_TSCTRLSSR BIT(9) /* Digital or Binary Rollover Control */
-#define RNP_PTP_TCR_TSVER2ENA                                                  \
+#define RNP_PTP_TCR_TSCTRLSSR \
+	BIT(9) /* Digital or Binary Rollover Control */
+#define RNP_PTP_TCR_TSVER2ENA \
 	BIT(10) /* Enable PTP packet Processing for Version 2 Format */
-#define RNP_PTP_TCR_TSIPENA                                                    \
+#define RNP_PTP_TCR_TSIPENA \
 	BIT(11) /* Enable Processing of PTP over Ethernet Frames */
-#define RNP_PTP_TCR_TSIPV6ENA                                                  \
+#define RNP_PTP_TCR_TSIPV6ENA \
 	BIT(12) /* Enable Processing of PTP Frames Sent over IPv6-UDP */
-#define RNP_PTP_TCR_TSIPV4ENA                                                  \
+#define RNP_PTP_TCR_TSIPV4ENA \
 	BIT(13) /* Enable Processing of PTP Frames Sent over IPv4-UDP */
-#define RNP_PTP_TCR_TSEVNTENA                                                  \
+#define RNP_PTP_TCR_TSEVNTENA \
 	BIT(14) /* Enable Timestamp Snapshot for Event Messages */
-#define RNP_PTP_TCR_TSMSTRENA                                                  \
+#define RNP_PTP_TCR_TSMSTRENA \
 	BIT(15) /* Enable Snapshot for Messages Relevant to Master */
 /* Note 802.1 AS Is work Over Ethernet FramesC_Sub_Second_Incremen
  * and Normal PTP Is work Oveer UDP
@@ -58,9 +65,9 @@ struct rnp_hwtimestamp {
  * Pdelay_Resp_Follow_Up if TSEVNTENA is disabled
  */
 #define RNP_PTP_TCR_SNAPTYPSEL_1 BIT(16)
-#define RNP_PTP_TCR_TSENMACADDR                                                \
+#define RNP_PTP_TCR_TSENMACADDR \
 	BIT(18) /* Enable MAC address for PTP Frame Filtering */
-#define RNP_PTP_TCR_ESTI                                                       \
+#define RNP_PTP_TCR_ESTI \
 	BIT(20) /* External System Time Input Or MAC Internal Clock*/
 #define RNP_PTP_TCR_AV8021ASMEN BIT(28) /* AV802.1 AS Mode Enable*/
 /*Sub Second increament define */
@@ -75,9 +82,8 @@ struct rnp_hwtimestamp {
 #define RNP_RX_TIME_RESERVE (8)
 #define RNP_RX_SEC_SIZE (4)
 #define RNP_RX_NANOSEC_SIZE (4)
-#define RNP_RX_HWTS_OFFSET                                                     \
+#define RNP_RX_HWTS_OFFSET \
 	(RNP_RX_SEC_SIZE + RNP_RX_NANOSEC_SIZE + RNP_RX_TIME_RESERVE)
-
 
 #define PTP_HWTX_TIME_VALUE_MASK GENMASK(31, 0)
 #define PTP_GET_TX_HWTS_FINISH (1)
@@ -90,8 +96,8 @@ int rnp_ptp_set_ts_config(struct rnp_adapter *pf, struct ifreq *ifr);
 int rnp_ptp_register(struct rnp_adapter *pf);
 void rnp_ptp_unregister(struct rnp_adapter *pf);
 
-void rnp_ptp_get_rx_hwstamp(struct rnp_adapter *pf, union rnp_rx_desc *desc,
-			    struct sk_buff *skb);
+void rnp_ptp_get_rx_hwstamp(struct rnp_adapter *pf,
+			    union rnp_rx_desc *desc, struct sk_buff *skb);
 void rnp_tx_hwtstamp_work(struct work_struct *work);
 void rnp_ptp_reset(struct rnp_adapter *adapter);
 #endif

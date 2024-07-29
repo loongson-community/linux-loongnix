@@ -1,14 +1,14 @@
 /* SPDX-License-Identifier: GPL-2.0 */
-/* Copyright(c) 1999 - 2021 Intel Corporation. */
+/* Copyright(c) 2022 - 2023 Mucse Corporation. */
 
 #ifndef _KCOMPAT_UBUNTU_DEFS_H_
 #define _KCOMPAT_UBUNTU_DEFS_H_
 
-/* This file contains the definitions for the Ubuntu specific distribution of
- * the Linux kernel.
+/* This file contains the definitions for the Ubuntu specific distribution
+ * of the Linux kernel.
  *
- * It checks the UBUNTU_VERSION_CODE to decide which features are available in
- * the target kernel. It assumes that kcompat_std_defs.h has already been
+ * It checks the UBUNTU_VERSION_CODE to decide which features are available
+ * in the target kernel.It assumes that kcompat_std_defs.h has already been
  * processed, and will #define or #undef the relevant flags based on what
  * features were backported by Ubuntu.
  */
@@ -25,12 +25,20 @@
 #error "UBUNTU_VERSION is undefined"
 #endif
 
-/*****************************************************************************/
 #if (UBUNTU_VERSION_CODE >= UBUNTU_VERSION(4, 15, 0, 159) && \
- UBUNTU_VERSION_CODE < UBUNTU_VERSION(4, 15, 0, 999))
+     UBUNTU_VERSION_CODE < UBUNTU_VERSION(4, 15, 0, 999))
 #undef NEED_SKB_FRAG_OFF
 #endif
 
 /*****************************************************************************/
+#if (UBUNTU_VERSION_CODE >= UBUNTU_VERSION(4, 15, 0, 159) &&                   \
+                UBUNTU_VERSION_CODE < UBUNTU_VERSION(4, 15, 0, 999))
+#undef NEED_SKB_FRAG_OFF
+#endif
+#if (UBUNTU_VERSION_CODE >= UBUNTU_VERSION(5, 4, 0, 165) &&                   \
+                UBUNTU_VERSION_CODE < UBUNTU_VERSION(5, 4, 0, 167))
+#undef NEED_ETH_HW_ADDR_SET
+#endif
+
 
 #endif /* _KCOMPAT_UBUNTU_DEFS_H_ */

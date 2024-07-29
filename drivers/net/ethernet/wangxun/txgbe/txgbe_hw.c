@@ -28,13 +28,9 @@
 #include "txgbe_dcb.h"
 #include "txgbe.h"
 
-#ifndef SIMULATION_DEBUG
 #define TXGBE_SP_MAX_TX_QUEUES  128
 #define TXGBE_SP_MAX_RX_QUEUES  128
-#else
-#define TXGBE_SP_MAX_TX_QUEUES  16
-#define TXGBE_SP_MAX_RX_QUEUES  16
-#endif
+
 #define TXGBE_SP_RAR_ENTRIES    128
 #define TXGBE_SP_MC_TBL_SIZE    128
 #define TXGBE_SP_VFT_TBL_SIZE   128
@@ -148,8 +144,6 @@ u16 txgbe_get_pcie_msix_count(struct txgbe_hw *hw)
 	u16 max_msix_count;
 	u32 pos;
 
-	DEBUGFUNC("\n");
-
 	max_msix_count = TXGBE_MAX_MSIX_VECTORS_SAPPHIRE;
 	pos = pci_find_capability(((struct txgbe_adapter *)hw->back)->pdev, PCI_CAP_ID_MSIX);
 	if (!pos)
@@ -184,8 +178,6 @@ s32 txgbe_init_hw(struct txgbe_hw *hw)
 {
 	s32 status;
 
-	DEBUGFUNC("\n");
-
 	/* Reset the hardware */
 	status = TCALL(hw, mac.ops.reset_hw);
 
@@ -208,8 +200,6 @@ s32 txgbe_init_hw(struct txgbe_hw *hw)
 s32 txgbe_clear_hw_cntrs(struct txgbe_hw *hw)
 {
 	u16 i = 0;
-
-	DEBUGFUNC("\n");
 
 	rd32(hw, TXGBE_RX_CRC_ERROR_FRAMES_LOW);
 	for (i = 0; i < 8; i++)
@@ -263,10 +253,8 @@ bool txgbe_device_supports_autoneg_fc(struct txgbe_hw *hw)
 {
 	bool supported = false;
 	u32 speed;
-	bool link_up;
-	u8 device_type = hw->subsystem_id & 0xF0;
-
-	DEBUGFUNC("\n");
+	bool link_up = false;
+	u8 device_type = hw->subsystem_device_id & 0xF0;
 
 	switch (hw->phy.media_type) {
 	case txgbe_media_type_fiber:
@@ -308,8 +296,6 @@ s32 txgbe_setup_fc(struct txgbe_hw *hw)
 	u32 pcap = 0;
 	u32 value = 0;
 	u32 pcap_backplane = 0;
-
-	DEBUGFUNC("\n");
 
 	/* Validate the requested mode */
 	if (hw->fc.strict_ieee && hw->fc.requested_mode == txgbe_fc_rx_pause) {
@@ -376,7 +362,6 @@ s32 txgbe_setup_fc(struct txgbe_hw *hw)
 			     "Flow control param set incorrectly\n");
 		ret_val = TXGBE_ERR_CONFIG;
 		goto out;
-		break;
 	}
 
 	/*
@@ -401,7 +386,23 @@ s32 txgbe_setup_fc(struct txgbe_hw *hw)
 
 	} else if ((hw->phy.media_type == txgbe_media_type_copper) &&
 		   (txgbe_device_supports_autoneg_fc(hw))) {
+		/* avoid fw access phy */
+		if (((hw->subsystem_device_id & 0xF0) == TXGBE_ID_XAUI) &&
+			((hw->subsystem_device_id & TXGBE_NCSI_MASK) == TXGBE_NCSI_SUP)) {
+			/* Let firmware know the driver has taken over */
+			wr32m(hw, TXGBE_CFG_PORT_CTL,
+				TXGBE_CFG_PORT_CTL_DRV_LOAD, TXGBE_CFG_PORT_CTL_DRV_LOAD);
+
+			mdelay(100);
+		}
+
 		ret_val = txgbe_set_phy_pause_advertisement(hw, pcap_backplane);
+
+		/* Let firmware take over control of h/w */
+		if (((hw->subsystem_device_id & 0xF0) == TXGBE_ID_XAUI) &&
+			((hw->subsystem_device_id & TXGBE_NCSI_MASK) == TXGBE_NCSI_SUP))
+			wr32m(hw, TXGBE_CFG_PORT_CTL,
+				TXGBE_CFG_PORT_CTL_DRV_LOAD, 0);
 	}
 out:
 	return ret_val;
@@ -423,8 +424,6 @@ s32 txgbe_read_pba_string(struct txgbe_hw *hw, u8 *pba_num,
 	u16 pba_ptr;
 	u16 offset;
 	u16 length;
-
-	DEBUGFUNC("\n");
 
 	if (pba_num == NULL) {
 		DEBUGOUT("PBA string buffer was null\n");
@@ -537,14 +536,6 @@ s32 txgbe_get_mac_addr(struct txgbe_hw *hw, u8 *mac_addr)
 	u32 rar_low;
 	u16 i;
 
-	DEBUGFUNC("\n");
-
-#ifdef SIMULATION_DEBUG
-	wr32(hw, TXGBE_PSR_MAC_SWC_IDX, 0);
-	wr32(hw, TXGBE_PSR_MAC_SWC_AD_H, 0x0202);
-	wr32(hw, TXGBE_PSR_MAC_SWC_AD_L, 0x03040506);
-#endif
-
 	wr32(hw, TXGBE_PSR_MAC_SWC_IDX, 0);
 	rar_high = rd32(hw, TXGBE_PSR_MAC_SWC_AD_H);
 	rar_low = rd32(hw, TXGBE_PSR_MAC_SWC_AD_L);
@@ -572,34 +563,34 @@ void txgbe_set_pci_config_data(struct txgbe_hw *hw, u16 link_status)
 
 	switch (link_status & TXGBE_PCI_LINK_WIDTH) {
 	case TXGBE_PCI_LINK_WIDTH_1:
-		hw->bus.width = txgbe_bus_width_pcie_x1;
+		hw->bus.width = PCIE_LNK_X1;
 		break;
 	case TXGBE_PCI_LINK_WIDTH_2:
-		hw->bus.width = txgbe_bus_width_pcie_x2;
+		hw->bus.width = PCIE_LNK_X2;
 		break;
 	case TXGBE_PCI_LINK_WIDTH_4:
-		hw->bus.width = txgbe_bus_width_pcie_x4;
+		hw->bus.width = PCIE_LNK_X4;
 		break;
 	case TXGBE_PCI_LINK_WIDTH_8:
-		hw->bus.width = txgbe_bus_width_pcie_x8;
+		hw->bus.width = PCIE_LNK_X8;
 		break;
 	default:
-		hw->bus.width = txgbe_bus_width_unknown;
+		hw->bus.width = PCIE_LNK_WIDTH_UNKNOWN;
 		break;
 	}
 
 	switch (link_status & TXGBE_PCI_LINK_SPEED) {
 	case TXGBE_PCI_LINK_SPEED_2500:
-		hw->bus.speed = txgbe_bus_speed_2500;
+		hw->bus.speed = PCIE_SPEED_2_5GT;
 		break;
 	case TXGBE_PCI_LINK_SPEED_5000:
-		hw->bus.speed = txgbe_bus_speed_5000;
+		hw->bus.speed = PCIE_SPEED_5_0GT;
 		break;
 	case TXGBE_PCI_LINK_SPEED_8000:
-		hw->bus.speed = txgbe_bus_speed_8000;
+		hw->bus.speed = PCIE_SPEED_8_0GT;
 		break;
 	default:
-		hw->bus.speed = txgbe_bus_speed_unknown;
+		hw->bus.speed = PCI_SPEED_UNKNOWN;
 		break;
 	}
 
@@ -615,8 +606,6 @@ void txgbe_set_pci_config_data(struct txgbe_hw *hw, u16 link_status)
 s32 txgbe_get_bus_info(struct txgbe_hw *hw)
 {
 	u16 link_status;
-
-	DEBUGFUNC("\n");
 
 	/* Get the negotiated link width and speed from PCI config space */
 	link_status = TXGBE_READ_PCIE_WORD(hw, TXGBE_PCI_LINK_STATUS);
@@ -637,8 +626,6 @@ void txgbe_set_lan_id_multi_port_pcie(struct txgbe_hw *hw)
 {
 	struct txgbe_bus_info *bus = &hw->bus;
 	u32 reg;
-
-	DEBUGFUNC("\n");
 
 	reg = rd32(hw, TXGBE_CFG_PORT_ST);
 	bus->lan_id = TXGBE_CFG_PORT_ST_LAN_ID(reg);
@@ -663,8 +650,7 @@ void txgbe_set_lan_id_multi_port_pcie(struct txgbe_hw *hw)
 s32 txgbe_stop_adapter(struct txgbe_hw *hw)
 {
 	u16 i;
-
-	DEBUGFUNC("\n");
+	struct txgbe_adapter *adapter = hw->back;
 
 	/*
 	 * Set the adapter_stopped flag so other driver functions stop touching
@@ -702,7 +688,10 @@ s32 txgbe_stop_adapter(struct txgbe_hw *hw)
 	 * Prevent the PCI-E bus from hanging by disabling PCI-E master
 	 * access and verify no pending requests
 	 */
-	return txgbe_disable_pcie_master(hw);
+	if (!(adapter->flags2 & TXGBE_FLAG2_ECC_ERR_RESET))
+		return txgbe_disable_pcie_master(hw);
+	else
+		return 0;
 }
 
 /**
@@ -714,8 +703,7 @@ s32 txgbe_led_on(struct txgbe_hw *hw, u32 index)
 {
 	u32 led_reg = rd32(hw, TXGBE_CFG_LED_CTL);
 	u16 value = 0;
-	DEBUGFUNC("\n");
-
+	
 	if ((hw->subsystem_device_id & 0xF0) == TXGBE_ID_XAUI) {
 		txgbe_read_mdio(&hw->phy_dev, hw->phy.addr, 31, 0xF021, &value);
 		txgbe_write_mdio(&hw->phy_dev, hw->phy.addr, 31, 0xF021, (value & 0xFFFC) | 0x0);
@@ -737,7 +725,6 @@ s32 txgbe_led_off(struct txgbe_hw *hw, u32 index)
 {
 	u32 led_reg = rd32(hw, TXGBE_CFG_LED_CTL);
 	u16 value = 0;
-	DEBUGFUNC("\n");
 
 	if ((hw->subsystem_device_id & 0xF0) == TXGBE_ID_XAUI) {
 		txgbe_read_mdio(&hw->phy_dev, hw->phy.addr, 31, 0xF021, &value);
@@ -761,7 +748,7 @@ s32 txgbe_led_off(struct txgbe_hw *hw, u32 index)
 STATIC s32 txgbe_get_eeprom_semaphore(struct txgbe_hw *hw)
 {
 	s32 status = TXGBE_ERR_EEPROM;
-	u32 timeout = 2000;
+	u32 timeout = 4000;
 	u32 i;
 	u32 swsm;
 
@@ -866,8 +853,6 @@ s32 txgbe_validate_mac_addr(u8 *mac_addr)
 {
 	s32 status = 0;
 
-	DEBUGFUNC("\n");
-
 	/* Make sure it is not a multicast address */
 	if (TXGBE_IS_MULTICAST(mac_addr)) {
 		DEBUGOUT("MAC address is multicast\n");
@@ -900,8 +885,6 @@ s32 txgbe_set_rar(struct txgbe_hw *hw, u32 index, u8 *addr, u64 pools,
 {
 	u32 rar_low, rar_high;
 	u32 rar_entries = hw->mac.num_rar_entries;
-
-	DEBUGFUNC("\n");
 
 	/* Make sure we are using a valid rar index range */
 	if (index >= rar_entries) {
@@ -955,8 +938,6 @@ s32 txgbe_clear_rar(struct txgbe_hw *hw, u32 index)
 {
 	u32 rar_entries = hw->mac.num_rar_entries;
 
-	DEBUGFUNC("\n");
-
 	/* Make sure we are using a valid rar index range */
 	if (index >= rar_entries) {
 		ERROR_REPORT2(TXGBE_ERROR_ARGUMENT,
@@ -997,8 +978,6 @@ s32 txgbe_init_rx_addrs(struct txgbe_hw *hw)
 	u32 i;
 	u32 rar_entries = hw->mac.num_rar_entries;
 	u32 psrctl;
-
-	DEBUGFUNC("\n");
 
 	/*
 	 * If the current mac address is valid, assume it is a software override
@@ -1067,8 +1046,6 @@ void txgbe_add_uc_addr(struct txgbe_hw *hw, u8 *addr, u32 vmdq)
 	u32 rar_entries = hw->mac.num_rar_entries;
 	u32 rar;
 
-	DEBUGFUNC("\n");
-
 	DEBUGOUT6(" UC Addr = %.2X %.2X %.2X %.2X %.2X %.2X\n",
 		  addr[0], addr[1], addr[2], addr[3], addr[4], addr[5]);
 
@@ -1111,8 +1088,6 @@ s32 txgbe_update_uc_addr_list(struct txgbe_hw *hw, u8 *addr_list,
 	u32 old_promisc_setting = hw->addr_ctrl.overflow_promisc;
 	u32 uc_addr_in_use;
 	u32 vmdq;
-
-	DEBUGFUNC("\n");
 
 	/*
 	 * Clear accounting of old secondary address list,
@@ -1173,8 +1148,6 @@ STATIC s32 txgbe_mta_vector(struct txgbe_hw *hw, u8 *mc_addr)
 {
 	u32 vector = 0;
 
-	DEBUGFUNC("\n");
-
 	switch (hw->mac.mc_filter_type) {
 	case 0:   /* use bits [47:36] of the address */
 		vector = ((mc_addr[4] >> 4) | (((u16)mc_addr[5]) << 4));
@@ -1211,8 +1184,6 @@ void txgbe_set_mta(struct txgbe_hw *hw, u8 *mc_addr)
 	u32 vector;
 	u32 vector_bit;
 	u32 vector_reg;
-
-	DEBUGFUNC("\n");
 
 	hw->addr_ctrl.mta_in_use++;
 
@@ -1251,8 +1222,6 @@ s32 txgbe_update_mc_addr_list(struct txgbe_hw *hw, u8 *mc_addr_list,
 	u32 i;
 	u32 vmdq;
 	u32 psrctl;
-
-	DEBUGFUNC("\n");
 
 	/*
 	 * Set the new number of MC addresses that we are being requested to
@@ -1301,8 +1270,6 @@ s32 txgbe_enable_mc(struct txgbe_hw *hw)
 	struct txgbe_addr_filter_info *a = &hw->addr_ctrl;
 	u32 psrctl;
 
-	DEBUGFUNC("\n");
-
 	if (a->mta_in_use > 0) {
 		psrctl = rd32(hw, TXGBE_PSR_CTL);
 		psrctl &= ~(TXGBE_PSR_CTL_MO | TXGBE_PSR_CTL_MFE);
@@ -1324,7 +1291,6 @@ s32 txgbe_disable_mc(struct txgbe_hw *hw)
 {
 	struct txgbe_addr_filter_info *a = &hw->addr_ctrl;
 	u32 psrctl;
-	DEBUGFUNC("\n");
 
 	if (a->mta_in_use > 0) {
 		psrctl = rd32(hw, TXGBE_PSR_CTL);
@@ -1350,9 +1316,6 @@ s32 txgbe_fc_enable(struct txgbe_hw *hw)
 	u32 fcrtl, fcrth;
 	int i;
 
-	DEBUGFUNC("\n");
-
-
 	/* Validate the water mark configuration */
 	if (!hw->fc.pause_time) {
 		ret_val = TXGBE_ERR_INVALID_LINK_SETTINGS;
@@ -1372,10 +1335,9 @@ s32 txgbe_fc_enable(struct txgbe_hw *hw)
 		}
 	}
 
-#ifndef SIMULATION_DEBUG
 	/* Negotiate the fc mode to use */
 	txgbe_fc_autoneg(hw);
-#endif
+
 	/* Disable any previous flow control settings */
 	mflcn_reg = rd32(hw, TXGBE_MAC_RX_FLOW_CTRL);
 	mflcn_reg &= ~(TXGBE_MAC_RX_FLOW_CTRL_PFCE |
@@ -1430,7 +1392,6 @@ s32 txgbe_fc_enable(struct txgbe_hw *hw)
 			     "Flow control param set incorrectly\n");
 		ret_val = TXGBE_ERR_CONFIG;
 		goto out;
-		break;
 	}
 
 	/* Set 802.3x based flow control settings. */
@@ -1612,9 +1573,7 @@ void txgbe_fc_autoneg(struct txgbe_hw *hw)
 {
 	s32 ret_val = TXGBE_ERR_FC_NOT_NEGOTIATED;
 	u32 speed;
-	bool link_up;
-
-	DEBUGFUNC("\n");
+	bool link_up = 0;
 
 	/*
 	 * AN should have completed when the cable was plugged in.
@@ -1682,8 +1641,9 @@ s32 txgbe_disable_pcie_master(struct txgbe_hw *hw)
 	unsigned int num_vfs = adapter->num_vfs;
 	u16 dev_ctl;
 	u32 vf_bme_clear = 0;
-
-	DEBUGFUNC("\n");
+	u16 vid = 0;
+	u16 cmd = 0;
+	u32 reg32 = 0;
 
 	/* Always set this bit to ensure any future transactions are blocked */
 	pci_clear_master(((struct txgbe_adapter *)hw->back)->pdev);
@@ -1695,12 +1655,15 @@ s32 txgbe_disable_pcie_master(struct txgbe_hw *hw)
 
 	/* BME disable handshake will not be finished if any VF BME is 0 */
 	for (i = 0; i < num_vfs; i++) {
-		struct pci_dev *vfdev = adapter->vfinfo[i].vfdev;
+		struct pci_dev *vfdev = NULL;
+		if (!adapter->vfinfo)
+			break;
+		vfdev = adapter->vfinfo[i].vfdev;
 		if (!vfdev) continue;
 		pci_read_config_word(vfdev, 0x4, &dev_ctl);
 		if ((dev_ctl & 0x4) == 0) {
 			vf_bme_clear = 1;
-		break;
+			break;
 		}
 	}
 
@@ -1715,6 +1678,17 @@ s32 txgbe_disable_pcie_master(struct txgbe_hw *hw)
 		ERROR_REPORT1(TXGBE_ERROR_POLLING,
 				 "PCIe transaction pending bit did not clear.\n");
 		status = TXGBE_ERR_MASTER_REQUESTS_PENDING;
+
+		/* print out PCI configuration space value */
+		txgbe_print_tx_hang_status(adapter);
+		pci_read_config_word(adapter->pdev, PCI_VENDOR_ID, &vid);
+		ERROR_REPORT1(TXGBE_ERROR_POLLING, "PCI VID is 0x%x\n", vid);
+
+		pci_read_config_word(adapter->pdev, PCI_COMMAND, &cmd);
+		ERROR_REPORT1(TXGBE_ERROR_POLLING, "PCI COMMAND value is 0x%x.\n", cmd);
+
+		reg32 = rd32(hw, 0x10000);
+		ERROR_REPORT1(TXGBE_ERROR_POLLING, "read 0x10000 value is 0x%08x\n", reg32);
 	}
 
 out:
@@ -1800,8 +1774,6 @@ s32 txgbe_disable_sec_rx_path(struct txgbe_hw *hw)
 	int i;
 	int secrxreg;
 
-	DEBUGFUNC("\n");
-
 	wr32m(hw, TXGBE_RSC_CTL,
 		TXGBE_RSC_CTL_RX_DIS, TXGBE_RSC_CTL_RX_DIS);
 	for (i = 0; i < TXGBE_MAX_SECRX_POLL; i++) {
@@ -1829,14 +1801,61 @@ s32 txgbe_disable_sec_rx_path(struct txgbe_hw *hw)
  **/
 s32 txgbe_enable_sec_rx_path(struct txgbe_hw *hw)
 {
-	DEBUGFUNC("\n");
-
 	wr32m(hw, TXGBE_RSC_CTL,
 		TXGBE_RSC_CTL_RX_DIS, 0);
 	TXGBE_WRITE_FLUSH(hw);
 
 	return 0;
 }
+
+/**
+ *  txgbe_disable_sec_tx_path - Stops the transmit data path
+ *  @hw: pointer to hardware structure
+ *
+ *  Stops the transmit data path and waits for the HW to internally empty
+ *  the tx security block
+ **/
+s32 txgbe_disable_sec_tx_path(struct txgbe_hw *hw)
+{
+#define TXGBE_MAX_SECTX_POLL 40
+
+	int i;
+	int secrxreg;
+
+	wr32m(hw, TXGBE_TSC_CTL,
+		TXGBE_TSC_CTL_TX_DIS, TXGBE_TSC_CTL_TX_DIS);
+	for (i = 0; i < TXGBE_MAX_SECTX_POLL; i++) {
+		secrxreg = rd32(hw, TXGBE_TSC_ST);
+		if (secrxreg & TXGBE_TSC_ST_SECTX_RDY)
+			break;
+		else
+			/* Use interrupt-safe sleep just in case */
+			usec_delay(1000);
+	}
+
+	/* For informational purposes only */
+	if (i >= TXGBE_MAX_SECTX_POLL)
+		DEBUGOUT("Tx unit being enabled before security "
+			 "path fully disabled.  Continuing with init.\n");
+
+	return 0;
+}
+
+/**
+ *  txgbe_enable_sec_Tx_path - Enables the transmit data path
+ *  @hw: pointer to hardware structure
+ *
+ *  Enables the transmit data path.
+ **/
+s32 txgbe_enable_sec_tx_path(struct txgbe_hw *hw)
+{
+	wr32m(hw, TXGBE_TSC_CTL,
+		TXGBE_TSC_CTL_TX_DIS, 0);
+	TXGBE_WRITE_FLUSH(hw);
+
+	return 0;
+}
+
 
 /**
  *  txgbe_get_san_mac_addr_offset - Get SAN MAC address offset from the EEPROM
@@ -1851,8 +1870,6 @@ STATIC s32 txgbe_get_san_mac_addr_offset(struct txgbe_hw *hw,
 					 u16 *san_mac_offset)
 {
 	s32 ret_val;
-
-	DEBUGFUNC("\n");
 
 	/*
 	 * First read the EEPROM pointer to see if the MAC addresses are
@@ -1885,8 +1902,6 @@ s32 txgbe_get_san_mac_addr(struct txgbe_hw *hw, u8 *san_mac_addr)
 	u16 san_mac_data, san_mac_offset;
 	u8 i;
 	s32 ret_val;
-
-	DEBUGFUNC("\n");
 
 	/*
 	 * First read the EEPROM pointer to see if the MAC addresses are
@@ -1937,8 +1952,6 @@ s32 txgbe_set_san_mac_addr(struct txgbe_hw *hw, u8 *san_mac_addr)
 	u16 san_mac_data, san_mac_offset;
 	u8 i;
 
-	DEBUGFUNC("\n");
-
 	/* Look for SAN mac address pointer.  If not defined, return */
 	ret_val = txgbe_get_san_mac_addr_offset(hw, &san_mac_offset);
 	if (ret_val || san_mac_offset == 0 || san_mac_offset == 0xFFFF)
@@ -1975,8 +1988,6 @@ s32 txgbe_insert_mac_addr(struct txgbe_hw *hw, u8 *addr, u32 vmdq)
 	u32 rar;
 	u32 rar_low, rar_high;
 	u32 addr_low, addr_high;
-
-	DEBUGFUNC("\n");
 
 	/* swap bytes for HW little endian */
 	addr_low  = addr[5] | (addr[4] << 8)
@@ -2042,9 +2053,6 @@ s32 txgbe_clear_vmdq(struct txgbe_hw *hw, u32 rar, u32 vmdq)
 	u32 mpsar_lo, mpsar_hi;
 	u32 rar_entries = hw->mac.num_rar_entries;
 
-	DEBUGFUNC("\n");
-	UNREFERENCED_PARAMETER(vmdq);
-
 	/* Make sure we are using a valid rar index range */
 	if (rar >= rar_entries) {
 		ERROR_REPORT2(TXGBE_ERROR_ARGUMENT,
@@ -2079,9 +2087,6 @@ s32 txgbe_set_vmdq(struct txgbe_hw *hw, u32 rar, u32 pool)
 {
 	u32 rar_entries = hw->mac.num_rar_entries;
 
-	DEBUGFUNC("\n");
-	UNREFERENCED_PARAMETER(pool);
-
 	/* Make sure we are using a valid rar index range */
 	if (rar >= rar_entries) {
 		ERROR_REPORT2(TXGBE_ERROR_ARGUMENT,
@@ -2106,8 +2111,6 @@ s32 txgbe_set_vmdq_san_mac(struct txgbe_hw *hw, u32 vmdq)
 {
 	u32 rar = hw->mac.san_mac_rar_index;
 
-	DEBUGFUNC("\n");
-
 	wr32(hw, TXGBE_PSR_MAC_SWC_IDX, rar);
 	if (vmdq < 32) {
 		wr32(hw, TXGBE_PSR_MAC_SWC_VM_L, 1 << vmdq);
@@ -2127,9 +2130,6 @@ s32 txgbe_set_vmdq_san_mac(struct txgbe_hw *hw, u32 vmdq)
 s32 txgbe_init_uta_tables(struct txgbe_hw *hw)
 {
 	int i;
-
-	DEBUGFUNC("\n");
-	DEBUGOUT(" Clearing UTA\n");
 
 	for (i = 0; i < 128; i++)
 		wr32(hw, TXGBE_PSR_UC_TBL(i), 0);
@@ -2205,8 +2205,6 @@ s32 txgbe_set_vfta(struct txgbe_hw *hw, u32 vlan, u32 vind,
 	s32 ret_val = 0;
 	bool vfta_changed = false;
 
-	DEBUGFUNC("\n");
-
 	if (vlan > 4095)
 		return TXGBE_ERR_PARAM;
 
@@ -2269,8 +2267,6 @@ s32 txgbe_set_vlvf(struct txgbe_hw *hw, u32 vlan, u32 vind,
 			    bool vlan_on, bool *vfta_changed)
 {
 	u32 vt;
-
-	DEBUGFUNC("\n");
 
 	if (vlan > 4095)
 		return TXGBE_ERR_PARAM;
@@ -2373,8 +2369,6 @@ s32 txgbe_clear_vfta(struct txgbe_hw *hw)
 {
 	u32 offset;
 
-	DEBUGFUNC("\n");
-
 	for (offset = 0; offset < hw->mac.vft_size; offset++) {
 		wr32(hw, TXGBE_PSR_VLAN_TBL(offset), 0);
 		/* errata 5 */
@@ -2406,8 +2400,6 @@ s32 txgbe_get_wwn_prefix(struct txgbe_hw *hw, u16 *wwnn_prefix,
 {
 	u16 offset, caps;
 	u16 alt_san_mac_blk_offset;
-
-	DEBUGFUNC("\n");
 
 	/* clear output first */
 	*wwnn_prefix = 0xFFFF;
@@ -2461,8 +2453,6 @@ void txgbe_set_mac_anti_spoofing(struct txgbe_hw *hw, bool enable, int pf)
 {
 	u64 pfvfspoof = 0;
 
-	DEBUGFUNC("\n");
-
 	if (enable) {
 		/*
 		 * The PF should be allowed to spoof so that it can support
@@ -2490,8 +2480,6 @@ void txgbe_set_mac_anti_spoofing(struct txgbe_hw *hw, bool enable, int pf)
 void txgbe_set_vlan_anti_spoofing(struct txgbe_hw *hw, bool enable, int vf)
 {
 	u32 pfvfspoof;
-
-	DEBUGFUNC("\n");
 
 	if (vf < 32) {
 		pfvfspoof = rd32(hw, TXGBE_TDM_VLAN_AS_L);
@@ -2522,8 +2510,6 @@ void txgbe_set_ethertype_anti_spoofing(struct txgbe_hw *hw,
 {
 	u32 pfvfspoof;
 
-	DEBUGFUNC("\n");
-
 	if (vf < 32) {
 		pfvfspoof = rd32(hw, TXGBE_TDM_ETYPE_AS_L);
 		if (enable)
@@ -2551,8 +2537,6 @@ void txgbe_set_ethertype_anti_spoofing(struct txgbe_hw *hw,
  **/
 s32 txgbe_get_device_caps(struct txgbe_hw *hw, u16 *device_caps)
 {
-	DEBUGFUNC("\n");
-
 	TCALL(hw, eeprom.ops.read,
 		hw->eeprom.sw_region_offset + TXGBE_DEVICE_CAPS, device_caps);
 
@@ -2570,8 +2554,6 @@ u8 txgbe_calculate_checksum(u8 *buffer, u32 length)
 {
 	u32 i;
 	u8 sum = 0;
-
-	DEBUGFUNC("\n");
 
 	if (!buffer)
 		return 0;
@@ -2608,8 +2590,6 @@ s32 txgbe_host_interface_command(struct txgbe_hw *hw, u32 *buffer,
 	u32 dword_len;
 	s32 status = 0;
 	u32 buf[64] = {};
-
-	DEBUGFUNC("\n");
 
 	if (length == 0 || length > TXGBE_HI_MAX_BLOCK_BYTE_LENGTH) {
 		DEBUGOUT1("Buffer length failure buffersize=%d.\n", length);
@@ -2665,6 +2645,12 @@ s32 txgbe_host_interface_command(struct txgbe_hw *hw, u32 *buffer,
 	}
 
 	buf[0] = rd32(hw, TXGBE_MNG_MBOX);
+
+	if ((buf[0] & 0xff0000) >> 16 == 0x80) {
+		DEBUGOUT("It's unknown cmd.\n");
+		status = TXGBE_ERR_MNG_ACCESS_FAILED;
+		goto rel_out;
+	}
 	/* Check command completion */
 	if (timeout != 0 && i == timeout) {
 		ERROR_REPORT1(TXGBE_ERROR_CAUTION,
@@ -2679,7 +2665,7 @@ s32 txgbe_host_interface_command(struct txgbe_hw *hw, u32 *buffer,
 			ERROR_REPORT1(TXGBE_ERROR_CAUTION, "%x ", buf[i]);
 		}
 		printk("===%x= %x=\n", buffer[0] & 0xff, (~buf[0] >> 24));
-		if ((buffer[0] & 0xff) != (~buf[0] >> 24)) {
+		if( (buffer[0] & 0xff) != (~buf[0] >> 24)) {
 			status = TXGBE_ERR_HOST_INTERFACE_COMMAND;
 			goto rel_out;
 		}
@@ -2754,8 +2740,6 @@ s32 txgbe_set_fw_drv_ver(struct txgbe_hw *hw, u8 maj, u8 min,
 	int i;
 	s32 ret_val = 0;
 
-	DEBUGFUNC("\n");
-
 	fw_cmd.hdr.cmd = FW_CEM_CMD_DRIVER_INFO;
 	fw_cmd.hdr.buf_len = FW_CEM_CMD_DRIVER_INFO_LEN;
 	fw_cmd.hdr.cmd_or_resp.cmd_resv = FW_CEM_CMD_RESERVED;
@@ -2805,8 +2789,6 @@ s32 txgbe_reset_hostif(struct txgbe_hw *hw)
 	int i;
 	s32 status = 0;
 
-	DEBUGFUNC("\n");
-
 	reset_cmd.hdr.cmd = FW_RESET_CMD;
 	reset_cmd.hdr.buf_len = FW_RESET_LEN;
 	reset_cmd.hdr.cmd_or_resp.cmd_resv = FW_CEM_CMD_RESERVED;
@@ -2844,8 +2826,6 @@ s32 txgbe_setup_mac_link_hostif(struct txgbe_hw *hw, u32 speed)
 	struct txgbe_hic_phy_cfg cmd;
 	int i;
 	s32 status = 0;
-
-	DEBUGFUNC("\n");
 
 	cmd.hdr.cmd = FW_SETUP_MAC_LINK_CMD;
 	cmd.hdr.buf_len = FW_SETUP_MAC_LINK_LEN;
@@ -2902,8 +2882,6 @@ s32 txgbe_upgrade_flash_hostif(struct txgbe_hw *hw, u32 region,
 	struct txgbe_hic_upg_verify verify_cmd;
 	u32 offset;
 	s32 status = 0;
-
-	DEBUGFUNC("\n");
 
 	start_cmd.hdr.cmd = FW_FLASH_UPGRADE_START_CMD;
 	start_cmd.hdr.buf_len = FW_FLASH_UPGRADE_START_LEN;
@@ -2990,13 +2968,12 @@ s32 txgbe_upgrade_flash_hostif(struct txgbe_hw *hw, u32 region,
 }
 
 /* cmd_addr is used for some special command:
-**	 1. to be sector address, when implemented erase sector command
-**	 2. to be flash address when implemented read, write flash address
-*/
-u8 fmgr_cmd_op(struct txgbe_hw *hw, u32 cmd, u32 cmd_addr)
+ *	 1. to be sector address, when implemented erase sector command
+ *	 2. to be flash address when implemented read, write flash address
+ */
+static int txgbe_fmgr_cmd_op(struct txgbe_hw *hw, u32 cmd, u32 cmd_addr)
 {
-	u32 cmd_val = 0;
-	u32 time_out = 0;
+	u32 cmd_val = 0, time_out = 0;
 
 	cmd_val = (cmd << SPI_CLK_CMD_OFFSET) | (SPI_CLK_DIV << SPI_CLK_DIV_OFFSET) | cmd_addr;
 	wr32(hw, SPI_H_CMD_REG_ADDR, cmd_val);
@@ -3005,63 +2982,69 @@ u8 fmgr_cmd_op(struct txgbe_hw *hw, u32 cmd, u32 cmd_addr)
 			break;
 
 		if (time_out == SPI_TIME_OUT_VALUE)
-			return 1;
+			return -ETIMEDOUT;
 
 		time_out = time_out + 1;
-		udelay(10);
+		udelay(5);
 	}
 
 	return 0;
 }
-u8 fmgr_usr_cmd_op(struct txgbe_hw *hw, u32 usr_cmd)
+static int fmgr_usr_cmd_op(struct txgbe_hw *hw, u32 usr_cmd)
 {
 	u8 status = 0;
 
 	wr32(hw, SPI_H_USR_CMD_REG_ADDR, usr_cmd);
-	status = fmgr_cmd_op(hw, SPI_CMD_USER_CMD, 0);
+	status = txgbe_fmgr_cmd_op(hw, SPI_CMD_USER_CMD, 0);
 
 	return status;
 }
 
-u8 flash_erase_chip(struct txgbe_hw *hw)
+static int txgbe_flash_erase_chip(struct txgbe_hw *hw)
 {
-	u8 status = fmgr_cmd_op(hw, SPI_CMD_ERASE_CHIP, 0);
-	return status;
+	return txgbe_fmgr_cmd_op(hw, SPI_CMD_ERASE_CHIP, 0);
 }
 
-u8 flash_erase_sector(struct txgbe_hw *hw, u32 sec_addr)
+static int txgbe_flash_erase_sector(struct txgbe_hw *hw, u32 sec_addr)
 {
-	u8 status = fmgr_cmd_op(hw, SPI_CMD_ERASE_SECTOR, sec_addr);
-	return status;
+	return txgbe_fmgr_cmd_op(hw, SPI_CMD_ERASE_SECTOR, sec_addr);
 }
-u32 flash_read_dword(struct txgbe_hw *hw, u32 addr)
+static int txgbe_flash_write_dword(struct txgbe_hw *hw, u32 addr, u32 dword)
 {
-	u8 status = fmgr_cmd_op(hw, SPI_CMD_READ_DWORD, addr);
-	if (status)
-		return (u32)status;
-
-	return rd32(hw, SPI_H_DAT_REG_ADDR);
-}
-u8 flash_write_dword(struct txgbe_hw *hw, u32 addr, u32 dword)
-{
-	u8 status = 0;
+	int status = 0;
+	u32 data;
 
 	wr32(hw, SPI_H_DAT_REG_ADDR, dword);
-	status = fmgr_cmd_op(hw, SPI_CMD_WRITE_DWORD, addr);
+	status = txgbe_fmgr_cmd_op(hw, SPI_CMD_WRITE_DWORD, addr);
 	if (status)
 		return status;
 
-	if (dword != flash_read_dword(hw, addr)) {
-		return 1;
-	}
+	txgbe_flash_read_dword(hw, addr, &data);
+	if (dword != data)
+		return -EIO;
+
 	return 0;
+
+}
+int txgbe_flash_read_dword(struct txgbe_hw *hw, u32 addr, u32 *data)
+{
+	int ret = 0;
+
+	ret = txgbe_fmgr_cmd_op(hw, SPI_CMD_READ_DWORD, addr);
+	if (ret < 0)
+		return ret;
+
+	*data = rd32(hw, SPI_H_DAT_REG_ADDR);
+
+	return ret;
+
 }
 
-int txgbe_flash_write_cab(struct txgbe_hw *hw, u32 addr, u32 value, u16 lan_id)
+int txgbe_flash_write_cab(struct txgbe_hw *hw,u32 addr, u32 value,u16 lan_id)
 {
 	int status;
 	struct txgbe_hic_read_cab buffer;
-
+	
 	buffer.hdr.req.cmd = 0xE2;
 	buffer.hdr.req.buf_lenh = 0x6;
 	buffer.hdr.req.buf_lenl = 0x0;
@@ -3075,19 +3058,18 @@ int txgbe_flash_write_cab(struct txgbe_hw *hw, u32 addr, u32 value, u16 lan_id)
 
 	status = txgbe_host_interface_command(hw, (u32 *)&buffer,
 						sizeof(buffer), 5000, true);
-	printk("0x1e100 :%08x\n", rd32(hw, 0x1e100));
-	printk("0x1e104 :%08x\n", rd32(hw, 0x1e104));
-	printk("0x1e108 :%08x\n", rd32(hw, 0x1e108));
-	printk("0x1e10c :%08x\n", rd32(hw, 0x1e10c));
+	printk("0x1e100 :%08x\n",rd32(hw,0x1e100));
+	printk("0x1e104 :%08x\n",rd32(hw,0x1e104));
+	printk("0x1e108 :%08x\n",rd32(hw,0x1e108));
+	printk("0x1e10c :%08x\n",rd32(hw,0x1e10c));
 
 	return status;
 }
 
-int txgbe_flash_read_cab(struct txgbe_hw *hw, u32 addr, u16 lan_id)
+int txgbe_flash_read_cab(struct txgbe_hw *hw, u32 addr ,u16 lan_id )
 {
 	int status;
 	struct txgbe_hic_read_cab buffer;
-	u16 *data = NULL;
 
 	buffer.hdr.req.cmd = 0xE1;
 	buffer.hdr.req.buf_lenh = 0xaa;
@@ -3105,17 +3087,16 @@ int txgbe_flash_read_cab(struct txgbe_hw *hw, u32 addr, u16 lan_id)
 	if (status)
 		return status;
 	if (txgbe_check_mng_access(hw)) {
-		*data = (u16)rd32a(hw, 0x1e100, 3);
-		printk("0x1e100 :%08x\n", rd32(hw, 0x1e100));
-		printk("0x1e104 :%08x\n", rd32(hw, 0x1e104));
-		printk("0x1e108 :%08x\n", rd32(hw, 0x1e108));
-		printk("0x1e10c :%08x\n", rd32(hw, 0x1e10c));
+		printk("0x1e100 :%08x\n",rd32(hw,0x1e100));
+		printk("0x1e104 :%08x\n",rd32(hw,0x1e104));
+		printk("0x1e108 :%08x\n",rd32(hw,0x1e108));
+		printk("0x1e10c :%08x\n",rd32(hw,0x1e10c));
 	} else {
 		status = -147;
 		return status;
 	}
 
-	return rd32(hw, 0x1e108);
+	return rd32(hw,0x1e108);
 }
 int txgbe_flash_write_unlock(struct txgbe_hw *hw)
 {
@@ -3133,9 +3114,7 @@ int txgbe_flash_write_unlock(struct txgbe_hw *hw)
 	buffer.length = 0;
 
 	status = txgbe_host_interface_command(hw, (u32 *)&buffer,
-										sizeof(buffer), 5000, false);
-	if (status)
-		return status;
+										sizeof(buffer), 5000,false);
 
 	return status;
 }
@@ -3157,50 +3136,46 @@ int txgbe_flash_write_lock(struct txgbe_hw *hw)
 
 	status = txgbe_host_interface_command(hw, (u32 *)&buffer,
 										sizeof(buffer), 5000, false);
-	if (status)
-		return status;
 
 	return status;
 }
 
 int txgbe_upgrade_flash(struct txgbe_hw *hw, u32 region,
-								const u8 *data, u32 size)
+			const u8 *data, u32 size)
 {
-	u32 			sector_num = 0;
-	u32 			read_data = 0;
-	u8				status = 0;
-	u8				skip = 0;
-	u32 			i = 0;
-	u8				flash_vendor = 0;
-	u32 mac_addr0_dword0_t;
-	u32 mac_addr0_dword1_t;
-	u32 mac_addr1_dword0_t;
-	u32 mac_addr1_dword1_t;
-	u32 serial_num_dword0_t;
-	u32 serial_num_dword1_t;
-	u32 serial_num_dword2_t;
+	u32 mac_addr0_dword0_t, mac_addr0_dword1_t, mac_addr1_dword0_t, mac_addr1_dword1_t;
+	u32 serial_num_dword0_t, serial_num_dword1_t, serial_num_dword2_t;
+	u8 status = 0, skip = 0, flash_vendor = 0;
+	u32 sector_num = 0, read_data = 0, i = 0;
+
+	read_data = rd32(hw, 0x10200);
+	if (read_data & 0x80000000) {
+		printk("The flash has been successfully upgraded once, please reboot to make it work.\n");
+		return -EOPNOTSUPP;
+	}
 
 	/*check sub_id*/;
 	printk("Checking sub_id .......\n");
-	printk("The card's sub_id : %04x\n", hw->subsystem_id);
+	printk("The card's sub_id : %04x\n", hw->subsystem_device_id);
 	printk("The image's sub_id : %04x\n", data[0xfffdc] << 8  | data[0xfffdd]);
-	if ((hw->subsystem_id & 0xfff) ==
-		((data[0xfffdc] << 8  | data[0xfffdd]) & 0xfff)) {
+	if ((hw->subsystem_device_id & 0xfff) == 
+		((data[0xfffdc] << 8  | data[0xfffdd]) & 0xfff)){
 		printk("It is a right image\n");
-	} else if (hw->subsystem_id == 0xffff) {
+	} else if (hw->subsystem_device_id == 0xffff){
 		printk("update anyway\n");
 	} else {
 		printk("====The Gigabit image is not match the Gigabit card====\n");
 		printk("====Please check your image====\n");
 		return -EOPNOTSUPP;
 	}
-
+	
 	/*check dev_id*/
 	printk("Checking dev_id .......\n");
 	printk("The image's dev_id : %04x\n", data[0xfffde] << 8  | data[0xfffdf]);
 	printk("The card's dev_id : %04x\n", hw->device_id);
-	if (!((hw->device_id & 0xfff0) == (data[0xfffde] << 8 | data[0xfffdf]))
-		&& !(hw->device_id == 0xffff)) {
+	if (!((hw->device_id & 0xfff0) == ((data[0xfffde] << 8 | data[0xfffdf]) & 0xfff0)) &&
+	    !(hw->device_id == 0xffff))
+	{
 		printk("====The Gigabit image is not match the Gigabit card====\n");
 		printk("====Please check your image====\n");
 		return -EOPNOTSUPP;
@@ -3212,28 +3187,31 @@ int txgbe_upgrade_flash(struct txgbe_hw *hw, u32 region,
 
 	msleep(1000);
 
-	mac_addr0_dword0_t = flash_read_dword(hw, MAC_ADDR0_WORD0_OFFSET_1G);
-	mac_addr0_dword1_t = flash_read_dword(hw, MAC_ADDR0_WORD1_OFFSET_1G) & 0xffff;
-	mac_addr1_dword0_t = flash_read_dword(hw, MAC_ADDR1_WORD0_OFFSET_1G);
-	mac_addr1_dword1_t = flash_read_dword(hw, MAC_ADDR1_WORD1_OFFSET_1G) & 0xffff;
+	txgbe_flash_read_dword(hw, MAC_ADDR0_WORD0_OFFSET_1G, &mac_addr0_dword0_t);
+	txgbe_flash_read_dword(hw, MAC_ADDR0_WORD1_OFFSET_1G, &mac_addr0_dword1_t);
+	mac_addr0_dword1_t = mac_addr0_dword1_t & U16_MAX;
+	txgbe_flash_read_dword(hw, MAC_ADDR1_WORD0_OFFSET_1G, &mac_addr1_dword0_t);
+	txgbe_flash_read_dword(hw, MAC_ADDR1_WORD1_OFFSET_1G, &mac_addr1_dword1_t);
+	mac_addr1_dword1_t = mac_addr1_dword1_t & U16_MAX;
 
-	serial_num_dword0_t = flash_read_dword(hw, PRODUCT_SERIAL_NUM_OFFSET_1G);
-	serial_num_dword1_t = flash_read_dword(hw, PRODUCT_SERIAL_NUM_OFFSET_1G+4);
-	serial_num_dword2_t = flash_read_dword(hw, PRODUCT_SERIAL_NUM_OFFSET_1G+8);
+	txgbe_flash_read_dword(hw, PRODUCT_SERIAL_NUM_OFFSET_1G, &serial_num_dword0_t);
+	txgbe_flash_read_dword(hw, PRODUCT_SERIAL_NUM_OFFSET_1G + 4, &serial_num_dword1_t);
+	txgbe_flash_read_dword(hw, PRODUCT_SERIAL_NUM_OFFSET_1G + 8, &serial_num_dword2_t);
 	printk("Old: MAC Address0 is: 0x%04x%08x\n", mac_addr0_dword1_t, mac_addr0_dword0_t);
 	printk("	 MAC Address1 is: 0x%04x%08x\n", mac_addr1_dword1_t, mac_addr1_dword0_t);
 
-
+	
 	status = fmgr_usr_cmd_op(hw, 0x6);	/* write enable*/
 	status = fmgr_usr_cmd_op(hw, 0x98); /* global protection un-lock*/
+	txgbe_flash_write_unlock(hw);
 	msleep(1000);
-
-	/*Note: for Spanish FLASH, first 8 sectors (4KB) in sector0 (64KB)
+	
+	/*Note: for Spanish FLASH, first 8 sectors (4KB) in sector0 (64KB) 
 	need to use a special erase command (4K sector erase)*/
 	if (flash_vendor == 1) {
-		wr32(hw, SPI_CMD_CFG1_ADDR, 0x0103c720);
+		wr32(hw, SPI_CMD_CFG1_ADDR, 0x0103c720);			
 		for (i = 0; i < 8; i++) {
-			flash_erase_sector(hw, i*128);
+			txgbe_flash_erase_sector(hw, i * 128);
 			msleep(20); // 20 ms
 		}
 		wr32(hw, SPI_CMD_CFG1_ADDR, 0x0103c7d8);
@@ -3242,13 +3220,13 @@ int txgbe_upgrade_flash(struct txgbe_hw *hw, u32 region,
 	sector_num = size / SPI_SECTOR_SIZE;
 	/* Winbond Flash, erase chip command is okay, but erase sector doestn't work*/
 	if (flash_vendor == 2) {
-		status = flash_erase_chip(hw);
+		status = txgbe_flash_erase_chip(hw);
 		printk("Erase chip command, return status = %0d\n", status);
 		msleep(1000);
 	} else {
 		wr32(hw, SPI_CMD_CFG1_ADDR, 0x0103c720);
 		for (i = 0; i < sector_num; i++) {
-			status = flash_erase_sector(hw, i * SPI_SECTOR_SIZE);
+			status = txgbe_flash_erase_sector(hw, i * SPI_SECTOR_SIZE);
 			printk("Erase sector[%2d] command, return status = %0d\n", i, status);
 			msleep(50);
 		}
@@ -3256,32 +3234,35 @@ int txgbe_upgrade_flash(struct txgbe_hw *hw, u32 region,
 	}
 
 	/* Program Image file in dword*/
-	for (i = 0; i < size/4; i++) {
-		read_data = data[4*i+3]<<24 | data[4*i+2]<<16 | data[4*i+1]<<8 | data[4*i];
+	for (i = 0; i < size / 4; i++) {
+		read_data = data[4 * i + 3] << 24 | data[4 * i + 2] << 16 | data[4 * i + 1] << 8 | data[4 * i];
 		read_data = __le32_to_cpu(read_data);
-		skip = ((i*4 == MAC_ADDR0_WORD0_OFFSET_1G) || (i*4 == MAC_ADDR0_WORD1_OFFSET_1G) ||
-				(i*4 == MAC_ADDR1_WORD0_OFFSET_1G) || (i*4 == MAC_ADDR1_WORD1_OFFSET_1G) ||
-				(i*4 >= PRODUCT_SERIAL_NUM_OFFSET_1G && i*4 <= PRODUCT_SERIAL_NUM_OFFSET_1G+8));
-		if (read_data != 0xffffffff && !skip) {
-			status = flash_write_dword(hw, i*4, read_data);
+		skip = ((i * 4 == MAC_ADDR0_WORD0_OFFSET_1G) || (i * 4 == MAC_ADDR0_WORD1_OFFSET_1G) ||
+			(i * 4 == MAC_ADDR1_WORD0_OFFSET_1G) || (i * 4 == MAC_ADDR1_WORD1_OFFSET_1G) ||
+			(i * 4 >= PRODUCT_SERIAL_NUM_OFFSET_1G && i * 4 <= PRODUCT_SERIAL_NUM_OFFSET_1G + 8));
+		if (read_data != U32_MAX && !skip) {
+			status = txgbe_flash_write_dword(hw, i * 4, read_data);
 			if (status) {
-				printk("ERROR: Program 0x%08x @addr: 0x%08x is failed !!\n", read_data, i*4);
-				read_data = flash_read_dword(hw, i*4);
+				printk("ERROR: Program 0x%08x @addr: 0x%08x is failed !!\n", read_data, i * 4);
+				txgbe_flash_read_dword(hw, i * 4, &read_data);
 				printk("		 Read data from Flash is: 0x%08x\n", read_data);
 				return 1;
 			}
 		}
-		if (i%1024 == 0) {
-			printk("\b\b\b\b%3d%%", (int)(i*4 * 100 / size));
+		if (i % 1024 == 0) {
+			printk("\b\b\b\b%3d%%", (int)(i * 4 * 100 / size));
 		}
 	}
-		flash_write_dword(hw, MAC_ADDR0_WORD0_OFFSET_1G, mac_addr0_dword0_t);
-		flash_write_dword(hw, MAC_ADDR0_WORD1_OFFSET_1G, (mac_addr0_dword1_t | 0x80000000));//lan0
-		flash_write_dword(hw, MAC_ADDR1_WORD0_OFFSET_1G, mac_addr1_dword0_t);
-		flash_write_dword(hw, MAC_ADDR1_WORD1_OFFSET_1G, (mac_addr1_dword1_t | 0x80000000));//lan1
-		flash_write_dword(hw, PRODUCT_SERIAL_NUM_OFFSET_1G, serial_num_dword0_t);
-		flash_write_dword(hw, PRODUCT_SERIAL_NUM_OFFSET_1G+4, serial_num_dword1_t);
-		flash_write_dword(hw, PRODUCT_SERIAL_NUM_OFFSET_1G+8, serial_num_dword2_t);
+
+	txgbe_flash_write_dword(hw, MAC_ADDR0_WORD0_OFFSET_1G, mac_addr0_dword0_t);
+	txgbe_flash_write_dword(hw, MAC_ADDR0_WORD1_OFFSET_1G, (mac_addr0_dword1_t | 0x80000000));//lan0
+	txgbe_flash_write_dword(hw, MAC_ADDR1_WORD0_OFFSET_1G, mac_addr1_dword0_t);
+	txgbe_flash_write_dword(hw, MAC_ADDR1_WORD1_OFFSET_1G, (mac_addr1_dword1_t | 0x80000000));//lan1
+	txgbe_flash_write_dword(hw, PRODUCT_SERIAL_NUM_OFFSET_1G, serial_num_dword0_t);
+	txgbe_flash_write_dword(hw, PRODUCT_SERIAL_NUM_OFFSET_1G + 4, serial_num_dword1_t);
+	txgbe_flash_write_dword(hw, PRODUCT_SERIAL_NUM_OFFSET_1G + 8, serial_num_dword2_t);
+
+	wr32(hw, 0x10200, rd32(hw, 0x10200) | 0x80000000);
 
 	return 0;
 }
@@ -3300,8 +3281,6 @@ void txgbe_set_rxpba(struct txgbe_hw *hw, int num_pb, u32 headroom,
 	u32 pbsize = hw->mac.rx_pb_size;
 	int i = 0;
 	u32 rxpktsize, txpktsize, txpbthresh;
-
-	DEBUGFUNC("\n");
 
 	/* Reserve headroom */
 	pbsize -= headroom;
@@ -3322,7 +3301,7 @@ void txgbe_set_rxpba(struct txgbe_hw *hw, int num_pb, u32 headroom,
 		rxpktsize <<= TXGBE_RDB_PB_SZ_SHIFT;
 		for (; i < (num_pb / 2); i++)
 			wr32(hw, TXGBE_RDB_PB_SZ(i), rxpktsize);
-		/* fall through */
+		fallthrough;
 		/* Fall through to configure remaining packet buffers */
 	case PBA_STRATEGY_EQUAL:
 		rxpktsize = (pbsize / (num_pb - i)) << TXGBE_RDB_PB_SZ_SHIFT;
@@ -3350,7 +3329,7 @@ void txgbe_set_rxpba(struct txgbe_hw *hw, int num_pb, u32 headroom,
 }
 
 
-STATIC const u8 txgbe_emc_temp_data[4] = {
+/*STATIC const u8 txgbe_emc_temp_data[4] = {
 	TXGBE_EMC_INTERNAL_DATA,
 	TXGBE_EMC_DIODE1_DATA,
 	TXGBE_EMC_DIODE2_DATA,
@@ -3361,7 +3340,7 @@ STATIC const u8 txgbe_emc_therm_limit[4] = {
 	TXGBE_EMC_DIODE1_THERM_LIMIT,
 	TXGBE_EMC_DIODE2_THERM_LIMIT,
 	TXGBE_EMC_DIODE3_THERM_LIMIT
-};
+};*/
 
 /**
  *  txgbe_get_thermal_sensor_data - Gathers thermal sensor data
@@ -3382,8 +3361,6 @@ s32 txgbe_get_thermal_sensor_data(struct txgbe_hw *hw)
 	int i = 0;
 	struct txgbe_thermal_sensor_data *data = &hw->mac.thermal_sensor_data;
 
-	DEBUGFUNC("\n");
-
 	/* Only support thermal sensors attached to physical port 0 */
 	if (hw->bus.lan_id)
 		return TXGBE_NOT_IMPLEMENTED;
@@ -3401,9 +3378,9 @@ s32 txgbe_get_thermal_sensor_data(struct txgbe_hw *hw)
 
 	data->sensor.temp = (s16)tsv;
 
-	for (i = 0; i < 100 ; i++) {
+	for (i = 0; i < 100 ; i++){
 			tsv = (s64)rd32(hw, TXGBE_TS_ST);
-			if (tsv >> 16 == 0x1) {
+			if( tsv >> 16 == 0x1 ){
 				tsv = tsv & TXGBE_TS_ST_DATA_OUT_MASK;
 				tsv = tsv < 1200 ? tsv : 1200;
 				tsv = -(48380 << 8) / 1000
@@ -3412,15 +3389,15 @@ s32 txgbe_get_thermal_sensor_data(struct txgbe_hw *hw)
 						+ tsv * tsv * tsv * (81542 << 8) / 1000000000000
 						- tsv * tsv * tsv * tsv * (16743 << 8) / 1000000000000000;
 				tsv >>= 8;
-
+	
 				data->sensor.temp = (s16)tsv;
 				break;
-			} else {
+			}else{
 				msleep(1);
 				continue;
 			}
 	}
-
+	
 	return 0;
 }
 
@@ -3436,8 +3413,6 @@ s32 txgbe_init_thermal_sensor_thresh(struct txgbe_hw *hw)
 	s32 status = 0;
 
 	struct txgbe_thermal_sensor_data *data = &hw->mac.thermal_sensor_data;
-
-	DEBUGFUNC("\n");
 
 	memset(data, 0, sizeof(struct txgbe_thermal_sensor_data));
 
@@ -3463,8 +3438,6 @@ void txgbe_disable_rx(struct txgbe_hw *hw)
 {
 	u32 pfdtxgswc;
 	u32 rxctrl;
-
-	DEBUGFUNC("\n");
 
 	rxctrl = rd32(hw, TXGBE_RDB_PB_CTL);
 	if (rxctrl & TXGBE_RDB_PB_CTL_RXEN) {
@@ -3505,8 +3478,8 @@ void txgbe_disable_rx(struct txgbe_hw *hw)
 			} while (1);
 		}
 
-		if (!(((hw->subsystem_device_id & TXGBE_NCSI_MASK) == TXGBE_NCSI_SUP) ||
-			((hw->subsystem_device_id & TXGBE_WOL_MASK) == TXGBE_WOL_SUP))) {
+		if (!(((hw->subsystem_device_id & TXGBE_NCSI_MASK) == TXGBE_NCSI_SUP)||
+			((hw->subsystem_device_id & TXGBE_WOL_MASK) == TXGBE_WOL_SUP))){
 			/* disable mac receiver */
 			wr32m(hw, TXGBE_MAC_RX_CFG,
 				TXGBE_MAC_RX_CFG_RE, 0);
@@ -3518,8 +3491,6 @@ void txgbe_disable_rx(struct txgbe_hw *hw)
 void txgbe_enable_rx(struct txgbe_hw *hw)
 {
 	u32 pfdtxgswc;
-
-	DEBUGFUNC("\n");
 
 	/* enable mac receiver */
 	wr32m(hw, TXGBE_MAC_RX_CFG,
@@ -3542,16 +3513,10 @@ void txgbe_enable_rx(struct txgbe_hw *hw)
  */
 bool txgbe_mng_present(struct txgbe_hw *hw)
 {
-#ifndef SIMULATION_DEBUG
-
 	u32 fwsm;
 
 	fwsm = rd32(hw, TXGBE_MIS_ST);
 	return fwsm & TXGBE_MIS_ST_MNG_INIT_DN;
-#else
-	UNREFERENCED_PARAMETER(hw);
-	return false;
-#endif
 }
 
 bool txgbe_check_mng_access(struct txgbe_hw *hw)
@@ -3599,8 +3564,7 @@ s32 txgbe_setup_mac_link_multispeed_fiber(struct txgbe_hw *hw,
 	u32 speedcnt = 0;
 	u32 i = 0;
 	bool autoneg, link_up = false;
-
-	DEBUGFUNC("\n");
+	struct txgbe_adapter *adapter = hw->back;
 
 	/* Mask off requested but non-supported speeds */
 	status = TCALL(hw, mac.ops.get_link_capabilities,
@@ -3658,6 +3622,7 @@ s32 txgbe_setup_mac_link_multispeed_fiber(struct txgbe_hw *hw,
 	}
 
 	if (speed & TXGBE_LINK_SPEED_1GB_FULL) {
+		u32 curr_autoneg = 2;
 		speedcnt++;
 		if (highest_link_speed == TXGBE_LINK_SPEED_UNKNOWN)
 			highest_link_speed = TXGBE_LINK_SPEED_1GB_FULL;
@@ -3668,7 +3633,13 @@ s32 txgbe_setup_mac_link_multispeed_fiber(struct txgbe_hw *hw,
 		if (status != 0)
 			return status;
 
-		if ((link_speed == TXGBE_LINK_SPEED_1GB_FULL) && link_up)
+		if (link_speed == TXGBE_LINK_SPEED_1GB_FULL){
+		curr_autoneg = txgbe_rd32_epcs(hw, TXGBE_SR_MII_MMD_CTL);
+		curr_autoneg = !!(curr_autoneg & (0x1 << 12));
+		}
+
+		if ((link_speed == TXGBE_LINK_SPEED_1GB_FULL) && link_up
+		&&(adapter->an37 == curr_autoneg))
 			goto out;
 
 		/* Allow module to change analog characteristics (10G->1G) */
@@ -4070,27 +4041,15 @@ void txgbe_init_mac_link_ops(struct txgbe_hw *hw)
 {
 	struct txgbe_mac_info *mac = &hw->mac;
 
-	DEBUGFUNC("\n");
-
 	/*
 	 * enable the laser control functions for SFP+ fiber
 	 * and MNG not enabled
 	 */
-	if ((TCALL(hw, mac.ops.get_media_type) == txgbe_media_type_fiber) &&
-	    !txgbe_mng_present(hw)) {
-		mac->ops.disable_tx_laser =
-				       txgbe_disable_tx_laser_multispeed_fiber;
-		mac->ops.enable_tx_laser =
-					txgbe_enable_tx_laser_multispeed_fiber;
-		mac->ops.flap_tx_laser = txgbe_flap_tx_laser_multispeed_fiber;
-
-	} else {
-		mac->ops.disable_tx_laser =
-				       txgbe_disable_tx_laser_multispeed_fiber;
-		mac->ops.enable_tx_laser =
-					txgbe_enable_tx_laser_multispeed_fiber;
-		mac->ops.flap_tx_laser = txgbe_flap_tx_laser_multispeed_fiber;
-	}
+	mac->ops.disable_tx_laser =
+				txgbe_disable_tx_laser_multispeed_fiber;
+	mac->ops.enable_tx_laser =
+				txgbe_enable_tx_laser_multispeed_fiber;
+	mac->ops.flap_tx_laser = txgbe_flap_tx_laser_multispeed_fiber;
 
 	if (hw->phy.multispeed_fiber) {
 		/* Set up dual speed SFP+ support */
@@ -4119,8 +4078,6 @@ s32 txgbe_init_phy_ops(struct txgbe_hw *hw)
 	struct txgbe_mac_info *mac = &hw->mac;
 	s32 ret_val = 0;
 
-	DEBUGFUNC("\n");
-
 	txgbe_init_i2c(hw);
 	/* Identify the PHY or SFP module */
 	ret_val = TCALL(hw, phy.ops.identify);
@@ -4135,7 +4092,7 @@ s32 txgbe_init_phy_ops(struct txgbe_hw *hw)
 	/* If copper media, overwrite with copper function pointers */
 	if (TCALL(hw, mac.ops.get_media_type) == txgbe_media_type_copper) {
 		hw->phy.type = txgbe_phy_xaui;
-		if ((hw->subsystem_id & 0xF0) != TXGBE_ID_SFI_XAUI) {
+		if ((hw->subsystem_device_id & 0xF0) != TXGBE_ID_SFI_XAUI) {
 			mac->ops.setup_link = txgbe_setup_copper_link;
 			mac->ops.get_link_capabilities =
 				  txgbe_get_copper_link_capabilities;
@@ -4163,8 +4120,6 @@ s32 txgbe_init_ops(struct txgbe_hw *hw)
 	struct txgbe_flash_info *flash = &hw->flash;
 	s32 ret_val = 0;
 
-	DEBUGFUNC("\n");
-
 	/* PHY */
 	phy->ops.reset = txgbe_reset_phy;
 	phy->ops.read_reg = txgbe_read_phy_reg;
@@ -4178,6 +4133,7 @@ s32 txgbe_init_ops(struct txgbe_hw *hw)
 	phy->ops.write_i2c_byte = txgbe_write_i2c_byte;
 	phy->ops.read_i2c_sff8472 = txgbe_read_i2c_sff8472;
 	phy->ops.read_i2c_eeprom = txgbe_read_i2c_eeprom;
+	phy->ops.read_i2c_sfp_phy = txgbe_read_i2c_sfp_phy;
 	phy->ops.write_i2c_eeprom = txgbe_write_i2c_eeprom;
 	phy->ops.identify_sfp = txgbe_identify_module;
 	phy->sfp_type = txgbe_sfp_type_unknown;
@@ -4198,6 +4154,8 @@ s32 txgbe_init_ops(struct txgbe_hw *hw)
 	mac->ops.get_media_type = txgbe_get_media_type;
 	mac->ops.disable_sec_rx_path = txgbe_disable_sec_rx_path;
 	mac->ops.enable_sec_rx_path = txgbe_enable_sec_rx_path;
+	mac->ops.disable_sec_tx_path = txgbe_disable_sec_tx_path;
+	mac->ops.enable_sec_tx_path = txgbe_enable_sec_tx_path;
 	mac->ops.enable_rx_dma = txgbe_enable_rx_dma;
 	mac->ops.start_hw = txgbe_start_hw;
 	mac->ops.get_san_mac_addr = txgbe_get_san_mac_addr;
@@ -4297,8 +4255,6 @@ s32 txgbe_get_link_capabilities(struct txgbe_hw *hw,
 	u32 sr_pcs_ctl, sr_pma_mmd_ctl1, sr_an_mmd_ctl;
 	u32 sr_an_mmd_adv_reg2;
 
-	DEBUGFUNC("\n");
-
 	/* Check if 1G SFP module. */
 	if (hw->phy.sfp_type == txgbe_sfp_type_1g_cu_core0 ||
 	    hw->phy.sfp_type == txgbe_sfp_type_1g_cu_core1 ||
@@ -4307,7 +4263,7 @@ s32 txgbe_get_link_capabilities(struct txgbe_hw *hw,
 	    hw->phy.sfp_type == txgbe_sfp_type_1g_sx_core0 ||
 	    hw->phy.sfp_type == txgbe_sfp_type_1g_sx_core1) {
 		*speed = TXGBE_LINK_SPEED_1GB_FULL;
-		*autoneg = false;
+		*autoneg = true;
 	} else if (hw->phy.multispeed_fiber) {
 		*speed = TXGBE_LINK_SPEED_10GB_FULL |
 			  TXGBE_LINK_SPEED_1GB_FULL;
@@ -4320,27 +4276,27 @@ s32 txgbe_get_link_capabilities(struct txgbe_hw *hw,
 	}
 	/* XAUI */
 	else if ((txgbe_get_media_type(hw) == txgbe_media_type_copper) &&
-			 ((hw->subsystem_id & 0xF0) == TXGBE_ID_XAUI ||
-			 (hw->subsystem_id & 0xF0) == TXGBE_ID_SFI_XAUI)) {
+			 ((hw->subsystem_device_id & 0xF0) == TXGBE_ID_XAUI ||
+			 (hw->subsystem_device_id & 0xF0) == TXGBE_ID_SFI_XAUI)) {
 		*speed = TXGBE_LINK_SPEED_10GB_FULL;
 		*autoneg = false;
 		hw->phy.link_mode = TXGBE_PHYSICAL_LAYER_10GBASE_T;
 	}
 	/* SGMII */
-	else if ((hw->subsystem_id & 0xF0) == TXGBE_ID_SGMII) {
+	else if ((hw->subsystem_device_id & 0xF0) == TXGBE_ID_SGMII) {
 		*speed = TXGBE_LINK_SPEED_1GB_FULL |
 			TXGBE_LINK_SPEED_100_FULL |
 			TXGBE_LINK_SPEED_10_FULL;
 		*autoneg = false;
 		hw->phy.link_mode = TXGBE_PHYSICAL_LAYER_1000BASE_T |
 				TXGBE_PHYSICAL_LAYER_100BASE_TX;
-	/* MAC XAUI */
-	} else if ((hw->subsystem_id & 0xF0) == TXGBE_ID_MAC_XAUI) {
+        /* MAC XAUI */
+	} else if((hw->subsystem_device_id & 0xF0) == TXGBE_ID_MAC_XAUI) {
 		*speed = TXGBE_LINK_SPEED_10GB_FULL;
 		*autoneg = false;
 		hw->phy.link_mode = TXGBE_PHYSICAL_LAYER_10GBASE_KX4;
 		/* MAC SGMII */
-    } else if ((hw->subsystem_id & 0xF0) == TXGBE_ID_MAC_SGMII) {
+    } else if ((hw->subsystem_device_id & 0xF0) == TXGBE_ID_MAC_SGMII) {
 		*speed = TXGBE_LINK_SPEED_1GB_FULL;
 		*autoneg = false;
 		hw->phy.link_mode = TXGBE_PHYSICAL_LAYER_1000BASE_KX;
@@ -4426,9 +4382,7 @@ out:
 enum txgbe_media_type txgbe_get_media_type(struct txgbe_hw *hw)
 {
 	enum txgbe_media_type media_type;
-	u8 device_type = hw->subsystem_id & 0xF0;
-
-	DEBUGFUNC("\n");
+	u8 device_type = hw->subsystem_device_id & 0xF0;
 
 	/* Detect if there is a copper PHY attached. */
 	switch (hw->phy.type) {
@@ -4495,9 +4449,15 @@ void txgbe_disable_tx_laser_multispeed_fiber(struct txgbe_hw *hw)
 {
 	u32 esdp_reg = rd32(hw, TXGBE_GPIO_DR);
 
+	if (!(TCALL(hw, mac.ops.get_media_type) == txgbe_media_type_fiber))
+		return;
 	/* Blocked by MNG FW so bail */
 	txgbe_check_reset_blocked(hw);
 
+	if (txgbe_close_notify(hw))
+		/* over write led when ifconfig down */
+		TCALL(hw, mac.ops.led_off, TXGBE_LED_LINK_UP | TXGBE_LED_LINK_10G | TXGBE_LED_LINK_1G | TXGBE_LED_LINK_ACTIVE);
+	
 	/* Disable Tx laser; allow 100us to go dark per spec */
 	esdp_reg |= TXGBE_GPIO_DR_1 | TXGBE_GPIO_DR_0;
 	wr32(hw, TXGBE_GPIO_DR, esdp_reg);
@@ -4515,6 +4475,12 @@ void txgbe_disable_tx_laser_multispeed_fiber(struct txgbe_hw *hw)
  **/
 void txgbe_enable_tx_laser_multispeed_fiber(struct txgbe_hw *hw)
 {
+	if (!(TCALL(hw, mac.ops.get_media_type) == txgbe_media_type_fiber))
+		return;
+	if (txgbe_open_notify(hw))
+		/* recover led configure when ifconfig up */
+		wr32(hw, TXGBE_CFG_LED_CTL, 0);
+	
 	/* Enable Tx laser; allow 100ms to light up */
 	wr32m(hw, TXGBE_GPIO_DR,
 		TXGBE_GPIO_DR_0 | TXGBE_GPIO_DR_1, 0);
@@ -4536,7 +4502,8 @@ void txgbe_enable_tx_laser_multispeed_fiber(struct txgbe_hw *hw)
  **/
 void txgbe_flap_tx_laser_multispeed_fiber(struct txgbe_hw *hw)
 {
-	DEBUGFUNC("\n");
+	if (!(TCALL(hw, mac.ops.get_media_type) == txgbe_media_type_fiber))
+		return;
 
 	/* Blocked by MNG FW so bail */
 	txgbe_check_reset_blocked(hw);
@@ -4605,20 +4572,29 @@ s32 txgbe_enable_rx_adapter(struct txgbe_hw *hw)
 s32 txgbe_set_sgmii_an37_ability(struct txgbe_hw *hw)
 {
 	u32 value;
+	struct txgbe_adapter *adapter = hw->back;
 
 	txgbe_wr32_epcs(hw, TXGBE_VR_XS_OR_PCS_MMD_DIGI_CTL1, 0x3002);
+
 	/* for sgmii + external phy, set to 0x0105 (phy sgmii mode) */
 	/* for sgmii direct link, set to 0x010c (mac sgmii mode) */
-	if ((hw->subsystem_id & 0xF0) == TXGBE_ID_MAC_SGMII) {
+	if ((hw->subsystem_device_id & 0xF0) == TXGBE_ID_MAC_SGMII ||
+		txgbe_get_media_type(hw) == txgbe_media_type_fiber) {
 		txgbe_wr32_epcs(hw, TXGBE_SR_MII_MMD_AN_CTL, 0x010c);
-	} else if ((hw->subsystem_id & 0xF0) == TXGBE_ID_SGMII ||
-				(hw->subsystem_id & 0xF0) == TXGBE_ID_XAUI) {
+	} else if ((hw->subsystem_device_id & 0xF0) == TXGBE_ID_SGMII ||
+				(hw->subsystem_device_id & 0xF0) == TXGBE_ID_XAUI) {
 		txgbe_wr32_epcs(hw, TXGBE_SR_MII_MMD_AN_CTL, 0x0105);
 	}
+			
 	txgbe_wr32_epcs(hw, TXGBE_SR_MII_MMD_DIGI_CTL, 0x0200);
+
 	value = txgbe_rd32_epcs(hw, TXGBE_SR_MII_MMD_CTL);
-	value = (value & ~0x1200) | (0x1 << 12) | (0x1 << 9);
+	value = (value & ~0x1200) | (0x1 << 9);
+	if(adapter->an37)
+		value |= (0x1 << 12);
+	
 	txgbe_wr32_epcs(hw, TXGBE_SR_MII_MMD_CTL, value);
+
 	return 0;
 }
 
@@ -4644,81 +4620,73 @@ s32 txgbe_set_link_to_kr(struct txgbe_hw *hw, bool autoneg)
 	}
 	e_dev_info("It is set to kr.\n");
 
+	txgbe_wr32_epcs(hw, 0x78002, 0x0);
 	txgbe_wr32_epcs(hw, 0x78001, 0x7);
-	txgbe_wr32_epcs(hw, TXGBE_PHY_TX_POWER_ST_CTL, 0x00FC);
-	txgbe_wr32_epcs(hw, TXGBE_PHY_RX_POWER_ST_CTL, 0x00FC);
+	if (AN73_TRAINNING_MODE == 1)
+		txgbe_wr32_epcs(hw, 0x78003, 0x1);
 
-	if (1) {
-		/* 2. Disable xpcs AN-73 */
-
-		if (adapter->backplane_an == 1) {
-			txgbe_wr32_epcs(hw, TXGBE_SR_AN_MMD_CTL, 0x3000);
-			txgbe_wr32_epcs(hw, TXGBE_VR_AN_KR_MODE_CL, 0x1);
-		} else {
-			txgbe_wr32_epcs(hw, TXGBE_SR_AN_MMD_CTL, 0x0);
-			txgbe_wr32_epcs(hw, TXGBE_VR_AN_KR_MODE_CL, 0x0);
-		}
-		/*
-		txgbe_wr32_epcs(hw, TXGBE_SR_AN_MMD_ADV_REG2, 0x80);
-		txgbe_wr32_epcs(hw, 0x18037, 0x80);
-		txgbe_wr32_epcs(hw, 0x18006, 0xffff);
-		txgbe_wr32_epcs(hw, 0x18008, 0xA697);
-		*/
-
-		if (KR_AN73_PRESET == 1) {
-			txgbe_wr32_epcs(hw, 0x18037, 0x80 | txgbe_rd32_epcs(hw, TXGBE_PHY_TX_EQ_CTL1));
-		}
-
-		if (KR_POLLING == 1) {
-			txgbe_wr32_epcs(hw, 0x18006, 0xffff);
-			txgbe_wr32_epcs(hw, 0x18008, 0xA697);
-		}
-
-		/* 3. Set VR_XS_PMA_Gen5_12G_MPLLA_CTRL3 Register */
-		/* Bit[10:0](MPLLA_BANDWIDTH) = 11'd123 (default: 11'd16) */
-		txgbe_wr32_epcs(hw, TXGBE_PHY_MPLLA_CTL3,
-				TXGBE_PHY_MPLLA_CTL3_MULTIPLIER_BW_10GBASER_KR);
-
-		/* 4. Set VR_XS_PMA_Gen5_12G_MISC_CTRL0 Register */
-		/* Bit[12:8](RX_VREF_CTRL) = 5'hF (default: 5'h11) */
-		txgbe_wr32_epcs(hw, TXGBE_PHY_MISC_CTL0,
-				0xCF00);
-
-		/* 5. Set VR_XS_PMA_Gen5_12G_RX_EQ_CTRL0 Register */
-		/* Bit[15:8](VGA1/2_GAIN_0) = 8'h77, Bit[7:5](CTLE_POLE_0) = 3'h2
-		 * Bit[4:0](CTLE_BOOST_0) = 4'hA
-		 */
-		txgbe_wr32_epcs(hw, TXGBE_PHY_RX_EQ_CTL0,
-				0x774A);
-
-		/* 6. Set VR_MII_Gen5_12G_RX_GENCTRL3 Register */
-		/* Bit[2:0](LOS_TRSHLD_0) = 3'h4 (default: 3) */
-		txgbe_wr32_epcs(hw, TXGBE_PHY_RX_GEN_CTL3,
-				0x0004);
-		/* 7. Initialize the mode by setting VR XS or PCS MMD Digital */
-		/* Control1 Register Bit[15](VR_RST) */
-		txgbe_wr32_epcs(hw, TXGBE_VR_XS_OR_PCS_MMD_DIGI_CTL1,
-				0xA000);
-		/* wait phy initialization done */
-		for (i = 0; i < TXGBE_PHY_INIT_DONE_POLLING_TIME; i++) {
-			if ((txgbe_rd32_epcs(hw,
-				TXGBE_VR_XS_OR_PCS_MMD_DIGI_CTL1) &
-				TXGBE_VR_XS_OR_PCS_MMD_DIGI_CTL1_VR_RST) == 0)
-				break;
-			msleep(100);
-		}
-		if (i == TXGBE_PHY_INIT_DONE_POLLING_TIME) {
-			status = TXGBE_ERR_PHY_INIT_NOT_DONE;
-			goto out;
-		}
+	/* 2. Disable xpcs AN-73 */
+	if (adapter->backplane_an == 1){
+		txgbe_wr32_epcs(hw, TXGBE_SR_AN_MMD_CTL, 0x3000);
+		value = txgbe_rd32_epcs(hw, TXGBE_PHY_TX_EQ_CTL1);
+		value &= ~0x40;
+		txgbe_wr32_epcs(hw, 0x18037, value);
 	} else {
-		 txgbe_wr32_epcs(hw, TXGBE_VR_AN_KR_MODE_CL,
-				0x1);
+		txgbe_wr32_epcs(hw, TXGBE_SR_AN_MMD_CTL, 0x0);
+		txgbe_wr32_epcs(hw, TXGBE_VR_AN_KR_MODE_CL, 0x0);
 	}
 
-	if (KR_SET == 1 || adapter->ffe_set == TXGBE_BP_M_KR) {
+	if (KR_FEC == 1)
+		txgbe_wr32_epcs(hw, 0x70012, 0xc000 | txgbe_rd32_epcs(hw, 0x70012));
+	if (KR_AN73_PRESET == 1)
+		txgbe_wr32_epcs(hw, 0x18037, 0x80 | txgbe_rd32_epcs(hw, TXGBE_PHY_TX_EQ_CTL1));
+
+	if (KR_POLLING == 1) {
+		txgbe_wr32_epcs(hw, 0x18006, 0xffff);
+		txgbe_wr32_epcs(hw, 0x18008, 0xA697);
+	}
+
+	/* 3. Set VR_XS_PMA_Gen5_12G_MPLLA_CTRL3 Register */
+	/* Bit[10:0](MPLLA_BANDWIDTH) = 11'd123 (default: 11'd16) */
+	txgbe_wr32_epcs(hw, TXGBE_PHY_MPLLA_CTL3,
+			TXGBE_PHY_MPLLA_CTL3_MULTIPLIER_BW_10GBASER_KR);
+
+	/* 4. Set VR_XS_PMA_Gen5_12G_MISC_CTRL0 Register */
+	/* Bit[12:8](RX_VREF_CTRL) = 5'hF (default: 5'h11) */
+	txgbe_wr32_epcs(hw, TXGBE_PHY_MISC_CTL0,
+			0xCF00);
+
+	/* 5. Set VR_XS_PMA_Gen5_12G_RX_EQ_CTRL0 Register */
+	/* Bit[15:8](VGA1/2_GAIN_0) = 8'h77, Bit[7:5](CTLE_POLE_0) = 3'h2
+	 * Bit[4:0](CTLE_BOOST_0) = 4'hA 
+	 */
+	txgbe_wr32_epcs(hw, TXGBE_PHY_RX_EQ_CTL0,
+			0x774A);
+
+	/* 6. Set VR_MII_Gen5_12G_RX_GENCTRL3 Register */
+	/* Bit[2:0](LOS_TRSHLD_0) = 3'h4 (default: 3) */
+	txgbe_wr32_epcs(hw, TXGBE_PHY_RX_GEN_CTL3,
+			0x0004);
+	/* 7. Initialize the mode by setting VR XS or PCS MMD Digital */
+	/* Control1 Register Bit[15](VR_RST) */
+	txgbe_wr32_epcs(hw, TXGBE_VR_XS_OR_PCS_MMD_DIGI_CTL1,
+			0xA000);
+	/* wait phy initialization done */
+	for (i = 0; i < TXGBE_PHY_INIT_DONE_POLLING_TIME; i++) {
+		if ((txgbe_rd32_epcs(hw,
+			TXGBE_VR_XS_OR_PCS_MMD_DIGI_CTL1) &
+			TXGBE_VR_XS_OR_PCS_MMD_DIGI_CTL1_VR_RST) == 0)
+			break;
+		msleep(100);
+	}
+	if (i == TXGBE_PHY_INIT_DONE_POLLING_TIME) {
+		status = TXGBE_ERR_PHY_INIT_NOT_DONE;
+		goto out;
+	}
+
+	if ((KR_SET == 1) || (adapter->ffe_set == TXGBE_BP_M_KR)) {
 		e_dev_info("Set KR TX_EQ MAIN:%d PRE:%d POST:%d\n",
-				adapter->ffe_main, adapter->ffe_pre, adapter->ffe_post);
+				adapter->ffe_main,adapter->ffe_pre,adapter->ffe_post);
 		value = (0x1804 & ~0x3F3F);
 		value |= adapter->ffe_main << 8 | adapter->ffe_pre;
 		txgbe_wr32_epcs(hw, TXGBE_PHY_TX_EQ_CTL0, value);
@@ -4742,8 +4710,6 @@ s32 txgbe_set_link_to_kx4(struct txgbe_hw *hw, bool autoneg)
 		goto out;
 	}
 	e_dev_info("It is set to kx4.\n");
-	txgbe_wr32_epcs(hw, 0x18035, 0x0000);
-	txgbe_wr32_epcs(hw, TXGBE_PHY_RX_POWER_ST_CTL, 0x0000);
 
 	/* 1. Wait xpcs power-up good */
 	for (i = 0; i < TXGBE_XPCS_POWER_GOOD_MAX_POLLING_TIME; i++) {
@@ -4758,8 +4724,13 @@ s32 txgbe_set_link_to_kx4(struct txgbe_hw *hw, bool autoneg)
 		goto out;
 	}
 
-		wr32m(hw, TXGBE_MAC_TX_CFG, TXGBE_MAC_TX_CFG_TE,
+	wr32m(hw, TXGBE_MAC_TX_CFG, TXGBE_MAC_TX_CFG_TE,
 			~TXGBE_MAC_TX_CFG_TE);
+	wr32m(hw, TXGBE_MAC_RX_CFG, TXGBE_MAC_RX_CFG_RE,
+				~TXGBE_MAC_RX_CFG_RE);
+	
+	TCALL(hw, mac.ops.disable_sec_tx_path);
+
 
 	/* 2. Disable xpcs AN-73 */
 	if (!autoneg)
@@ -4802,9 +4773,9 @@ s32 txgbe_set_link_to_kx4(struct txgbe_hw *hw, bool autoneg)
 	value = (0xf5f0 & ~0x7F0) |  (0x5 << 8) | (0x7 << 5) | 0xF0;
 	txgbe_wr32_epcs(hw, TXGBE_PHY_TX_GENCTRL1, value);
 
-	if ((hw->subsystem_id & 0xF0) == TXGBE_ID_MAC_XAUI)
+	if ((hw->subsystem_device_id & 0xF0) == TXGBE_ID_MAC_XAUI)
 		txgbe_wr32_epcs(hw, TXGBE_PHY_MISC_CTL0, 0xCF00);
-	else
+	else 
 		txgbe_wr32_epcs(hw, TXGBE_PHY_MISC_CTL0, 0x4F00);
 
 	for (i = 0; i < 4; i++) {
@@ -4905,7 +4876,7 @@ s32 txgbe_set_link_to_kx4(struct txgbe_hw *hw, bool autoneg)
 	txgbe_wr32_epcs(hw, 0x1f8001, 0x0);
 	txgbe_wr32_epcs(hw, TXGBE_SR_MII_MMD_DIGI_CTL, 0x0);
 
-	if (KX4_TXRX_PIN == 1)
+	if(KX4_TXRX_PIN == 1)
 		txgbe_wr32_epcs(hw, 0x38001, 0xff);
 	/* 10. Initialize the mode by setting VR XS or PCS MMD Digital Control1
 	 * Register Bit[15](VR_RST)
@@ -4927,9 +4898,9 @@ s32 txgbe_set_link_to_kx4(struct txgbe_hw *hw, bool autoneg)
 		goto out;
 	}
 
-	if (KX4_SET == 1 || adapter->ffe_set) {
+	if ((KX4_SET == 1) || (adapter->ffe_set == TXGBE_BP_M_KX4)) {
 		e_dev_info("Set KX4 TX_EQ MAIN:%d PRE:%d POST:%d\n",
-					adapter->ffe_main, adapter->ffe_pre, adapter->ffe_post);
+					adapter->ffe_main,adapter->ffe_pre,adapter->ffe_post);
 		value = (0x1804 & ~0x3F3F);
 		value |= adapter->ffe_main << 8 | adapter->ffe_pre;
 		txgbe_wr32_epcs(hw, TXGBE_PHY_TX_EQ_CTL0, value);
@@ -4939,6 +4910,10 @@ s32 txgbe_set_link_to_kx4(struct txgbe_hw *hw, bool autoneg)
 	}
 
 out:
+	TCALL(hw, mac.ops.enable_sec_tx_path);
+	wr32m(hw, TXGBE_MAC_RX_CFG, TXGBE_MAC_RX_CFG_RE,
+					TXGBE_MAC_RX_CFG_RE);
+
 	return status;
 
 }
@@ -4960,9 +4935,6 @@ s32 txgbe_set_link_to_kx(struct txgbe_hw *hw,
 	}
 	e_dev_info("It is set to kx. speed =0x%x\n", speed);
 
-	txgbe_wr32_epcs(hw, TXGBE_PHY_TX_POWER_ST_CTL, 0x00FC);
-	txgbe_wr32_epcs(hw, TXGBE_PHY_RX_POWER_ST_CTL, 0x00FC);
-
 	/* 1. Wait xpcs power-up good */
 	for (i = 0; i < TXGBE_XPCS_POWER_GOOD_MAX_POLLING_TIME; i++) {
 		if ((txgbe_rd32_epcs(hw, TXGBE_VR_XS_OR_PCS_MMD_DIGI_STATUS) &
@@ -4978,6 +4950,11 @@ s32 txgbe_set_link_to_kx(struct txgbe_hw *hw,
 
 	wr32m(hw, TXGBE_MAC_TX_CFG, TXGBE_MAC_TX_CFG_TE,
 				~TXGBE_MAC_TX_CFG_TE);
+
+	wr32m(hw, TXGBE_MAC_RX_CFG, TXGBE_MAC_RX_CFG_RE,
+			~TXGBE_MAC_RX_CFG_RE);
+
+	TCALL(hw, mac.ops.disable_sec_tx_path);
 
 	/* 2. Disable xpcs AN-73 */
 	if (!autoneg)
@@ -5144,9 +5121,9 @@ s32 txgbe_set_link_to_kx(struct txgbe_hw *hw,
 		goto out;
 	}
 
-	if (KX_SET == 1 || adapter->ffe_set == TXGBE_BP_M_KX) {
+	if ((KX_SET == 1) || (adapter->ffe_set == TXGBE_BP_M_KX)) {
 		e_dev_info("Set KX TX_EQ MAIN:%d PRE:%d POST:%d\n",
-					adapter->ffe_main, adapter->ffe_pre, adapter->ffe_post);
+					adapter->ffe_main,adapter->ffe_pre,adapter->ffe_post);
 		/* 5. Set VR_XS_PMA_Gen5_12G_TX_EQ_CTRL0 Register Bit[13:8](TX_EQ_MAIN)
 		* = 6'd30, Bit[5:0](TX_EQ_PRE) = 6'd4
 		*/
@@ -5159,9 +5136,13 @@ s32 txgbe_set_link_to_kx(struct txgbe_hw *hw,
 		value = txgbe_rd32_epcs(hw, TXGBE_PHY_TX_EQ_CTL1);
 		value = (value & ~0x7F) | adapter->ffe_post | (1 << 6);
 		txgbe_wr32_epcs(hw, TXGBE_PHY_TX_EQ_CTL1, value);
-	}
+	} 
 
 out:
+	TCALL(hw, mac.ops.enable_sec_tx_path);
+	wr32m(hw, TXGBE_MAC_RX_CFG, TXGBE_MAC_RX_CFG_RE,
+					TXGBE_MAC_RX_CFG_RE);
+
 	return status;
 }
 
@@ -5176,7 +5157,7 @@ s32 txgbe_set_link_to_sfi(struct txgbe_hw *hw,
 	/* Set the module link speed */
 	TCALL(hw, mac.ops.set_rate_select_speed,
 		speed);
-
+	
 	/* 1. Wait xpcs power-up good */
 	for (i = 0; i < TXGBE_XPCS_POWER_GOOD_MAX_POLLING_TIME; i++) {
 		if ((txgbe_rd32_epcs(hw, TXGBE_VR_XS_OR_PCS_MMD_DIGI_STATUS) &
@@ -5192,6 +5173,10 @@ s32 txgbe_set_link_to_sfi(struct txgbe_hw *hw,
 
 	wr32m(hw, TXGBE_MAC_TX_CFG, TXGBE_MAC_TX_CFG_TE,
 			~TXGBE_MAC_TX_CFG_TE);
+	wr32m(hw, TXGBE_MAC_RX_CFG, TXGBE_MAC_RX_CFG_RE,
+			~TXGBE_MAC_RX_CFG_RE);
+
+	TCALL(hw, mac.ops.disable_sec_tx_path);
 
 	/* 2. Disable xpcs AN-73 */
 	txgbe_wr32_epcs(hw, TXGBE_SR_AN_MMD_CTL, 0x0);
@@ -5370,40 +5355,40 @@ s32 txgbe_set_link_to_sfi(struct txgbe_hw *hw,
 		 * 3 Register Bit[10:0] = 11'd70  MPLLA_BANDWIDTH
 		 */
 		txgbe_wr32_epcs(hw, TXGBE_PHY_MPLLA_CTL3, 0x0046);
-		/* Set VR XS, PMA, or MII Synopsys Enterprise Gen5 12G PHY VCO
+		/* Set VR XS, PMA, or MII Synopsys Enterprise Gen5 12G PHY VCO 
 		 * Calibration Load 0 Register  Bit[12:0] = 13'd1344  VCO_LD_VAL_0
 		 */
 		txgbe_wr32_epcs(hw, TXGBE_PHY_VCO_CAL_LD0, 0x0540);
-		/* Set VR XS, PMA, or MII Synopsys Enterprise Gen5 12G PHY VCO
+		/* Set VR XS, PMA, or MII Synopsys Enterprise Gen5 12G PHY VCO 
 		 * Calibration Reference 0 Register Bit[5:0] = 6'd42  VCO_REF_LD_0
 		 */
 		txgbe_wr32_epcs(hw, TXGBE_PHY_VCO_CAL_REF0, 0x002A);
-		/* Set VR XS, PMA, or MII Synopsys Enterprise Gen5 12G PHY AFE-DFE
+		/* Set VR XS, PMA, or MII Synopsys Enterprise Gen5 12G PHY AFE-DFE 
 		 * Enable Register Bit[4], Bit[0] = 1'b0  AFE_EN_0, DFE_EN_0
 		 */
 		txgbe_wr32_epcs(hw, TXGBE_PHY_AFE_DFE_ENABLE, 0x0);
-		/* Set  VR XS, PMA, or MII Synopsys Enterprise Gen5 12G PHY Rx
+		/* Set  VR XS, PMA, or MII Synopsys Enterprise Gen5 12G PHY Rx 
 		 * Equalization Control 4 Register Bit[0] = 1'b0  CONT_ADAPT_0
 		 */
 		txgbe_wr32_epcs(hw, TXGBE_PHY_RX_EQ_CTL, 0x0010);
-		/* Set VR XS, PMA, or MII Synopsys Enterprise Gen5 12G PHY Tx Rate
+		/* Set VR XS, PMA, or MII Synopsys Enterprise Gen5 12G PHY Tx Rate 
 		 * Control Register Bit[2:0] = 3'b011  TX0_RATE
 		 */
 		txgbe_wr32_epcs(hw, TXGBE_PHY_TX_RATE_CTL, 0x0003);
-		/* Set VR XS, PMA, or MII Synopsys Enterprise Gen5 12G PHY Rx Rate
-		 * Control Register Bit[2:0] = 3'b011
+		/* Set VR XS, PMA, or MII Synopsys Enterprise Gen5 12G PHY Rx Rate 
+		 * Control Register Bit[2:0] = 3'b011 
 		 */
 		txgbe_wr32_epcs(hw, TXGBE_PHY_RX_RATE_CTL, 0x0003);
-		/* Set VR XS, PMA, or MII Synopsys Enterprise Gen5 12G PHY Tx General
+		/* Set VR XS, PMA, or MII Synopsys Enterprise Gen5 12G PHY Tx General 
 		 * Control 2 Register Bit[9:8] = 2'b01  TX0_WIDTH: 10bits
 		 */
 		txgbe_wr32_epcs(hw, TXGBE_PHY_TX_GEN_CTL2, 0x0100);
-		/* Set VR XS, PMA, or MII Synopsys Enterprise Gen5 12G PHY Rx General
+		/* Set VR XS, PMA, or MII Synopsys Enterprise Gen5 12G PHY Rx General 
 		 * Control 2 Register Bit[9:8] = 2'b01  RX0_WIDTH: 10bits
-		 */
+		 */ 
 		txgbe_wr32_epcs(hw, TXGBE_PHY_RX_GEN_CTL2, 0x0100);
-		/* Set VR XS, PMA, or MII Synopsys Enterprise Gen5 12G PHY MPLLA
-		 * Control 2 Register Bit[10:8] = 3'b010  MPLLA_DIV16P5_CLK_EN=0,
+		/* Set VR XS, PMA, or MII Synopsys Enterprise Gen5 12G PHY MPLLA 
+		 * Control 2 Register Bit[10:8] = 3'b010  MPLLA_DIV16P5_CLK_EN=0, 
 		 * MPLLA_DIV10_CLK_EN=1, MPLLA_DIV8_CLK_EN=0
 		 */
 		txgbe_wr32_epcs(hw, TXGBE_PHY_MPLLA_CTL2, 0x0200);
@@ -5426,9 +5411,9 @@ s32 txgbe_set_link_to_sfi(struct txgbe_hw *hw,
 		goto out;
 	}
 
-	if (SFI_SET == 1 || adapter->ffe_set) {
+	if ((SFI_SET == 1) || (adapter->ffe_set == TXGBE_BP_M_SFI)) {
 		e_dev_info("Set SFI TX_EQ MAIN:%d PRE:%d POST:%d\n",
-					adapter->ffe_main, adapter->ffe_pre, adapter->ffe_post);
+					adapter->ffe_main,adapter->ffe_pre,adapter->ffe_post);
 		/* 5. Set VR_XS_PMA_Gen5_12G_TX_EQ_CTRL0 Register Bit[13:8](TX_EQ_MAIN)
 		* = 6'd30, Bit[5:0](TX_EQ_PRE) = 6'd4
 		*/
@@ -5443,6 +5428,10 @@ s32 txgbe_set_link_to_sfi(struct txgbe_hw *hw,
 		txgbe_wr32_epcs(hw, TXGBE_PHY_TX_EQ_CTL1, value);
 	}
 out:
+	TCALL(hw, mac.ops.enable_sec_tx_path);
+	wr32m(hw, TXGBE_MAC_RX_CFG, TXGBE_MAC_RX_CFG_RE,
+					TXGBE_MAC_RX_CFG_RE);
+
 	return status;
 }
 
@@ -5465,9 +5454,7 @@ s32 txgbe_setup_mac_link(struct txgbe_hw *hw,
 	struct txgbe_adapter *adapter = hw->back;
 	u32 link_speed = TXGBE_LINK_SPEED_UNKNOWN;
 	bool link_up = false;
-
-	UNREFERENCED_PARAMETER(autoneg_wait_to_complete);
-	DEBUGFUNC("\n");
+	u32 curr_autoneg = 2;
 
 	/* Check to see if speed passed in is supported. */
 	status = TCALL(hw, mac.ops.get_link_capabilities,
@@ -5482,18 +5469,28 @@ s32 txgbe_setup_mac_link(struct txgbe_hw *hw,
 		goto out;
 	}
 
-	if (!(((hw->subsystem_device_id & TXGBE_DEV_MASK) == TXGBE_ID_KR_KX_KX4) ||
+	if ( ! (((hw->subsystem_device_id & TXGBE_DEV_MASK) == TXGBE_ID_KR_KX_KX4) ||
 			((hw->subsystem_device_id & TXGBE_DEV_MASK) == TXGBE_ID_MAC_XAUI) ||
-			((hw->subsystem_device_id & TXGBE_DEV_MASK) == TXGBE_ID_MAC_SGMII))) {
+			((hw->subsystem_device_id & TXGBE_DEV_MASK) == TXGBE_ID_MAC_SGMII))){
 		status = TCALL(hw, mac.ops.check_link,
 				&link_speed, &link_up, false);
+
+	if (link_speed == TXGBE_LINK_SPEED_1GB_FULL) {
+		curr_autoneg = txgbe_rd32_epcs(hw, TXGBE_SR_MII_MMD_CTL);
+		curr_autoneg = !!(curr_autoneg & (0x1 << 12));
+	}
+
 		if (status != 0)
 			goto out;
-		if ((link_speed == speed) && link_up)
+		if ((link_speed == speed) && link_up &&
+			!(speed == TXGBE_LINK_SPEED_1GB_FULL &&
+			(adapter->an37 != curr_autoneg)))
 			goto out;
 	}
 
-	if ((hw->subsystem_id & TXGBE_DEV_MASK) == TXGBE_ID_KR_KX_KX4) {
+	if ((hw->subsystem_device_id & TXGBE_DEV_MASK) == TXGBE_ID_KR_KX_KX4) {
+		txgbe_set_link_to_kr(hw, autoneg);
+#if 0
 		if (!autoneg) {
 			switch (hw->phy.link_mode) {
 			case TXGBE_PHYSICAL_LAYER_10GBASE_KR:
@@ -5512,24 +5509,32 @@ s32 txgbe_setup_mac_link(struct txgbe_hw *hw,
 		} else {
 			txgbe_set_link_to_kr(hw, autoneg);
 		}
-
-	} else if ((hw->subsystem_id & 0xF0) == TXGBE_ID_XAUI ||
-		((hw->subsystem_id & TXGBE_DEV_MASK) == TXGBE_ID_MAC_XAUI) ||
-		(hw->subsystem_id & TXGBE_DEV_MASK) == TXGBE_ID_SGMII ||
-		((hw->subsystem_id & TXGBE_DEV_MASK) == TXGBE_ID_MAC_SGMII) ||
-		(txgbe_get_media_type(hw) == txgbe_media_type_copper &&
-		(hw->subsystem_id & TXGBE_DEV_MASK) == TXGBE_ID_SFI_XAUI)) {
-	if (speed == TXGBE_LINK_SPEED_10GB_FULL) {
-		txgbe_set_link_to_kx4(hw, 0);
-	} else {
-		txgbe_set_link_to_kx(hw, speed, 0);
-		if (adapter->an37)
-			txgbe_set_sgmii_an37_ability(hw);
+#endif
+	} else if ((hw->subsystem_device_id & 0xF0) == TXGBE_ID_XAUI ||
+		((hw->subsystem_device_id & TXGBE_DEV_MASK) == TXGBE_ID_MAC_XAUI) ||
+		(hw->subsystem_device_id & TXGBE_DEV_MASK) == TXGBE_ID_SGMII || 
+		((hw->subsystem_device_id & TXGBE_DEV_MASK) == TXGBE_ID_MAC_SGMII) ||
+		(txgbe_get_media_type(hw) == txgbe_media_type_copper && 
+		(hw->subsystem_device_id & TXGBE_DEV_MASK) == TXGBE_ID_SFI_XAUI)) {
+		if (speed == TXGBE_LINK_SPEED_10GB_FULL) {
+			txgbe_set_link_to_kx4(hw, 0);
+			} else {
+				txgbe_set_link_to_kx(hw, speed, 0);
+				txgbe_set_sgmii_an37_ability(hw);
+				hw->phy.autoneg_advertised |= speed;
+			}
+		} else if (txgbe_get_media_type(hw) == txgbe_media_type_fiber) {
+			if (!((hw->subsystem_device_id & TXGBE_NCSI_MASK) == TXGBE_NCSI_SUP &&
+				(hw->phy.sfp_type == txgbe_sfp_type_1g_cu_core0 ||
+				hw->phy.sfp_type == txgbe_sfp_type_1g_cu_core1))) {
+				txgbe_set_link_to_sfi(hw, speed);
+				if (speed == TXGBE_LINK_SPEED_1GB_FULL) {
+					txgbe_setup_fc(hw);
+					txgbe_set_sgmii_an37_ability(hw);
+					hw->phy.autoneg_advertised |= TXGBE_LINK_SPEED_1GB_FULL;
+				}
+			}
 		}
-	} else if (txgbe_get_media_type(hw) == txgbe_media_type_fiber) {
-		txgbe_set_link_to_sfi(hw, speed);
-	}
-
 out:
 	return status;
 }
@@ -5549,12 +5554,10 @@ STATIC s32 txgbe_setup_copper_link(struct txgbe_hw *hw,
 	s32 status;
 	u32 link_speed;
 
-	DEBUGFUNC("\n");
-
 	/* Setup the PHY according to input speed */
 	link_speed = TCALL(hw, phy.ops.setup_link_speed, speed,
 						autoneg_wait_to_complete);
-
+	
 	if (link_speed != TXGBE_LINK_SPEED_UNKNOWN)
 		/* Set up MAC */
 		status = txgbe_setup_mac_link(hw, link_speed, autoneg_wait_to_complete);
@@ -5568,8 +5571,6 @@ int txgbe_reset_misc(struct txgbe_hw *hw)
 {
 	int i;
 	u32 value;
-
-	txgbe_init_i2c(hw);
 
 	value = txgbe_rd32_epcs(hw, TXGBE_SR_PCS_CTL2);
 	if ((value & 0x3) != TXGBE_SR_PCS_CTL2_PCS_TYPE_SEL_X) {
@@ -5591,7 +5592,7 @@ int txgbe_reset_misc(struct txgbe_hw *hw)
 		TXGBE_MAC_PKT_FLT_PR);
 
 	wr32m(hw, TXGBE_MIS_RST_ST,
-		TXGBE_MIS_RST_ST_RST_INIT, 0x1E00);
+		TXGBE_MIS_RST_ST_RST_INIT, 0xA00);
 
 	/* errata 4: initialize mng flex tbl and wakeup flex tbl*/
 	wr32(hw, TXGBE_PSR_MNG_FLEX_SEL, 0);
@@ -5629,35 +5630,25 @@ s32 txgbe_reset_hw(struct txgbe_hw *hw)
 	s32 status;
 	u32 reset = 0;
 	u32 i;
-#ifndef SIMULATION_DEBUG
 	u32 sr_pcs_ctl, sr_pma_mmd_ctl1, sr_an_mmd_ctl, sr_an_mmd_adv_reg2;
 	u32 vr_xs_or_pcs_mmd_digi_ctl1, curr_vr_xs_or_pcs_mmd_digi_ctl1;
 	u32 curr_sr_pcs_ctl, curr_sr_pma_mmd_ctl1;
 	u32 curr_sr_an_mmd_ctl, curr_sr_an_mmd_adv_reg2;
-#endif
 	u32 reset_status = 0;
 	u32 rst_delay = 0;
 	struct txgbe_adapter *adapter = hw->back;
 	u32 value;
-
-	DEBUGFUNC("\n");
 
 	/* Call adapter stop to disable tx/rx and clear interrupts */
 	status = TCALL(hw, mac.ops.stop_adapter);
 	if (status != 0)
 		goto reset_hw_out;
 
-#ifndef SIMULATION_DEBUG
-
 	/* Identify PHY and related function pointers */
 	status = TCALL(hw, phy.ops.init);
 
 	if (status == TXGBE_ERR_SFP_NOT_SUPPORTED)
 		goto reset_hw_out;
-
-	/* Reset PHY */
-	if (txgbe_get_media_type(hw) == txgbe_media_type_copper)
-		TCALL(hw, phy.ops.reset);
 
 	/* remember internel phy regs from before we reset */
 	curr_sr_pcs_ctl = txgbe_rd32_epcs(hw, TXGBE_SR_PCS_CTL2);
@@ -5717,23 +5708,15 @@ s32 txgbe_reset_hw(struct txgbe_hw *hw)
 #endif /*_WIN32*/
 		}
 	} else {
-		if (txgbe_mng_present(hw)) {
-			if (!(((hw->subsystem_device_id & TXGBE_NCSI_MASK) == TXGBE_NCSI_SUP) ||
-				((hw->subsystem_device_id & TXGBE_WOL_MASK) == TXGBE_WOL_SUP))) {
-				txgbe_reset_hostif(hw);
-			}
+		if (hw->bus.lan_id == 0) {
+			reset = TXGBE_MIS_RST_LAN0_RST;
 		} else {
-
-			if (hw->bus.lan_id == 0) {
-				reset = TXGBE_MIS_RST_LAN0_RST;
-			} else {
-				reset = TXGBE_MIS_RST_LAN1_RST;
-			}
-
-			wr32(hw, TXGBE_MIS_RST,
-				reset | rd32(hw, TXGBE_MIS_RST));
-			TXGBE_WRITE_FLUSH(hw);
+			reset = TXGBE_MIS_RST_LAN1_RST;
 		}
+
+		wr32(hw, TXGBE_MIS_RST,
+			reset | rd32(hw, TXGBE_MIS_RST));
+		TXGBE_WRITE_FLUSH(hw);
 		usec_delay(10);
 
 		if (hw->bus.lan_id == 0) {
@@ -5789,95 +5772,22 @@ s32 txgbe_reset_hw(struct txgbe_hw *hw)
 					curr_vr_xs_or_pcs_mmd_digi_ctl1;
 
 	}
-#else
-#if 1
-	hw->phy.type = txgbe_phy_sfp_intel;
-	hw->phy.sfp_type = txgbe_sfp_type_1g_sx_core0;
-	hw->phy.multispeed_fiber = false;
-#endif
-	if (status == TXGBE_ERR_SFP_NOT_SUPPORTED)
-		goto reset_hw_out;
-
-	if (hw->force_full_reset) {
-		rst_delay = (rd32(hw, TXGBE_MIS_RST_ST) &
-			TXGBE_MIS_RST_ST_RST_INIT) >>
-			TXGBE_MIS_RST_ST_RST_INI_SHIFT;
-		if (hw->reset_type == TXGBE_SW_RESET) {
-			for (i = 0; i < rst_delay + 20; i++) {
-				reset_status =
-					rd32(hw, TXGBE_MIS_RST_ST);
-				if (!(reset_status &
-				    TXGBE_MIS_RST_ST_DEV_RST_ST_MASK))
-					break;
-				msleep(100);
-			}
-
-			if (reset_status & TXGBE_MIS_RST_ST_DEV_RST_ST_MASK) {
-				status = TXGBE_ERR_RESET_FAILED;
-				DEBUGOUT("Global reset polling failed to "
-					"complete.\n");
-				goto reset_hw_out;
-			}
-
-			msleep(100);
-			/* errata 7 */
-			if (txgbe_mng_present(hw) &&
-				hw->revision_id == TXGBE_SP_MPW) {
-				struct txgbe_adapter *adapter =
-					(struct txgbe_adapter *)hw->back;
-				adapter->flags2 &=
-					~TXGBE_FLAG2_MNG_REG_ACCESS_DISABLED;
-			}
-		} else if (hw->reset_type == TXGBE_GLOBAL_RESET) {
-#ifndef _WIN32
-			struct txgbe_adapter *adapter =
-					(struct txgbe_adapter *)hw->back;
-			msleep(100 * rst_delay + 2000);
-			pci_restore_state(adapter->pdev);
-			pci_save_state(adapter->pdev);
-			pci_wake_from_d3(adapter->pdev, false);
-#endif /*_WIN32*/
-		}
-
-	} else {
-		if (txgbe_mng_present(hw)) {
-			txgbe_reset_hostif(hw);
-		} else {
-
-			if (hw->bus.lan_id == 0) {
-				reset = TXGBE_MIS_RST_LAN0_RST;
-			} else {
-				reset = TXGBE_MIS_RST_LAN1_RST;
-			}
-
-			wr32(hw, TXGBE_MIS_RST,
-				reset | rd32(hw, TXGBE_MIS_RST));
-			TXGBE_WRITE_FLUSH(hw);
-		}
-		msleep(1000);
-	}
-
-	status = txgbe_reset_misc(hw);
-	if (status != 0)
-		goto reset_hw_out;
-
-#endif
 
 	/*make sure phy power is up*/
 	msleep(100);
 	/*A temporary solution for set to sfi*/
-	if (SFI_SET == 1 || adapter->ffe_set == TXGBE_BP_M_SFI) {
+	if(SFI_SET == 1 || adapter->ffe_set == TXGBE_BP_M_SFI) {
 		e_dev_info("Set SFI TX_EQ MAIN:%d PRE:%d POST:%d\n",
-					adapter->ffe_main, adapter->ffe_pre, adapter->ffe_post);
+					adapter->ffe_main,adapter->ffe_pre,adapter->ffe_post);
 		/* 5. Set VR_XS_PMA_Gen5_12G_TX_EQ_CTRL0 Register Bit[13:8](TX_EQ_MAIN)
-		* = 6'd30, Bit[5:0](TX_EQ_PRE) = 6'd4
-		*/
+		 * = 6'd30, Bit[5:0](TX_EQ_PRE) = 6'd4
+		 */
 		value = txgbe_rd32_epcs(hw, TXGBE_PHY_TX_EQ_CTL0);
 		value = (value & ~0x3F3F) | (adapter->ffe_main << 8) | adapter->ffe_pre;
 		txgbe_wr32_epcs(hw, TXGBE_PHY_TX_EQ_CTL0, value);
 		/* 6. Set VR_XS_PMA_Gen5_12G_TX_EQ_CTRL1 Register Bit[6](TX_EQ_OVR_RIDE)
-		* = 1'b1, Bit[5:0](TX_EQ_POST) = 6'd36
-		*/
+		 * = 1'b1, Bit[5:0](TX_EQ_POST) = 6'd36
+		 */
 		value = txgbe_rd32_epcs(hw, TXGBE_PHY_TX_EQ_CTL1);
 		value = (value & ~0x7F) | adapter->ffe_post | (1 << 6);
 		txgbe_wr32_epcs(hw, TXGBE_PHY_TX_EQ_CTL1, value);
@@ -5885,23 +5795,21 @@ s32 txgbe_reset_hw(struct txgbe_hw *hw)
 
 	if (KR_SET == 1 || adapter->ffe_set == TXGBE_BP_M_KR) {
 		e_dev_info("Set KR TX_EQ MAIN:%d PRE:%d POST:%d\n",
-				adapter->ffe_main, adapter->ffe_pre, adapter->ffe_post);
+				adapter->ffe_main,adapter->ffe_pre,adapter->ffe_post);
 		value = (0x1804 & ~0x3F3F);
 		value |= adapter->ffe_main << 8 | adapter->ffe_pre;
 		txgbe_wr32_epcs(hw, TXGBE_PHY_TX_EQ_CTL0, value);
 
 		value = (0x50 & ~0x7F) | (1 << 6)| adapter->ffe_post;
 		txgbe_wr32_epcs(hw, TXGBE_PHY_TX_EQ_CTL1, value);
-		txgbe_wr32_epcs(hw, 0x18035, 0x00FF);
-		txgbe_wr32_epcs(hw, 0x18055, 0x00FF);
 	}
 
-	if (KX_SET == 1 || adapter->ffe_set == TXGBE_BP_M_KX) {
+	if(KX_SET == 1 || adapter->ffe_set == TXGBE_BP_M_KX) {
 		e_dev_info("Set KX TX_EQ MAIN:%d PRE:%d POST:%d\n",
-					adapter->ffe_main, adapter->ffe_pre, adapter->ffe_post);
+					adapter->ffe_main,adapter->ffe_pre,adapter->ffe_post);
 		/* 5. Set VR_XS_PMA_Gen5_12G_TX_EQ_CTRL0 Register Bit[13:8](TX_EQ_MAIN)
-		* = 6'd30, Bit[5:0](TX_EQ_PRE) = 6'd4
-		*/
+		 * = 6'd30, Bit[5:0](TX_EQ_PRE) = 6'd4
+		 */
 		value = txgbe_rd32_epcs(hw, TXGBE_PHY_TX_EQ_CTL0);
 		value = (value & ~0x3F3F) | (adapter->ffe_main << 8) | adapter->ffe_pre;
 		txgbe_wr32_epcs(hw, TXGBE_PHY_TX_EQ_CTL0, value);
@@ -5911,15 +5819,8 @@ s32 txgbe_reset_hw(struct txgbe_hw *hw)
 		value = txgbe_rd32_epcs(hw, TXGBE_PHY_TX_EQ_CTL1);
 		value = (value & ~0x7F) | adapter->ffe_post | (1 << 6);
 		txgbe_wr32_epcs(hw, TXGBE_PHY_TX_EQ_CTL1, value);
-
-		if (!((hw->subsystem_device_id & TXGBE_NCSI_MASK) == TXGBE_NCSI_SUP)) {
-			txgbe_wr32_epcs(hw, 0x18035, 0x00FF);
-			txgbe_wr32_epcs(hw, 0x18055, 0x00FF);
-		}
+		
 	}
-
-	/* Store the permanent mac address */
-	TCALL(hw, mac.ops.get_mac_addr, hw->mac.perm_addr);
 
 	/*
 	 * Store MAC address from RAR0, clear receive address registers, and
@@ -5929,7 +5830,6 @@ s32 txgbe_reset_hw(struct txgbe_hw *hw)
 	hw->mac.num_rar_entries = 128;
 	TCALL(hw, mac.ops.init_rx_addrs);
 
-#ifndef SIMULATION_DEBUG
 	/* Store the permanent SAN mac address */
 	TCALL(hw, mac.ops.get_san_mac_addr, hw->mac.san_addr);
 
@@ -5948,14 +5848,14 @@ s32 txgbe_reset_hw(struct txgbe_hw *hw)
 	/* Store the alternative WWNN/WWPN prefix */
 	TCALL(hw, mac.ops.get_wwn_prefix, &hw->mac.wwnn_prefix,
 				   &hw->mac.wwpn_prefix);
-#endif
+
 	pci_set_master(((struct txgbe_adapter *)hw->back)->pdev);
 
 reset_hw_out:
 	return status;
 }
 
-#if defined(TXGBE_SUPPORT_KYLIN_FT)
+#if 0
 void txgbe_disable_fdir(struct txgbe_hw *hw)
 {
 	int val = 0;
@@ -5998,8 +5898,6 @@ s32 txgbe_reinit_fdir_tables(struct txgbe_hw *hw)
 	u32 fdirctrl = rd32(hw, TXGBE_RDB_FDIR_CTL);
 	u32 fdircmd;
 	fdirctrl &= ~TXGBE_RDB_FDIR_CTL_INIT_DONE;
-
-	DEBUGFUNC("\n");
 
 	/*
 	 * Before starting reinitialization process,
@@ -6067,8 +5965,6 @@ s32 txgbe_reinit_fdir_tables(struct txgbe_hw *hw)
 STATIC void txgbe_fdir_enable(struct txgbe_hw *hw, u32 fdirctrl)
 {
 	int i;
-
-	DEBUGFUNC("\n");
 
 	/* Prime the keys for hashing */
 	wr32(hw, TXGBE_RDB_FDIR_HKEY, TXGBE_ATR_BUCKET_HASH_KEY);
@@ -6155,9 +6051,6 @@ s32 txgbe_init_fdir_signature(struct txgbe_hw *hw, u32 fdirctrl)
 s32 txgbe_init_fdir_perfect(struct txgbe_hw *hw, u32 fdirctrl,
 			bool cloud_mode)
 {
-	UNREFERENCED_PARAMETER(cloud_mode);
-	DEBUGFUNC("\n");
-
 	/*
 	 * Continue setup of fdirctrl register bits:
 	 *  Turn perfect match filtering on
@@ -6295,8 +6188,6 @@ s32 txgbe_fdir_add_signature_filter(struct txgbe_hw *hw,
 	u32 fdircmd;
 	s32 err;
 
-	DEBUGFUNC("\n");
-
 	/*
 	 * Get the flow_type in order to program FDIRCMD properly
 	 * lowest 2 bits are FDIRCMD.L4TYPE, third lowest bit is FDIRCMD.IPV6
@@ -6421,10 +6312,8 @@ STATIC u32 txgbe_get_fdirtcpm(union txgbe_atr_input *input_mask)
 	u32 mask = TXGBE_NTOHS(input_mask->formatted.dst_port);
 	mask <<= TXGBE_RDB_FDIR_TCP_MSK_DPORTM_SHIFT;
 	mask |= TXGBE_NTOHS(input_mask->formatted.src_port);
-	mask = ((mask & 0x55555555) << 1) | ((mask & 0xAAAAAAAA) >> 1);
-	mask = ((mask & 0x33333333) << 2) | ((mask & 0xCCCCCCCC) >> 2);
-	mask = ((mask & 0x0F0F0F0F) << 4) | ((mask & 0xF0F0F0F0) >> 4);
-	return ((mask & 0x00FF00FF) << 8) | ((mask & 0xFF00FF00) >> 8);
+
+	return mask;
 }
 
 /*
@@ -6453,12 +6342,9 @@ s32 txgbe_fdir_set_input_mask(struct txgbe_hw *hw,
 	u32 fdirtcpm;
 	u32 flex = 0;
 	int i, j;
+#ifdef CONFIG_PCI_IOV
 	struct txgbe_adapter *adapter = (struct txgbe_adapter *)hw->back;
-
-	UNREFERENCED_PARAMETER(cloud_mode);
-	UNREFERENCED_PARAMETER(adapter);
-
-	DEBUGFUNC("\n");
+#endif
 
 	/*
 	 * Program the relevant mask registers.  If src/dst_port or src/dst_addr
@@ -6568,7 +6454,6 @@ s32 txgbe_fdir_write_perfect_filter(struct txgbe_hw *hw,
 	u32 fdirport, fdirvlan, fdirhash, fdircmd;
 	s32 err;
 
-	DEBUGFUNC("\n");
 	if (!cloud_mode) {
 		/* currently IPv6 is not supported, must be programmed with 0 */
 		wr32(hw, TXGBE_RDB_FDIR_IP6(2),
@@ -6687,8 +6572,6 @@ s32 txgbe_start_hw(struct txgbe_hw *hw)
 	int ret_val = 0;
 	u32 i;
 
-	DEBUGFUNC("\n");
-
 	/* Set the media type */
 	hw->phy.media_type = TCALL(hw, mac.ops.get_media_type);
 
@@ -6701,10 +6584,9 @@ s32 txgbe_start_hw(struct txgbe_hw *hw)
 	TCALL(hw, mac.ops.clear_hw_cntrs);
 
 	TXGBE_WRITE_FLUSH(hw);
-#ifndef SIMULATION_DEBUG
 	/* Setup flow control */
 	ret_val = TCALL(hw, mac.ops.setup_fc);
-#endif
+
 	/* Clear the rate limiters */
 	for (i = 0; i < hw->mac.max_tx_queues; i++) {
 		wr32(hw, TXGBE_TDM_RP_IDX, i);
@@ -6735,7 +6617,14 @@ s32 txgbe_identify_phy(struct txgbe_hw *hw)
 	s32 status = TXGBE_ERR_PHY_ADDR_INVALID;
 	enum txgbe_media_type media_type;
 
-	DEBUGFUNC("\n");
+	/* avoid fw access phy */
+	if (((hw->subsystem_device_id & 0xF0) == TXGBE_ID_XAUI) &&
+		((hw->subsystem_device_id & TXGBE_NCSI_MASK) == TXGBE_NCSI_SUP)) {
+		/* Let firmware know the driver has taken over */
+		wr32m(hw, TXGBE_CFG_PORT_CTL,
+			TXGBE_CFG_PORT_CTL_DRV_LOAD, TXGBE_CFG_PORT_CTL_DRV_LOAD);
+		mdelay(100);
+	}
 
 	if (!hw->phy.phy_semaphore_mask) {
 		hw->phy.phy_semaphore_mask = TXGBE_MNG_SWFW_SYNC_SW_PHY;
@@ -6757,6 +6646,12 @@ s32 txgbe_identify_phy(struct txgbe_hw *hw)
 		status = 0;
 	}
 
+	/* Let firmware take over control of h/w */
+	if (((hw->subsystem_device_id & 0xF0) == TXGBE_ID_XAUI) &&
+		((hw->subsystem_device_id & TXGBE_NCSI_MASK) == TXGBE_NCSI_SUP))
+		wr32m(hw, TXGBE_CFG_PORT_CTL,
+			TXGBE_CFG_PORT_CTL_DRV_LOAD, 0);
+
 	/* Return error if SFP module has been detected but is not supported */
 	if (hw->phy.type == txgbe_phy_sfp_unsupported)
 		return TXGBE_ERR_SFP_NOT_SUPPORTED;
@@ -6774,9 +6669,6 @@ s32 txgbe_identify_phy(struct txgbe_hw *hw)
  **/
 s32 txgbe_enable_rx_dma(struct txgbe_hw *hw, u32 regval)
 {
-
-	DEBUGFUNC("\n");
-
 	/*
 	 * Workaround for sapphire silicon errata when enabling the Rx datapath.
 	 * If traffic is incoming before we enable the Rx unit, it could hang
@@ -6808,8 +6700,6 @@ s32 txgbe_init_flash_params(struct txgbe_hw *hw)
 	struct txgbe_flash_info *flash = &hw->flash;
 	u32 eec;
 
-	DEBUGFUNC("\n");
-
 	eec = 0x1000000;
 	flash->semaphore_delay = 10;
 	flash->dword_size = (eec >> 2);
@@ -6837,8 +6727,6 @@ s32 txgbe_read_flash_buffer(struct txgbe_hw *hw, u32 offset,
 {
 	s32 status = 0;
 	u32 i;
-
-	DEBUGFUNC("\n");
 
 	TCALL(hw, eeprom.ops.init_params);
 
@@ -6882,8 +6770,6 @@ s32 txgbe_write_flash_buffer(struct txgbe_hw *hw, u32 offset,
 	s32 status = 0;
 	u32 i;
 
-	DEBUGFUNC("\n");
-
 	TCALL(hw, eeprom.ops.init_params);
 
 	if (!dwords || offset + dwords >= hw->flash.dword_size) {
@@ -6923,8 +6809,6 @@ s32 txgbe_init_eeprom_params(struct txgbe_hw *hw)
 	u16 eeprom_size;
 	s32 status = 0;
 	u16 data;
-
-	DEBUGFUNC("\n");
 
 	if (eeprom->type == txgbe_eeprom_uninitialized) {
 		eeprom->semaphore_delay = 10;
@@ -6968,7 +6852,6 @@ s32 txgbe_read_ee_hostif_data(struct txgbe_hw *hw, u16 offset,
 	s32 status;
 	struct txgbe_hic_read_shadow_ram buffer;
 
-	DEBUGFUNC("\n");
 	buffer.hdr.req.cmd = FW_READ_SHADOW_RAM_CMD;
 	buffer.hdr.req.buf_lenh = 0;
 	buffer.hdr.req.buf_lenl = FW_READ_SHADOW_RAM_LEN;
@@ -7010,8 +6893,6 @@ s32 txgbe_read_ee_hostif(struct txgbe_hw *hw, u16 offset,
 {
 	s32 status = 0;
 
-	DEBUGFUNC("\n");
-
 	if (TCALL(hw, mac.ops.acquire_swfw_sync,
 		TXGBE_MNG_SWFW_SYNC_SW_FLASH) == 0) {
 		status = txgbe_read_ee_hostif_data(hw, offset, data);
@@ -7042,8 +6923,6 @@ s32 txgbe_read_ee_hostif_buffer(struct txgbe_hw *hw,
 	s32 status;
 	u32 i;
 	u32 value = 0;
-
-	DEBUGFUNC("\n");
 
 	/* Take semaphore for the entire operation. */
 	status = TCALL(hw, mac.ops.acquire_swfw_sync,
@@ -7118,8 +6997,6 @@ s32 txgbe_write_ee_hostif_data(struct txgbe_hw *hw, u16 offset,
 	s32 status;
 	struct txgbe_hic_write_shadow_ram buffer;
 
-	DEBUGFUNC("\n");
-
 	buffer.hdr.req.cmd = FW_WRITE_SHADOW_RAM_CMD;
 	buffer.hdr.req.buf_lenh = 0;
 	buffer.hdr.req.buf_lenl = FW_WRITE_SHADOW_RAM_LEN;
@@ -7137,6 +7014,77 @@ s32 txgbe_write_ee_hostif_data(struct txgbe_hw *hw, u16 offset,
 	return status;
 }
 
+s32 txgbe_close_notify(struct txgbe_hw *hw)
+{
+	int tmp;
+	s32 status;
+	struct txgbe_hic_write_shadow_ram buffer;
+
+	buffer.hdr.req.cmd = FW_DW_CLOSE_NOTIFY;
+	buffer.hdr.req.buf_lenh = 0;
+	buffer.hdr.req.buf_lenl = 0;
+	buffer.hdr.req.checksum = FW_DEFAULT_CHECKSUM;
+
+	/* one word */
+	buffer.length = 0;
+	buffer.address = 0;
+
+	status = txgbe_host_interface_command(hw, (u32 *)&buffer,
+					      sizeof(buffer),
+					      500, false);
+	if (status)
+		return status;
+
+	if (txgbe_check_mng_access(hw)){
+		tmp = (u32)rd32a(hw, TXGBE_MNG_MBOX, 1);
+		if (tmp == TXGBE_CHECKSUM_CAP_ST_PASS)
+			status = 0;
+		else
+			status = TXGBE_ERR_EEPROM_CHECKSUM;
+	} else {
+			status = TXGBE_ERR_MNG_ACCESS_FAILED;
+			return status;
+	}
+
+	return status;
+}
+
+s32 txgbe_open_notify(struct txgbe_hw *hw)
+{
+	int tmp;
+	s32 status;
+	struct txgbe_hic_write_shadow_ram buffer;
+
+	buffer.hdr.req.cmd = FW_DW_OPEN_NOTIFY;
+	buffer.hdr.req.buf_lenh = 0;
+	buffer.hdr.req.buf_lenl = 0;
+	buffer.hdr.req.checksum = FW_DEFAULT_CHECKSUM;
+
+	/* one word */
+	buffer.length = 0;
+	buffer.address = 0;
+
+	status = txgbe_host_interface_command(hw, (u32 *)&buffer,
+					      sizeof(buffer),
+					      500, false);
+		if (status)
+		return status;
+
+	if (txgbe_check_mng_access(hw)){
+		tmp = (u32)rd32a(hw, TXGBE_MNG_MBOX, 1);
+		if (tmp == TXGBE_CHECKSUM_CAP_ST_PASS)
+			status = 0;
+		else
+			status = TXGBE_ERR_EEPROM_CHECKSUM;
+		
+	} else {
+			status = TXGBE_ERR_MNG_ACCESS_FAILED;
+			return status;
+	}
+
+	return status;
+}
+
 /**
  *  txgbe_write_ee_hostif - Write EEPROM word using hostif
  *  @hw: pointer to hardware structure
@@ -7149,8 +7097,6 @@ s32 txgbe_write_ee_hostif(struct txgbe_hw *hw, u16 offset,
 			       u16 data)
 {
 	s32 status = 0;
-
-	DEBUGFUNC("\n");
 
 	if (TCALL(hw, mac.ops.acquire_swfw_sync,
 		TXGBE_MNG_SWFW_SYNC_SW_FLASH) == 0) {
@@ -7179,8 +7125,6 @@ s32 txgbe_write_ee_hostif_buffer(struct txgbe_hw *hw,
 {
 	s32 status = 0;
 	u16 i = 0;
-
-	DEBUGFUNC("\n");
 
 	/* Take semaphore for the entire operation. */
 	status = TCALL(hw, mac.ops.acquire_swfw_sync,
@@ -7224,8 +7168,6 @@ s32 txgbe_calc_eeprom_checksum(struct txgbe_hw *hw)
 	s32 status;
 	u16 checksum = 0;
 	u16 i;
-
-	DEBUGFUNC("\n");
 
 	TCALL(hw, eeprom.ops.init_params);
 
@@ -7273,8 +7215,6 @@ s32 txgbe_update_eeprom_checksum(struct txgbe_hw *hw)
 	s32 status;
 	u16 checksum = 0;
 
-	DEBUGFUNC("\n");
-
 	/* Read the first word from the EEPROM. If this times out or fails, do
 	 * not continue or we could be in for a very long wait while every
 	 * EEPROM read fails
@@ -7293,8 +7233,6 @@ s32 txgbe_update_eeprom_checksum(struct txgbe_hw *hw)
 
 	status = txgbe_write_ee_hostif(hw, TXGBE_EEPROM_CHECKSUM,
 					    checksum);
-	if (status)
-		return status;
 
 	return status;
 }
@@ -7313,8 +7251,6 @@ s32 txgbe_validate_eeprom_checksum(struct txgbe_hw *hw,
 	s32 status;
 	u16 checksum;
 	u16 read_checksum = 0;
-
-	DEBUGFUNC("\n");
 
 	/* Read the first word from the EEPROM. If this times out or fails, do
 	 * not continue or we could be in for a very long wait while every
@@ -7365,8 +7301,6 @@ s32 txgbe_update_flash(struct txgbe_hw *hw)
 	s32 status = 0;
 	union txgbe_hic_hdr2 buffer;
 
-	DEBUGFUNC("\n");
-
 	buffer.req.cmd = FW_SHADOW_RAM_DUMP_CMD;
 	buffer.req.buf_lenh = 0;
 	buffer.req.buf_lenl = FW_SHADOW_RAM_DUMP_LEN;
@@ -7394,14 +7328,12 @@ s32 txgbe_check_mac_link(struct txgbe_hw *hw, u32 *speed,
 {
 	u32 links_reg = 0;
 	u32 i;
-	u16 value;
-
-	DEBUGFUNC("\n");
+	u16 value = 0;
 
 	if (link_up_wait_to_complete) {
 		for (i = 0; i < TXGBE_LINK_UP_TIME; i++) {
 			if (TCALL(hw, mac.ops.get_media_type) == txgbe_media_type_copper &&
-				 ((hw->subsystem_id & 0xF0) != TXGBE_ID_SFI_XAUI)) {
+				 ((hw->subsystem_device_id & 0xF0) != TXGBE_ID_SFI_XAUI)) {
 				/* read ext phy link status */
 				txgbe_read_mdio(&hw->phy_dev, hw->phy.addr, 0x03, 0x8008, &value);
 				if (value & 0x400) {
@@ -7425,37 +7357,51 @@ s32 txgbe_check_mac_link(struct txgbe_hw *hw, u32 *speed,
 			msleep(100);
 		}
 	} else {
-
-#ifndef SIMULATION_DEBUG
-				if (TCALL(hw, mac.ops.get_media_type) == txgbe_media_type_copper  &&
-				 ((hw->subsystem_id & 0xF0) != TXGBE_ID_SFI_XAUI)) {
-					/* read ext phy link status */
-					txgbe_read_mdio(&hw->phy_dev, hw->phy.addr, 0x03, 0x8008, &value);
-					if (value & 0x400) {
-						*link_up = true;
-					} else {
-						*link_up = false;
-					}
-				} else {
-					*link_up = true;
-				}
-				if (*link_up) {
-#endif
-				links_reg = rd32(hw, TXGBE_CFG_PORT_ST);
-				if (links_reg & TXGBE_CFG_PORT_ST_LINK_UP) {
-					*link_up = true;
-				} else {
-					*link_up = false;
-				}
-#ifndef SIMULATION_DEBUG
+		if (TCALL(hw, mac.ops.get_media_type) == txgbe_media_type_copper  &&
+			 ((hw->subsystem_device_id & 0xF0) != TXGBE_ID_SFI_XAUI)) {
+			/* read ext phy link status */
+			txgbe_read_mdio(&hw->phy_dev, hw->phy.addr, 0x03, 0x8008, &value);
+			if (value & 0x400) {
+				*link_up = true;
+			} else {
+				*link_up = false;
 			}
-#endif
+		} else {
+			*link_up = true;
+		}
+		if (*link_up) {
+			links_reg = rd32(hw, TXGBE_CFG_PORT_ST);
+			if (links_reg & TXGBE_CFG_PORT_ST_LINK_UP) {
+				*link_up = true;
+			} else {
+				*link_up = false;
+			}
+		}
+	}
+	
+	/* sync link status to fw for ocp card */
+	if ((hw->subsystem_device_id & 0xF0) == TXGBE_ID_XAUI)
+		wr32(hw, TXGBE_TSC_LSEC_PKTNUM0, value);
+
+	if ((hw->phy.sfp_type == txgbe_sfp_type_1g_cu_core0) ||
+		(hw->phy.sfp_type == txgbe_sfp_type_1g_cu_core1) ||
+		(hw->phy.sfp_type == txgbe_sfp_type_10g_cu_core0) ||
+		(hw->phy.sfp_type == txgbe_sfp_type_10g_cu_core1)) {
+		*link_up = hw->f2c_mod_status;
+
+		if (*link_up) {	
+			/* recover led configure when link up */
+			wr32(hw, TXGBE_CFG_LED_CTL, 0);
+		} else {			
+			/* over write led when link down */
+			TCALL(hw, mac.ops.led_off, TXGBE_LED_LINK_UP | TXGBE_LED_LINK_10G | 
+									   TXGBE_LED_LINK_1G | TXGBE_LED_LINK_ACTIVE);
+		}			
 	}
 
 	if (*link_up) {
-#ifndef SIMULATION_DEBUG
 		if (TCALL(hw, mac.ops.get_media_type) == txgbe_media_type_copper  &&
-				 ((hw->subsystem_id & 0xF0) != TXGBE_ID_SFI_XAUI)) {
+				 ((hw->subsystem_device_id & 0xF0) != TXGBE_ID_SFI_XAUI)) {
 			if ((value & 0xc000) == 0xc000) {
 				*speed = TXGBE_LINK_SPEED_10GB_FULL;
 			} else if ((value & 0xc000) == 0x8000) {
@@ -7466,7 +7412,6 @@ s32 txgbe_check_mac_link(struct txgbe_hw *hw, u32 *speed,
 				*speed = TXGBE_LINK_SPEED_10_FULL;
 			}
 		} else {
-#endif
 			if ((links_reg & TXGBE_CFG_PORT_ST_LINK_10G) ==
 					TXGBE_CFG_PORT_ST_LINK_10G) {
 				*speed = TXGBE_LINK_SPEED_10GB_FULL;
@@ -7478,9 +7423,7 @@ s32 txgbe_check_mac_link(struct txgbe_hw *hw, u32 *speed,
 				*speed = TXGBE_LINK_SPEED_100_FULL;
 			} else
 				*speed = TXGBE_LINK_SPEED_10_FULL;
-#ifndef SIMULATION_DEBUG
 		}
-#endif
 	} else
 		*speed = TXGBE_LINK_SPEED_UNKNOWN;
 
@@ -7500,10 +7443,47 @@ s32 txgbe_check_mac_link(struct txgbe_hw *hw, u32 *speed,
 s32 txgbe_setup_eee(struct txgbe_hw *hw, bool enable_eee)
 {
 	/* fix eee */
-	UNREFERENCED_PARAMETER(hw);
-	UNREFERENCED_PARAMETER(enable_eee);
-	DEBUGFUNC("\n");
 
 	return 0;
 }
 
+s32 txgbe_hic_write_lldp(struct txgbe_hw *hw,u32 open)
+{
+	int status;
+	struct txgbe_adapter *adapter = hw->back;
+	struct pci_dev *pdev = adapter->pdev;
+	struct txgbe_hic_write_lldp buffer;
+
+	buffer.hdr.cmd = 0xf1 - open;
+	buffer.hdr.buf_len = 0x1;
+	buffer.hdr.cmd_or_resp.cmd_resv = FW_CEM_CMD_RESERVED;
+	buffer.hdr.checksum = FW_DEFAULT_CHECKSUM;
+	buffer.func = PCI_FUNC(pdev->devfn);
+	status = txgbe_host_interface_command(hw, (u32 *)&buffer,
+										sizeof(buffer), 5000, false);
+	return status;
+	
+}
+
+int txgbe_is_lldp(struct txgbe_hw *hw)
+{
+	u32 tmp = 0, lldp_flash_data = 0, i = 0;
+	struct txgbe_adapter *adapter = hw->back;
+	s32 status = 0;
+
+	for (; i < 0x1000 / sizeof(u32); i++) {
+		status = txgbe_flash_read_dword(hw, TXGBE_LLDP_REG + i * 4, &tmp);
+		if(status)
+			return status;
+		if (tmp == U32_MAX)
+			break;
+		lldp_flash_data = tmp;
+
+	}
+	if (lldp_flash_data & BIT(hw->bus.lan_id))
+		adapter->eth_priv_flags |= TXGBE_ETH_PRIV_FLAG_LLDP;
+	else
+		adapter->eth_priv_flags &= ~TXGBE_ETH_PRIV_FLAG_LLDP;
+
+	return 0;
+}

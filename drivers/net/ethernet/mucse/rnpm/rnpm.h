@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-2.0
+/* Copyright(c) 2022 - 2023 Mucse Corporation. */
 #ifndef _RNPM_H_
 #define _RNPM_H_
 
@@ -11,7 +13,7 @@
 #include <linux/jiffies.h>
 #include <linux/clocksource.h>
 //#include <linux/timecounter.h>
-
+#include <linux/interrupt.h>
 #include <linux/net_tstamp.h>
 #include <linux/ptp_clock_kernel.h>
 
@@ -26,13 +28,19 @@
 /* common prefix used by pr_<> macros */
 #undef pr_fmt
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
+#define RNPM_ALLOC_PAGE_ORDER (0)
+#define RNPM_PAGE_BUFFER_NUMS(ring)  ((1 << RNPM_ALLOC_PAGE_ORDER) * PAGE_SIZE / ALIGN((rnpm_rx_offset(ring) + rnpm_rx_bufsz(ring) + \
+											SKB_DATA_ALIGN(sizeof(struct skb_shared_info)) + RNPM_RX_HWTS_OFFSET), 1024))
 
 /* TX/RX descriptor defines */
 #ifdef FEITENG
-#define RNPM_DEFAULT_TXD			(4096)
+#define RNPM_DEFAULT_TXD			(1024)
 #else
 #define RNPM_DEFAULT_TXD			(1024)
 #endif
+
+#define RNPM_N400_DEFAULT_TXD		(256)
+
 #define RNPM_DEFAULT_TX_WORK		(256)
 #define RNPM_MIN_TX_WORK (32)
 #define RNPM_MAX_TX_WORK (512)
@@ -41,8 +49,11 @@
 #define RNPM_WORK_ALIGN (2)
 #define RNPM_MIN_TX_FRAME (1)
 #define RNPM_MAX_TX_FRAME (256)
-#define RNPM_MIN_TX_USEC (40)
+#define RNPM_MIN_TX_USEC			(2)
 #define RNPM_MAX_TX_USEC (10000)
+
+#define RNPM_DEFAULT_HIGH_RX_USEC			(1600)
+#define RNPM_DEFAULT_LOW_RX_USEC (200)
 
 #ifndef RNPM_IRQ_CHECK_USEC
 #define RNPM_IRQ_CHECK_USEC 1000
@@ -50,7 +61,7 @@
 
 #define RNPM_MIN_RX_FRAME (1)
 #define RNPM_MAX_RX_FRAME (256)
-#define RNPM_MIN_RX_USEC (30)
+#define RNPM_MIN_RX_USEC  (2)
 #define RNPM_MAX_RX_USEC (10000)
 
 #define RNP_MAX_VF_FUNCTIONS 64
@@ -66,13 +77,16 @@
 #define RNPM_REQ_RX_DESCRIPTOR_MULTIPLE	(8)
 
 #ifdef FEITENG
-#define RNPM_DEFAULT_RXD			(4096)
+#define RNPM_DEFAULT_RXD			(1024)
 #else
-#define RNPM_DEFAULT_RXD			(4096)
+#define RNPM_DEFAULT_RXD			(1024)
 #endif
 
 #define RNPM_MAX_RXD			(4096)
 #define RNPM_MIN_RXD			(64)
+
+/* Phy */
+#define AUTO_ALL_MODES          0
 
 /* flow control */
 #define RNPM_MIN_FCRTL			(0x40)
@@ -122,13 +136,17 @@
 
 
 #define RNPM_ITR_ADAPTIVE_MIN_INC	2
-#define RNPM_ITR_ADAPTIVE_MIN_USECS	10
-#define RNPM_ITR_ADAPTIVE_MAX_USECS	126
-#define RNPM_ITR_ADAPTIVE_LATENCY	0x80
+#define RNPM_ITR_ADAPTIVE_MIN_USECS	8
+#define RNPM_ITR_ADAPTIVE_MAX_USECS	800
+#define RNPM_ITR_ADAPTIVE_LATENCY	0x400
 #define RNPM_ITR_ADAPTIVE_BULK		0x00
 
 /* How many Rx Buffers do we bundle into one write to the hardware ? */
-#define RNPM_RX_BUFFER_WRITE	16	/* Must be power of 2 */
+#ifdef RNPM_OPTM_WITH_LPAGE
+#define RNPM_RX_BUFFER_WRITE (PAGE_SIZE/2048) /* Must be power of 2 */
+#else
+#define RNPM_RX_BUFFER_WRITE 16 /* Must be power of 2 */
+#endif
 enum rnpm_tx_flags {
 	/* cmd_type flags */
 	RNPM_TX_FLAGS_HW_VLAN	= 0x01,
@@ -207,6 +225,9 @@ struct rnpm_tx_buffer {
 	struct sk_buff *skb;
 	unsigned int bytecount;
 	unsigned short gso_segs;
+#ifdef RNPM_FIX_MAC_PADDING
+	bool gso_need_padding;
+#endif
 	__be16 protocol;
 	DEFINE_DMA_UNMAP_ADDR(dma);
 	DEFINE_DMA_UNMAP_LEN(len);
@@ -243,7 +264,7 @@ struct rnpm_tx_buffer {
 struct rnpm_rx_buffer {
 	struct sk_buff *skb;
 	dma_addr_t dma;
-#ifndef CONFIG_IXGBE_DISABLE_PACKET_SPLIT
+#ifndef CONFIG_RNPM_DISABLE_PACKET_SPLIT
 	struct page *page;
 #if (BITS_PER_LONG > 32) || (PAGE_SIZE >= 65536)
 	__u32 page_offset;
@@ -293,6 +314,9 @@ struct rnpm_rx_queue_stats {
 	u64 rx_irq_miss;
 	u64 rx_next_to_clean;
 	u64 rx_equal_count;
+	u64 rx_poll_packets;
+	u64 rx_poll_avg_packets;
+	u64 rx_poll_itr;
 	//u64 poll_count;
 };
 
@@ -336,16 +360,18 @@ struct rnpm_ring {
 	unsigned long last_rx_timestamp;
 	unsigned long state;
 	u8 __iomem *tail;
+	u8 __iomem *dma_hw_addr;
 	u8 __iomem *dma_int_stat;
 	u8 __iomem *dma_int_mask;
 	u8 __iomem *dma_int_clr;
 	dma_addr_t dma;			/* phys. address of descriptor ring */
 	unsigned int size;		/* length in bytes */
 	u32 ring_flags;
-#define RNPM_RING_FLAG_DELAY_SETUP_RX_LEN            (u32)(1 << 0)
-#define RNPM_RING_FLAG_CHANGE_RX_LEN                 (u32)(1 << 1)
-#define RNPM_RING_FLAG_DO_RESET_RX_LEN               (u32)(1 << 2)
+#define RNPM_RING_FLAG_DELAY_SETUP_RX_LEN ((u32)(1 << 0))
+#define RNPM_RING_FLAG_CHANGE_RX_LEN ((u32)(1 << 1))
+#define RNPM_RING_FLAG_DO_RESET_RX_LEN ((u32)(1 << 2))
 	u8 pfvfnum;
+	u8 gso_padto_bytes;
 
 	u16 count;			/* amount of descriptors */
 	u16 temp_count;
@@ -357,7 +383,11 @@ struct rnpm_ring {
 	u16 next_to_clean;  //soft-saved-head
 
 	u16 device_id;
-
+#ifdef RNPM_OPTM_WITH_LPAGE
+	u16 rx_page_buf_nums;
+	u32 rx_per_buf_mem;
+	struct sk_buff *skb;
+#endif
 	union {
 #ifdef CONFIG_RNPM_DISABLE_PACKET_SPLIT
 		u16 rx_buf_len;
@@ -373,7 +403,9 @@ struct rnpm_ring {
 
 	u8 dcb_tc;
 	struct rnpm_queue_stats stats;
+#ifdef HAVE_NDO_GET_STATS64
 	struct u64_stats_sync syncp;
+#endif
 	union {
 		struct rnpm_tx_queue_stats tx_stats;
 		struct rnpm_rx_queue_stats rx_stats;
@@ -417,8 +449,13 @@ struct rnpm_ring_feature {
  */
 static inline unsigned int rnpm_rx_bufsz(struct rnpm_ring *ring)
 {
-    // 1 rx-desc trans max half page(2048), for jumbo frame sg is needed
+	// 1 rx-desc trans max half page(2048), for jumbo frame sg is needed
+	// return RNPM_RXBUFFER_MAX;
+#ifdef RNPM_OPTM_WITH_LPAGE
+	return RNPM_RXBUFFER_1536;
+#else
 	return RNPM_RXBUFFER_MAX;
+#endif
 }
 
 /* SG , 1 rx-desc use one page */
@@ -435,13 +472,15 @@ struct rnpm_ring_container {
 	unsigned long next_update; /* jiffies value of last update */
 	unsigned int total_bytes;	/* total bytes processed this int */
 	unsigned int total_packets;	/* total packets processed this int */
+	unsigned int poll_times;	/* record rnpm poll function exec times in one jiffies */
+
 	u16 work_limit;	/* total work allowed per interrupt */
 	u8 count;	/* total number of rings in vector */
-	u8 itr;		/* current ITR/MSIX vector setting for ring */
+	u16 itr;		/* current ITR/MSIX vector setting for ring */
 };
 
 /* iterator for handling rings in ring container */
-#define rnpm_for_each_ring(pos, head) \
+#define rnpm_for_each_ring(pos, head)                                          \
 	for (pos = (head).ring; pos != NULL; pos = pos->next)
 
 #define MAX_RX_PACKET_BUFFERS ((adapter->flags & RNPM_FLAG_DCB_ENABLED) \
@@ -452,7 +491,10 @@ struct rnpm_ring_container {
  * but we only use one per queue-specific vector.
  */
 struct rnpm_q_vector {
+	int new_rx_count;
+	int old_rx_count;
 	struct rnpm_adapter *adapter;
+	int factor;
 #ifdef CONFIG_RNPM_DCA
 	int cpu;	    /* CPU for DCA */
 #endif
@@ -464,19 +506,18 @@ struct rnpm_q_vector {
 	struct rnpm_ring_container rx, tx;
 
 	struct napi_struct napi;
-#ifdef HAVE_IRQ_AFFINITY_HINT
-	cpumask_t affinity_mask;
-#endif
 #ifdef HAVE_IRQ_AFFINITY_NOTIFY
-#ifdef SUPPORT_IRQ_AFFINITY_CHANGE
+	cpumask_t affinity_mask;
 	struct irq_affinity_notify affinity_notify;
-#endif
 #endif /* HAVE_IRQ_AFFINITY_NOTIFY */
 	int numa_node;
 	struct rcu_head rcu;	/* to avoid race with update stats on free */
 
 	int irq_check_usecs;
 	struct hrtimer irq_miss_check_timer;  // to check irq miss
+#define RNPM_IRQ_MISS_HANDLE_DONE ((u32)(1 << 0))
+	// #define RNPM_IRQ_VECTOR_SOFT_DISABLE (u32)(1 << 1)
+	unsigned long flags;
 
 	char name[IFNAMSIZ + 9];
 
@@ -484,6 +525,35 @@ struct rnpm_q_vector {
 	struct rnpm_ring ring[0] ____cacheline_internodealigned_in_smp;
 };
 
+#ifdef RNPM_HWMON
+
+#define RNPM_HWMON_TYPE_LOC		0
+#define RNPM_HWMON_TYPE_TEMP		1
+#define RNPM_HWMON_TYPE_CAUTION	2
+#define RNPM_HWMON_TYPE_MAX		3
+#define RNPM_HWMON_TYPE_NAME		4
+
+
+struct hwmon_attr {
+	struct device_attribute dev_attr;
+	struct rnpm_hw *hw;
+	struct rnpm_thermal_diode_data *sensor;
+	char name[12];
+};
+
+struct hwmon_buff {
+#ifdef HAVE_HWMON_DEVICE_REGISTER_WITH_GROUPS
+	struct attribute_group group;
+	const struct attribute_group *groups[2];
+	struct attribute *attrs[RNPM_MAX_SENSORS * 4 + 1];
+	struct hwmon_attr hwmon_list[RNPM_MAX_SENSORS * 4];
+#else
+	struct device *device;
+	struct hwmon_attr *hwmon_list;
+#endif /* HAVE_HWMON_DEVICE_REGISTER_WITH_GROUPS */
+	unsigned int n_hwmon;
+};
+#endif /* RNPM_HWMON */
 
 /* rnpm_test_staterr - tests bits in Rx descriptor status and error fields */
 static inline __le16 rnpm_test_staterr(union rnpm_rx_desc *rx_desc,
@@ -569,25 +639,33 @@ struct rnpm_pf_adapter {
 	spinlock_t vlan_setup_lock;
 	spinlock_t drop_setup_lock;
 	spinlock_t dummy_setup_lock;
+	spinlock_t pf_setup_lock;
 
 	struct timer_list service_timer;
 	struct work_struct service_task;
 
-#define RNPM_PF_RESET           (u32)(1 << 0)
-#define RNPM_PF_SET_MTU         (u32)(1 << 1)
-	u32 flags;
+#define RNPM_PF_RESET ((u32)(1 << 0))
+#define RNPM_PF_SET_MTU ((u32)(1 << 1))
+#define RNPM_PF_LINK_CHANGE ((u32)(1 << 2))
+#define RNPM_PF_SERVICE_SKIP_HANDLE ((u32)(1 << 3))
 
-	struct pci_dev  *pdev;
+	unsigned long flags;
+
+	struct pci_dev *pdev;
 	struct rnpm_adapter *adapter[MAX_PORT_NUM];
+	bool force_10g_1g_speed_ablity;
 	int register_sequence[MAX_PORT_NUM];
 	int                  adapter_cnt;
 	u8 __iomem	*hw_bar2;
 	u8 __iomem	*hw_addr;
+	u8 __iomem *hw_addr4;
 	u8 __iomem *hw_bar0;
 	u32         board_type;
 	u32         port_valid; /* only used in 8 ports */
 	u32         port_names; /* only used in 8 ports */
 	u32         bd_number;
+	u8 __iomem *rpu_addr;
+	u8 rpu_inited;
 	/* msix table */
 	struct msix_entry *msix_entries;
 	int max_msix_counts[MAX_PORT_NUM];
@@ -622,6 +700,7 @@ struct rnpm_pf_adapter {
 	struct mutex mbx_lock;
 
 	unsigned long state;
+	u32 timer_count;
 	/* just for mailbox use */
 	struct rnpm_hw hw;
 	char name[60];
@@ -649,6 +728,8 @@ struct rnpm_adapter {
 	/* OS defined structs */
 	struct net_device *netdev;
 	bool rm_mode;
+	bool netdev_registered;
+
 	struct pci_dev *pdev;
 	bool quit_poll_thread;
 	struct task_struct *rx_poll_thread;
@@ -660,6 +741,9 @@ struct rnpm_adapter {
 	unsigned long last_moder_bytes[MAX_RX_QUEUES];
 	unsigned long last_moder_jiffies;
 	int last_moder_time[MAX_RX_QUEUES];
+	u32 timer_count;
+	u32 service_count;
+
 	/* only rx itr is Supported */
 	u32 rx_usecs;
 	u32 rx_frames;
@@ -680,7 +764,7 @@ struct rnpm_adapter {
 	int napi_budge;
 
 	union {
-		int phyid;
+		int phy_addr;
 		struct {
 			u8 mod_abs : 1;
 			u8 fault   : 1;
@@ -706,69 +790,73 @@ struct rnpm_adapter {
 	 */
 	u32 vf_num_for_pf;
 	u32 flags;
-#define RNPM_FLAG_MSI_CAPABLE                  (u32)(1 << 0)
-#define RNPM_FLAG_MSI_ENABLED                  (u32)(1 << 1)
-#define RNPM_FLAG_MSIX_CAPABLE                 (u32)(1 << 2)
-#define RNPM_FLAG_MSIX_ENABLED                 (u32)(1 << 3)
-#define RNPM_FLAG_RX_1BUF_CAPABLE              (u32)(1 << 4)
-#define RNPM_FLAG_RX_PS_CAPABLE                (u32)(1 << 5)
-#define RNPM_FLAG_RX_PS_ENABLED                (u32)(1 << 6)
-#define RNPM_FLAG_IN_NETPOLL                   (u32)(1 << 7)
-#define RNPM_FLAG_DCA_ENABLED                  (u32)(1 << 8)
-#define RNPM_FLAG_DCA_CAPABLE                  (u32)(1 << 9)
-#define RNPM_FLAG_IMIR_ENABLED                 (u32)(1 << 10)
-#define RNPM_FLAG_MQ_CAPABLE                   (u32)(1 << 11)
-#define RNPM_FLAG_DCB_ENABLED                  (u32)(1 << 12)
-#define RNPM_FLAG_VMDQ_CAPABLE                 (u32)(1 << 13)
-#define RNPM_FLAG_VMDQ_ENABLED                 (u32)(1 << 14)
-#define RNPM_FLAG_FAN_FAIL_CAPABLE             (u32)(1 << 15)
-#define RNPM_FLAG_NEED_LINK_UPDATE             (u32)(1 << 16)
-#define RNPM_FLAG_NEED_LINK_CONFIG             (u32)(1 << 17)
-#define RNPM_FLAG_FDIR_HASH_CAPABLE            (u32)(1 << 18)
-#define RNPM_FLAG_FDIR_PERFECT_CAPABLE         (u32)(1 << 19)
-#define RNPM_FLAG_FCOE_CAPABLE                 (u32)(1 << 20)
-#define RNPM_FLAG_FCOE_ENABLED                 (u32)(1 << 21)
-#define RNPM_FLAG_SRIOV_CAPABLE                (u32)(1 << 22)
-#define RNPM_FLAG_SRIOV_ENABLED                (u32)(1 << 23)
-#define RNPM_FLAG_MUTIPORT_ENABLED             (u32)(1 << 24)
+#define RNPM_FLAG_MSI_CAPABLE ((u32)(1 << 0))
+#define RNPM_FLAG_MSI_ENABLED ((u32)(1 << 1))
+#define RNPM_FLAG_MSIX_CAPABLE ((u32)(1 << 2))
+#define RNPM_FLAG_MSIX_ENABLED ((u32)(1 << 3))
+#define RNPM_FLAG_RX_1BUF_CAPABLE ((u32)(1 << 4))
+#define RNPM_FLAG_RX_PS_CAPABLE ((u32)(1 << 5))
+#define RNPM_FLAG_RX_PS_ENABLED ((u32)(1 << 6))
+#define RNPM_FLAG_IN_NETPOLL ((u32)(1 << 7))
+#define RNPM_FLAG_DCA_ENABLED ((u32)(1 << 8))
+#define RNPM_FLAG_DCA_CAPABLE ((u32)(1 << 9))
+#define RNPM_FLAG_IMIR_ENABLED ((u32)(1 << 10))
+#define RNPM_FLAG_MQ_CAPABLE ((u32)(1 << 11))
+#define RNPM_FLAG_DCB_ENABLED ((u32)(1 << 12))
+#define RNPM_FLAG_VMDQ_CAPABLE ((u32)(1 << 13))
+#define RNPM_FLAG_VMDQ_ENABLED ((u32)(1 << 14))
+#define RNPM_FLAG_FAN_FAIL_CAPABLE ((u32)(1 << 15))
+#define RNPM_FLAG_NEED_LINK_UPDATE ((u32)(1 << 16))
+#define RNPM_FLAG_NEED_LINK_CONFIG ((u32)(1 << 17))
+#define RNPM_FLAG_FDIR_HASH_CAPABLE ((u32)(1 << 18))
+#define RNPM_FLAG_FDIR_PERFECT_CAPABLE ((u32)(1 << 19))
+#define RNPM_FLAG_FCOE_CAPABLE ((u32)(1 << 20))
+#define RNPM_FLAG_FCOE_ENABLED ((u32)(1 << 21))
+#define RNPM_FLAG_SRIOV_CAPABLE ((u32)(1 << 22))
+#define RNPM_FLAG_SRIOV_ENABLED ((u32)(1 << 23))
+#define RNPM_FLAG_MUTIPORT_ENABLED ((u32)(1 << 24))
 	/* only in mutiport mode */
-#define RNPM_FLAG_RXHASH_DISABLE               (u32)(1 << 25)
-#define RNPM_FLAG_VXLAN_OFFLOAD_CAPABLE          (u32)(1 << 26)
-#define RNPM_FLAG_VXLAN_OFFLOAD_ENABLE           (u32)(1 << 27)
-#define RNPM_FLAG_SWITCH_LOOPBACK_EN		(u32)(1 << 28)
+#define RNPM_FLAG_RXHASH_DISABLE ((u32)(1 << 25))
+#define RNPM_FLAG_VXLAN_OFFLOAD_CAPABLE ((u32)(1 << 26))
+#define RNPM_FLAG_VXLAN_OFFLOAD_ENABLE ((u32)(1 << 27))
+#define RNPM_FLAG_SWITCH_LOOPBACK_EN ((u32)(1 << 28))
 
 	u32 flags2;
-#define RNPM_FLAG2_RSC_CAPABLE                 (u32)(1 << 0)
-#define RNPM_FLAG2_RSC_ENABLED                 (u32)(1 << 1)
-#define RNPM_FLAG2_TEMP_SENSOR_CAPABLE         (u32)(1 << 2)
-#define RNPM_FLAG2_TEMP_SENSOR_EVENT           (u32)(1 << 3)
-#define RNPM_FLAG2_SEARCH_FOR_SFP              (u32)(1 << 4)
-#define RNPM_FLAG2_SFP_NEEDS_RESET             (u32)(1 << 5)
-#define RNPM_FLAG2_RESET_REQUESTED             (u32)(1 << 6)
-#define RNPM_FLAG2_FDIR_REQUIRES_REINIT        (u32)(1 << 7)
-#define RNPM_FLAG2_RSS_FIELD_IPV4_UDP		(u32)(1 << 8)
-#define RNPM_FLAG2_RSS_FIELD_IPV6_UDP		(u32)(1 << 9)
-#define RNPM_FLAG2_PTP_ENABLED			(u32)(1 << 10)
-#define RNPM_FLAG2_PTP_PPS_ENABLED		(u32)(1 << 11)
-#define RNPM_FLAG2_BRIDGE_MODE_VEB		(u32)(1 << 12)
-#define RNPM_FLAG2_VLAN_STAGS_ENABLED            (u32)(1 << 13)
-#define RNPM_FLAG2_UDP_TUN_REREG_NEEDED          (u32)(1 << 14)
-#define RNPM_FLAG2_TX_RATE_SETUP          (u32)(1 << 14)
+#define RNPM_FLAG2_RSC_CAPABLE ((u32)(1 << 0))
+#define RNPM_FLAG2_RSC_ENABLED ((u32)(1 << 1))
+#define RNPM_FLAG2_TEMP_SENSOR_CAPABLE ((u32)(1 << 2))
+#define RNPM_FLAG2_TEMP_SENSOR_EVENT ((u32)(1 << 3))
+#define RNPM_FLAG2_SEARCH_FOR_SFP ((u32)(1 << 4))
+#define RNPM_FLAG2_SFP_NEEDS_RESET ((u32)(1 << 5))
+#define RNPM_FLAG2_RESET_REQUESTED ((u32)(1 << 6))
+#define RNPM_FLAG2_FDIR_REQUIRES_REINIT ((u32)(1 << 7))
+#define RNPM_FLAG2_RSS_FIELD_IPV4_UDP ((u32)(1 << 8))
+#define RNPM_FLAG2_RSS_FIELD_IPV6_UDP ((u32)(1 << 9))
+#define RNPM_FLAG2_PTP_ENABLED ((u32)(1 << 10))
+#define RNPM_FLAG2_PTP_PPS_ENABLED ((u32)(1 << 11))
+#define RNPM_FLAG2_BRIDGE_MODE_VEB ((u32)(1 << 12))
+#define RNPM_FLAG2_VLAN_STAGS_ENABLED ((u32)(1 << 13))
+#define RNPM_FLAG2_UDP_TUN_REREG_NEEDED ((u32)(1 << 14))
+#define RNPM_FLAG2_TX_RATE_SETUP ((u32)(1 << 14))
 	u32 flags_feature;
-#define RNPM_FLAG_DELAY_UPDATE_VLAN_FILTER       (u32)(1 << 0)
-#define RNPM_FLAG_DELAY_UPDATE_VLAN_TABLE        (u32)(1 << 1)
-#define RNPM_FLAG_DELAY_UPDATE_MUTICAST_TABLE        (u32)(1 << 1)
+#define RNPM_FLAG_DELAY_UPDATE_VLAN_FILTER ((u32)(1 << 0))
+#define RNPM_FLAG_DELAY_UPDATE_VLAN_TABLE ((u32)(1 << 1))
+#define RNPM_FLAG_DELAY_UPDATE_MUTICAST_TABLE ((u32)(1 << 1))
 
 	u32  priv_flags;
 #define RNPM_PRIV_FLAG_MAC_LOOPBACK      BIT(0)
 #define RNPM_PRIV_FLAG_SWITCH_LOOPBACK   BIT(1)
 #define RNPM_PRIV_FLAG_VEB_ENABLE        BIT(2)
-#define RNPM_PRIV_FLAG_FT_PADDING        BIT(3)
+#define RNPM_PRIV_FLAG_PCIE_CACHE_ALIGN_PATCH BIT(3)
 #define RNPM_PRIV_FLAG_PADDING_DEBUG     BIT(4)
 #define RNPM_PRIV_FLAG_PTP_DEBUG         BIT(5)
 #define RNPM_PRIV_FLAG_SIMUATE_DOWN      BIT(6)
 #define RNPM_PRIV_FLAG_TO_RPU            BIT(7)
 #define RNPM_PRIV_FLAG_LEN_ERR           BIT(8)
+#define RNPM_PRIV_FLAG_FW_10G_1G_AUTO_DETCH_EN BIT(9)
+#define RNPM_PRIV_FLAG_TX_PADDING        BIT(13)
+#define RNPM_PRIV_FLAG_FORCE_SPEED_ABLIY BIT(14)
+#define RNPM_PRIV_FLAG_LLDP_EN_STAT			   BIT(15)
 
 	/* Tx fast path data */
 	unsigned int num_tx_queues;
@@ -912,9 +1000,16 @@ struct rnpm_adapter {
 	u32 timer_event_accumulator;
 	u32 vferr_refcount;
 	struct kobject *info_kobj;
-#ifdef CONFIG_RNPM_HWMON
+#ifdef RNPM_SYSFS
+#ifdef RNPM_HWMON
+#ifdef HAVE_HWMON_DEVICE_REGISTER_WITH_GROUPS
+	struct hwmon_buff *rnpm_hwmon_buff;
+#else
 	struct hwmon_buff rnpm_hwmon_buff;
-#endif /* CONFIG_RNPM_HWMON */
+#endif
+#endif /* RNPM_HWMON */
+#endif /* RNPM_SYSFS */
+
 #ifdef CONFIG_DEBUG_FS
 	struct dentry *rnpm_dbg_adapter;
 #endif /*CONFIG_DEBUG_FS*/
@@ -960,6 +1055,7 @@ enum rnpm_state_t {
 	__RNPM_IN_SFP_INIT,
 	__RNPM_READ_I2C,
 	__RNPM_PTP_TX_IN_PROGRESS,
+	__RNPM_REMOVING,
 };
 
 struct rnpm_cb {
@@ -985,10 +1081,11 @@ enum rnpm_boards {
     board_vu440_4x10G,
     board_vu440_8x10G,
     board_n10,
+	board_n400_4x1G,
 };
 
 #ifdef CONFIG_RNPM_DCB
-extern const struct dcbnl_rtnl_ops rnpm_dcbnl_ops;
+extern const struct dcbnl_rtnl_ops dcbnl_ops;
 #endif
 
 extern char rnpm_driver_name[];
@@ -1079,7 +1176,7 @@ extern u32 rnpm_rx_desc_used_hw(struct rnpm_hw *hw, struct rnpm_ring *rx_ring);
 extern void rnpm_do_reset(struct net_device *netdev);
 #ifdef CONFIG_RNPM_HWMON
 extern void rnpm_sysfs_exit(struct rnpm_adapter *adapter);
-extern int rnpm_sysfs_init(struct rnpm_adapter *adapter);
+extern int rnpm_sysfs_init(struct rnpm_adapter *adapter, int port);
 #endif /* CONFIG_RNPM_HWMON */
 #ifdef CONFIG_DEBUG_FS
 extern void rnpm_dbg_adapter_init(struct rnpm_adapter *adapter);
@@ -1135,14 +1232,24 @@ int rnpm_update_ethtool_fdir_entry(struct rnpm_adapter *adapter,
 				  struct rnpm_fdir_filter *input,
 				  u16 sw_idx);
 
-static inline int rnpm_is_pf1(struct pci_dev *pdev)
+static inline bool rnpm_is_pf1(struct pci_dev *pdev)
 {
-	return ((pdev->devfn) ? 1 : 0);
+	struct rnpm_pf_adapter *pf_adapter = pci_get_drvdata(pdev);
+	/* n10 read this from bar0 */
+	u16 vf_num = -1;
+	u32 pfvfnum_reg;
+#define PF_NUM_REG_N10 (0x75f000)
+	pfvfnum_reg = (PF_NUM_REG_N10 & (pci_resource_len(pdev, 0) - 1));
+	vf_num = readl(pf_adapter->hw_bar0 + pfvfnum_reg);
+	// printk("vf_num is %x, reg:0x%x\n", vf_num, pfvfnum_reg);
+#define VF_NUM_MASK_TEMP (0x400)
+#define VF_NUM_OFF		 (4)
+	return !!((vf_num & VF_NUM_MASK_TEMP) >> VF_NUM_OFF);
 }
 
 extern void rnpm_service_task(struct work_struct *work);
 extern void rnpm_sysfs_exit(struct rnpm_adapter *adapter);
-extern int rnpm_sysfs_init(struct rnpm_adapter *adapter);
+extern int rnpm_sysfs_init(struct rnpm_adapter *adapter, int port);
 
 #ifdef CONFIG_PCI_IOV
 void rnpm_sriov_reinit(struct rnpm_adapter *adapter);
@@ -1175,5 +1282,36 @@ static inline bool rnpm_port_is_valid(struct rnpm_pf_adapter *pf_adapter, int i)
 	}
 	return b;
 }
+
+int rnpm_set_clause73_autoneg_enable(struct net_device *netdev, int enable);
+int rnpm_card_partially_supported_10g_1g_sfp(
+	struct rnpm_pf_adapter *pf_adapter);
+
+#define RNPM_FW_VERSION_NEW_ETHTOOL		0x00050010
+static inline bool rnpm_fw_is_old_ethtool(struct rnpm_hw *hw)
+{
+	return hw->fw_version >= RNPM_FW_VERSION_NEW_ETHTOOL ? false : true;
+}
+
+static inline int Hamming_weight_1(u32 n)
+{
+	int count_ = 0;
+
+	while (n != 0) {
+		n &= (n - 1);
+		count_++;
+	}
+	return count_;
+}
+
+#define RNPM_WOL_GET_SUPPORTED(adapter) \
+	(!!(adapter->wol & (BIT(0) << adapter->port)))
+#define RNPM_WOL_GET_STATUS(adapter) \
+	(!!(adapter->wol & (BIT(4) << adapter->port)))
+#define RNPM_WOL_SET_SUPPORTED(adapter) \
+	(adapter->wol |= BIT(0) << adapter->port)
+#define RNPM_WOL_SET_STATUS(adapter) (adapter->wol |= BIT(4) << adapter->port)
+#define RNPM_WOL_CLEAR_STATUS(adapter) \
+	(adapter->wol &= ~(BIT(4) << adapter->port))
 
 #endif /* _RNPM_H_ */

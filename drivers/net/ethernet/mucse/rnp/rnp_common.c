@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0
+/* Copyright(c) 2022 - 2023 Mucse Corporation. */
+
 #include <linux/pci.h>
 #include <linux/delay.h>
 #include <linux/sched.h>
@@ -14,7 +17,8 @@ static s32 rnp_get_eeprom_semaphore(struct rnp_hw *hw);
 static void rnp_release_eeprom_semaphore(struct rnp_hw *hw);
 static s32 rnp_ready_eeprom(struct rnp_hw *hw);
 static void rnp_standby_eeprom(struct rnp_hw *hw);
-static void rnp_shift_out_eeprom_bits(struct rnp_hw *hw, u16 data, u16 count);
+static void rnp_shift_out_eeprom_bits(struct rnp_hw *hw, u16 data,
+				      u16 count);
 static u16 rnp_shift_in_eeprom_bits(struct rnp_hw *hw, u16 count);
 static void rnp_raise_eeprom_clk(struct rnp_hw *hw, u32 *eec);
 static void rnp_lower_eeprom_clk(struct rnp_hw *hw, u32 *eec);
@@ -22,33 +26,16 @@ static void rnp_release_eeprom(struct rnp_hw *hw);
 
 static s32 rnp_mta_vector(struct rnp_hw *hw, u8 *mc_addr);
 static s32 rnp_poll_eerd_eewr_done(struct rnp_hw *hw, u32 ee_reg);
-static s32 rnp_read_eeprom_buffer_bit_bang(struct rnp_hw *hw,
-										   u16 offset,
-										   u16 words,
-										   u16 *data);
-static s32 rnp_write_eeprom_buffer_bit_bang(struct rnp_hw *hw,
-											u16 offset,
-											u16 words,
-											u16 *data);
-static s32 rnp_detect_eeprom_page_size_generic(struct rnp_hw *hw, u16 offset);
+static s32 rnp_read_eeprom_buffer_bit_bang(struct rnp_hw *hw, u16 offset,
+					   u16 words, u16 *data);
+static s32 rnp_write_eeprom_buffer_bit_bang(struct rnp_hw *hw, u16 offset,
+					    u16 words, u16 *data);
+static s32 rnp_detect_eeprom_page_size_generic(struct rnp_hw *hw,
+					       u16 offset);
 static s32 rnp_disable_pcie_master(struct rnp_hw *hw);
 
 unsigned int rnp_loglevel;
 module_param(rnp_loglevel, uint, S_IRUSR | S_IWUSR);
-
-/**
- *  rnp_device_supports_autoneg_fc - Check if phy supports autoneg flow
- *  control
- *  @hw: pointer to hardware structure
- *
- *  There are several phys that do not support autoneg flow control. This
- *  function check the device id to see if the associated phy supports
- *  autoneg flow control.
- **/
-s32 rnp_device_supports_autoneg_fc(struct rnp_hw *hw)
-{
-	return 0;
-}
 
 /**
  *  rnp_setup_fc - Set up flow control
@@ -56,13 +43,13 @@ s32 rnp_device_supports_autoneg_fc(struct rnp_hw *hw)
  *
  *  Called at init time to set up flow control.
  **/
-static s32 rnp_setup_fc(struct rnp_hw *hw)
+__maybe_unused static s32 rnp_setup_fc(struct rnp_hw *hw)
 {
 	s32 ret_val = 0;
+#if 0
 	u32 reg = 0, reg_bp = 0;
 	u16 reg_cu = 0;
 	bool got_lock = false;
-#if 0
 
 	/*
 	 * Validate the requested mode.  Strict IEEE mode does not allow
@@ -221,40 +208,14 @@ out:
  *  rnp_start_hw_generic - Prepare hardware for Tx/Rx
  *  @hw: pointer to hardware structure
  *
- *  Starts the hardware by filling the bus info structure and media type, clears
- *  all on chip counters, initializes receive address registers, multicast
- *  table, VLAN filter table, calls routine to set up link and flow control
- *  settings, and leaves transmit and receive units disabled and uninitialized
+ *  Starts the hardware by filling the bus info structure and media type,
+ *  clears all on chip counters, initializes receive address registers, 
+ *  multicast table, VLAN filter table, calls routine to set up link and
+ *  flow control settings, and leaves transmit and receive units disabled
+ *  and uninitialized
  **/
 s32 rnp_start_hw_generic(struct rnp_hw *hw)
 {
-	//u32 ctrl_ext;
-
-#ifdef U//V3P_1PF
-	//return 0;
-#endif
-
-	///* Set the media type */
-	////hw->phy.media_type = hw->mac.ops.get_media_type(hw);
-	//hw->phy.media_type = rnp_media_type_fiber;
-
-	///* Identify the PHY */
-	////hw->phy.ops.identify(hw);
-	//hw->phy.type = rnp_phy_sfp;
-
-	///* Clear the VLAN filter table */
-	////hw->mac.ops.clear_vfta(hw);
-	//hw->ops.clr_vfta(hw);
-
-	///* Clear statistics registers */
-	////hw->mac.ops.clear_hw_cntrs(hw);
-
-	///* Setup flow control */
-	////rnp_setup_fc(hw);
-
-	///* Clear adapter stopped flag */
-	//hw->adapter_stopped = false;
-
 	return 0;
 }
 
@@ -270,11 +231,11 @@ s32 rnp_start_hw_generic(struct rnp_hw *hw)
  **/
 s32 rnp_start_hw_gen2(struct rnp_hw *hw)
 {
+#if 0
 	u32 i;
 	u32 regval;
 
 	/* Clear the rate limiters */
-#if 0
 	for (i = 0; i < hw->mac.max_tx_queues; i++) {
 		;
 		;
@@ -299,22 +260,22 @@ s32 rnp_start_hw_gen2(struct rnp_hw *hw)
  *  @hw: pointer to hardware structure
  *
  *  Initialize the hardware by resetting the hardware, filling the bus info
- *  structure and media type, clears all on chip counters, initializes receive
- *  address registers, multicast table, VLAN filter table, calls routine to set
- *  up link and flow control settings, and leaves transmit and receive units
- *  disabled and uninitialized
+ *  structure and media type, clears all on chip counters, initializes 
+ *  receive address registers, multicast table, VLAN filter table, calls 
+ *  routine to set up link and flow control settings, and leaves transmit
+ *  and receive units disabled and uninitialized
  **/
 s32 rnp_init_hw_generic(struct rnp_hw *hw)
 {
-//	s32 status;
-//
-//	/* Reset the hardware */
-//	status = hw->mac.ops.reset_hw(hw);
-//
-//	if (status == 0) {
-//		/* Start the HW */
-//		status = hw->mac.ops.start_hw(hw);
-//	}
+	//	s32 status;
+	//
+	//	/* Reset the hardware */
+	//	status = hw->mac.ops.reset_hw(hw);
+	//
+	//	if (status == 0) {
+	//		/* Start the HW */
+	//		status = hw->mac.ops.start_hw(hw);
+	//	}
 
 	//return status;
 	return 0;
@@ -338,9 +299,9 @@ void rnp_reset_msix_table_generic(struct rnp_hw *hw)
  **/
 s32 rnp_clear_hw_cntrs_generic(struct rnp_hw *hw)
 {
+#if 0
 	u16 i = 0;
 
-#if 0
 	if (hw->mac.type == rnp_mac_X540) {
 		if (hw->phy.id == 0)
 			hw->phy.ops.identify(hw);
@@ -361,18 +322,17 @@ s32 rnp_clear_hw_cntrs_generic(struct rnp_hw *hw)
  *
  *  Reads the part number string from the EEPROM.
  **/
-s32 rnp_read_pba_string_generic(struct rnp_hw *hw,
-								u8 *pba_num,
-								u32 pba_num_size)
+s32 rnp_read_pba_string_generic(struct rnp_hw *hw, u8 *pba_num,
+				u32 pba_num_size)
 {
 	return 0;
 }
 
 s32 rnp_get_permtion_mac_addr(struct rnp_hw *hw, u8 *mac_addr)
 {
+#ifdef NO_CM3_MBX
 	u32 v;
 
-#ifdef NO_MBX_VERSION
 	TRACE();
 #ifdef FIX_MAC_TEST
 	v = 0x00004E46;
@@ -384,7 +344,7 @@ s32 rnp_get_permtion_mac_addr(struct rnp_hw *hw, u8 *mac_addr)
 	mac_addr[2] = (u8)(v >> 0);
 
 #ifdef FIX_MAC_TEST
-	v = 0x00032F00 + rnp_is_pf1(hw->pdev);
+	v = 0x00032F00 + rnp_is_pf1(hw);
 #else
 	v = rd32(hw, RNP_TOP_MAC_SN);
 #endif
@@ -392,7 +352,8 @@ s32 rnp_get_permtion_mac_addr(struct rnp_hw *hw, u8 *mac_addr)
 	mac_addr[4] = (u8)(v >> 8);
 	mac_addr[5] = (u8)(v >> 0);
 #else
-	if (rnp_fw_get_macaddr(hw, hw->pfvfnum, mac_addr, hw->nr_lane)) {
+	if (rnp_fw_get_macaddr(hw, hw->pfvfnum, mac_addr, hw->nr_lane) ||
+	    !is_valid_ether_addr(mac_addr)) {
 		dbg("generate ramdom macaddress...\n");
 		eth_random_addr(mac_addr);
 	}
@@ -440,7 +401,6 @@ s32 rnp_get_mac_addr_generic(struct rnp_hw *hw, u8 *mac_addr)
  **/
 s32 rnp_stop_adapter_generic(struct rnp_hw *hw)
 {
-	u32 reg_val;
 	u16 i;
 	struct rnp_dma_info *dma = &hw->dma;
 
@@ -472,7 +432,7 @@ s32 rnp_stop_adapter_generic(struct rnp_hw *hw)
 	usleep_range(1000, 2000);
 
 	/*
-	 * Prevent the PCI-E bus from from hanging by disabling PCI-E master
+	 * Prevent the PCI-E bus from hanging by disabling PCI-E master
 	 * access and verify no pending requests
 	 */
 	return rnp_disable_pcie_master(hw);
@@ -511,9 +471,9 @@ s32 rnp_led_off_generic(struct rnp_hw *hw, u32 index)
  **/
 s32 rnp_init_eeprom_params_generic(struct rnp_hw *hw)
 {
-	struct rnp_eeprom_info *eeprom = &hw->eeprom;
-	u32 eec;
-	u16 eeprom_size;
+	//struct rnp_eeprom_info *eeprom = &hw->eeprom;
+	//u32 eec;
+	//u16 eeprom_size;
 
 	return 0;
 }
@@ -527,10 +487,8 @@ s32 rnp_init_eeprom_params_generic(struct rnp_hw *hw)
  *
  *  Reads 16 bit word(s) from EEPROM through bit-bang method
  **/
-s32 rnp_write_eeprom_buffer_bit_bang_generic(struct rnp_hw *hw,
-											 u16 offset,
-											 u16 words,
-											 u16 *data)
+s32 rnp_write_eeprom_buffer_bit_bang_generic(struct rnp_hw *hw, u16 offset,
+					     u16 words, u16 *data)
 {
 	return -EINVAL;
 }
@@ -545,10 +503,8 @@ s32 rnp_write_eeprom_buffer_bit_bang_generic(struct rnp_hw *hw,
  *  If rnp_eeprom_update_checksum is not called after this function, the
  *  EEPROM will most likely contain an invalid checksum.
  **/
-static s32 rnp_write_eeprom_buffer_bit_bang(struct rnp_hw *hw,
-											u16 offset,
-											u16 words,
-											u16 *data)
+static s32 rnp_write_eeprom_buffer_bit_bang(struct rnp_hw *hw, u16 offset,
+					    u16 words, u16 *data)
 {
 	return -EINVAL;
 }
@@ -588,10 +544,8 @@ out:
  *
  *  Reads 16 bit word(s) from EEPROM through bit-bang method
  **/
-s32 rnp_read_eeprom_buffer_bit_bang_generic(struct rnp_hw *hw,
-											u16 offset,
-											u16 words,
-											u16 *data)
+s32 rnp_read_eeprom_buffer_bit_bang_generic(struct rnp_hw *hw, u16 offset,
+					    u16 words, u16 *data)
 {
 	return -EINVAL;
 }
@@ -605,10 +559,8 @@ s32 rnp_read_eeprom_buffer_bit_bang_generic(struct rnp_hw *hw,
  *
  *  Reads 16 bit word(s) from EEPROM through bit-bang method
  **/
-static s32 rnp_read_eeprom_buffer_bit_bang(struct rnp_hw *hw,
-										   u16 offset,
-										   u16 words,
-										   u16 *data)
+static s32 rnp_read_eeprom_buffer_bit_bang(struct rnp_hw *hw, u16 offset,
+					   u16 words, u16 *data)
 {
 	return -EINVAL;
 }
@@ -621,7 +573,8 @@ static s32 rnp_read_eeprom_buffer_bit_bang(struct rnp_hw *hw,
  *
  *  Reads 16 bit value from EEPROM through bit-bang method
  **/
-s32 rnp_read_eeprom_bit_bang_generic(struct rnp_hw *hw, u16 offset, u16 *data)
+s32 rnp_read_eeprom_bit_bang_generic(struct rnp_hw *hw, u16 offset,
+				     u16 *data)
 {
 	s32 status;
 
@@ -647,10 +600,8 @@ out:
  *
  *  Reads a 16 bit word(s) from the EEPROM using the EERD register.
  **/
-s32 rnp_read_eerd_buffer_generic(struct rnp_hw *hw,
-								 u16 offset,
-								 u16 words,
-								 u16 *data)
+s32 rnp_read_eerd_buffer_generic(struct rnp_hw *hw, u16 offset, u16 words,
+				 u16 *data)
 {
 	return -EINVAL;
 }
@@ -664,7 +615,8 @@ s32 rnp_read_eerd_buffer_generic(struct rnp_hw *hw,
  *  This function is called only when we are writing a new large buffer
  *  at given offset so the data would be overwritten anyway.
  **/
-static s32 rnp_detect_eeprom_page_size_generic(struct rnp_hw *hw, u16 offset)
+__maybe_unused static s32
+rnp_detect_eeprom_page_size_generic(struct rnp_hw *hw, u16 offset)
 {
 	return -EINVAL;
 }
@@ -691,10 +643,8 @@ s32 rnp_read_eerd_generic(struct rnp_hw *hw, u16 offset, u16 *data)
  *
  *  Write a 16 bit word(s) to the EEPROM using the EEWR register.
  **/
-s32 rnp_write_eewr_buffer_generic(struct rnp_hw *hw,
-								  u16 offset,
-								  u16 words,
-								  u16 *data)
+s32 rnp_write_eewr_buffer_generic(struct rnp_hw *hw, u16 offset, u16 words,
+				  u16 *data)
 {
 	return -EINVAL;
 }
@@ -720,7 +670,8 @@ s32 rnp_write_eewr_generic(struct rnp_hw *hw, u16 offset, u16 data)
  *  Polls the status bit (bit 1) of the EERD or EEWR to determine when the
  *  read or write is done respectively.
  **/
-static s32 rnp_poll_eerd_eewr_done(struct rnp_hw *hw, u32 ee_reg)
+__maybe_unused static s32 rnp_poll_eerd_eewr_done(struct rnp_hw *hw,
+						  u32 ee_reg)
 {
 	return -EINVAL;
 }
@@ -732,7 +683,7 @@ static s32 rnp_poll_eerd_eewr_done(struct rnp_hw *hw, u32 ee_reg)
  *  Prepares EEPROM for access using bit-bang method. This function should
  *  be called before issuing a command to the EEPROM.
  **/
-static s32 rnp_acquire_eeprom(struct rnp_hw *hw)
+__maybe_unused static s32 rnp_acquire_eeprom(struct rnp_hw *hw)
 {
 	s32 status = 0;
 
@@ -745,7 +696,7 @@ static s32 rnp_acquire_eeprom(struct rnp_hw *hw)
  *
  *  Sets the hardware semaphores so EEPROM access can occur for bit-bang method
  **/
-static s32 rnp_get_eeprom_semaphore(struct rnp_hw *hw)
+__maybe_unused static s32 rnp_get_eeprom_semaphore(struct rnp_hw *hw)
 {
 	return 0;
 }
@@ -756,7 +707,7 @@ static s32 rnp_get_eeprom_semaphore(struct rnp_hw *hw)
  *
  *  This function clears hardware semaphore bits.
  **/
-static void rnp_release_eeprom_semaphore(struct rnp_hw *hw)
+__maybe_unused static void rnp_release_eeprom_semaphore(struct rnp_hw *hw)
 {
 }
 
@@ -764,7 +715,7 @@ static void rnp_release_eeprom_semaphore(struct rnp_hw *hw)
  *  rnp_ready_eeprom - Polls for EEPROM ready
  *  @hw: pointer to hardware structure
  **/
-static s32 rnp_ready_eeprom(struct rnp_hw *hw)
+__maybe_unused static s32 rnp_ready_eeprom(struct rnp_hw *hw)
 {
 	return -EINVAL;
 }
@@ -773,7 +724,7 @@ static s32 rnp_ready_eeprom(struct rnp_hw *hw)
  *  rnp_standby_eeprom - Returns EEPROM to a "standby" state
  *  @hw: pointer to hardware structure
  **/
-static void rnp_standby_eeprom(struct rnp_hw *hw)
+__maybe_unused static void rnp_standby_eeprom(struct rnp_hw *hw)
 {
 }
 
@@ -783,7 +734,8 @@ static void rnp_standby_eeprom(struct rnp_hw *hw)
  *  @data: data to send to the EEPROM
  *  @count: number of bits to shift out
  **/
-static void rnp_shift_out_eeprom_bits(struct rnp_hw *hw, u16 data, u16 count)
+__maybe_unused static void rnp_shift_out_eeprom_bits(struct rnp_hw *hw,
+						     u16 data, u16 count)
 {
 }
 
@@ -791,12 +743,9 @@ static void rnp_shift_out_eeprom_bits(struct rnp_hw *hw, u16 data, u16 count)
  *  rnp_shift_in_eeprom_bits - Shift data bits in from the EEPROM
  *  @hw: pointer to hardware structure
  **/
-static u16 rnp_shift_in_eeprom_bits(struct rnp_hw *hw, u16 count)
+__maybe_unused static u16 rnp_shift_in_eeprom_bits(struct rnp_hw *hw,
+						   u16 count)
 {
-	u32 eec;
-	u32 i;
-	u16 data = 0;
-
 	return 0;
 }
 
@@ -805,7 +754,8 @@ static u16 rnp_shift_in_eeprom_bits(struct rnp_hw *hw, u16 count)
  *  @hw: pointer to hardware structure
  *  @eec: EEC register's current value
  **/
-static void rnp_raise_eeprom_clk(struct rnp_hw *hw, u32 *eec)
+__maybe_unused static void rnp_raise_eeprom_clk(struct rnp_hw *hw,
+						u32 *eec)
 {
 }
 
@@ -814,7 +764,8 @@ static void rnp_raise_eeprom_clk(struct rnp_hw *hw, u32 *eec)
  *  @hw: pointer to hardware structure
  *  @eecd: EECD's current value
  **/
-static void rnp_lower_eeprom_clk(struct rnp_hw *hw, u32 *eec)
+__maybe_unused static void rnp_lower_eeprom_clk(struct rnp_hw *hw,
+						u32 *eec)
 {
 }
 
@@ -822,7 +773,7 @@ static void rnp_lower_eeprom_clk(struct rnp_hw *hw, u32 *eec)
  *  rnp_release_eeprom - Release EEPROM, release semaphores
  *  @hw: pointer to hardware structure
  **/
-static void rnp_release_eeprom(struct rnp_hw *hw)
+__maybe_unused static void rnp_release_eeprom(struct rnp_hw *hw)
 {
 }
 
@@ -843,7 +794,8 @@ u16 rnp_calc_eeprom_checksum_generic(struct rnp_hw *hw)
  *  Performs checksum calculation and validates the EEPROM checksum.  If the
  *  caller does not need checksum_val, the value can be NULL.
  **/
-s32 rnp_validate_eeprom_checksum_generic(struct rnp_hw *hw, u16 *checksum_val)
+s32 rnp_validate_eeprom_checksum_generic(struct rnp_hw *hw,
+					 u16 *checksum_val)
 {
 	return 0;
 }
@@ -867,66 +819,66 @@ s32 rnp_update_eeprom_checksum_generic(struct rnp_hw *hw)
  *
  *  Puts an ethernet address into a receive address register.
  **/
-s32 rnp_set_rar_generic(
-	struct rnp_hw *hw, u32 index, u8 *addr, u32 vmdq, u32 enable_addr)
+s32 rnp_set_rar_generic(struct rnp_hw *hw, u32 index, u8 *addr, u32 vmdq,
+			u32 enable_addr)
 {
-//	u32 mcstctrl;
-//	u32 rar_low, rar_high = 0;
-//	u32 rar_entries = hw->mac.num_rar_entries;
-//	struct rnp_adapter *adapter = (struct rnp_adapter *)hw->back;
-//
-//	// dump_stack();
-//
-//	/* Make sure we are using a valid rar index range */
-//	if (index >= rar_entries) {
-//		rnp_err("RAR index %d is out of range.\n", index);
-//		return RNP_ERR_INVALID_ARGUMENT;
-//	}
-//
-//	hw_dbg(hw,
-//		   "    RAR[%d] <= %pM.  vmdq:%d enable:0x%x\n",
-//		   index,
-//		   addr,
-//		   vmdq,
-//		   enable_addr);
-//
-//	/* setup VMDq pool selection before this RAR gets enabled */
-//	/* only sriov mode use this */
-//	// FIXME
-//	if (adapter->flags & RNP_FLAG_SRIOV_ENABLED)
-//		hw->mac.ops.set_vmdq(hw, index, vmdq);
-//
-//	/*
-//	 * HW expects these in big endian so we reverse the byte
-//	 * order from network order (big endian) to little endian
-//	 */
-//	rar_low = ((u32)addr[5] | ((u32)addr[4] << 8) | ((u32)addr[3] << 16) |
-//			   ((u32)addr[2] << 24));
-//	/*
-//	 * Some parts put the VMDq setting in the extra RAH bits,
-//	 * so save everything except the lower 16 bits that hold part
-//	 * of the address and the address valid bit.
-//	 */
-//	rar_high = rd32(hw, RNP_ETH_RAR_RH(index));
-//	rar_high &= ~(0x0000FFFF | RNP_RAH_AV);
-//	rar_high |= ((u32)addr[1] | ((u32)addr[0] << 8));
-//
-//	if (enable_addr != 0)
-//		rar_high |= RNP_RAH_AV;
-//
-//	wr32(hw, RNP_ETH_RAR_RL(index), rar_low);
-//	wr32(hw, RNP_ETH_RAR_RH(index), rar_high);
-//
-//	/* open unicast filter */
-//	/* we now not use unicast */
-//	/* but we must open this since dest-mac filter | unicast table */
-//	/* all packets up if close unicast table */
-//	mcstctrl = rd32(hw, RNP_ETH_DMAC_MCSTCTRL);
-//	mcstctrl |= RNP_MCSTCTRL_UNICASE_TBL_EN;
-//	wr32(hw, RNP_ETH_DMAC_MCSTCTRL, mcstctrl);
-//
-//	// printk("set rar address %x\n", rd32(hw, RNP_ETH_DMAC_MCSTCTRL));
-//
+	//	u32 mcstctrl;
+	//	u32 rar_low, rar_high = 0;
+	//	u32 rar_entries = hw->mac.num_rar_entries;
+	//	struct rnp_adapter *adapter = (struct rnp_adapter *)hw->back;
+	//
+	//	// dump_stack();
+	//
+	//	/* Make sure we are using a valid rar index range */
+	//	if (index >= rar_entries) {
+	//		rnp_err("RAR index %d is out of range.\n", index);
+	//		return RNP_ERR_INVALID_ARGUMENT;
+	//	}
+	//
+	//	hw_dbg(hw,
+	//		   "    RAR[%d] <= %pM.  vmdq:%d enable:0x%x\n",
+	//		   index,
+	//		   addr,
+	//		   vmdq,
+	//		   enable_addr);
+	//
+	//	/* setup VMDq pool selection before this RAR gets enabled */
+	//	/* only sriov mode use this */
+	//	// FIXME
+	//	if (adapter->flags & RNP_FLAG_SRIOV_ENABLED)
+	//		hw->mac.ops.set_vmdq(hw, index, vmdq);
+	//
+	//	/*
+	//	 * HW expects these in big endian so we reverse the byte
+	//	 * order from network order (big endian) to little endian
+	//	 */
+	//	rar_low = ((u32)addr[5] | ((u32)addr[4] << 8) | ((u32)addr[3] << 16) |
+	//			   ((u32)addr[2] << 24));
+	//	/*
+	//	 * Some parts put the VMDq setting in the extra RAH bits,
+	//	 * so save everything except the lower 16 bits that hold part
+	//	 * of the address and the address valid bit.
+	//	 */
+	//	rar_high = rd32(hw, RNP_ETH_RAR_RH(index));
+	//	rar_high &= ~(0x0000FFFF | RNP_RAH_AV);
+	//	rar_high |= ((u32)addr[1] | ((u32)addr[0] << 8));
+	//
+	//	if (enable_addr != 0)
+	//		rar_high |= RNP_RAH_AV;
+	//
+	//	wr32(hw, RNP_ETH_RAR_RL(index), rar_low);
+	//	wr32(hw, RNP_ETH_RAR_RH(index), rar_high);
+	//
+	//	/* open unicast filter */
+	//	/* we now not use unicast */
+	//	/* but we must open this since dest-mac filter | unicast table */
+	//	/* all packets up if close unicast table */
+	//	mcstctrl = rd32(hw, RNP_ETH_DMAC_MCSTCTRL);
+	//	mcstctrl |= RNP_MCSTCTRL_UNICASE_TBL_EN;
+	//	wr32(hw, RNP_ETH_DMAC_MCSTCTRL, mcstctrl);
+	//
+	//	// printk("set rar address %x\n", rd32(hw, RNP_ETH_DMAC_MCSTCTRL));
+	//
 	return 0;
 }
 
@@ -976,57 +928,57 @@ s32 rnp_clear_rar_generic(struct rnp_hw *hw, u32 index)
  **/
 s32 rnp_init_rx_addrs_generic(struct rnp_hw *hw)
 {
-//	u32 i;
-//	u32 rar_entries = hw->mac.num_rar_entries;
-//	u32 v;
-//
-//	hw_dbg(hw,
-//		   "init_rx_addrs:rar_entries:%d, mac.addr:%pM\n",
-//		   rar_entries,
-//		   hw->mac.addr);
-//	/*
-//	 * If the current mac address is valid, assume it is a software override
-//	 * to the permanent address.
-//	 * Otherwise, use the permanent address from the eeprom.
-//	 */
-//	if (!is_valid_ether_addr(hw->mac.addr)) {
-//		/* Get the MAC address from the RAR0 for later reference */
-//		hw->mac.ops.get_mac_addr(hw, hw->mac.addr);
-//		hw_dbg(hw, " Keeping Current RAR0 Addr =%pM\n", hw->mac.addr);
-//	} else {
-//		/* Setup the receive address. */
-//		hw_dbg(hw, "Overriding MAC Address in RAR[0]\n");
-//		hw_dbg(hw, " New MAC Addr =%pM\n", hw->mac.addr);
-//
-//		hw->mac.ops.set_rar(hw, 0, hw->mac.addr, 0, RNP_RAH_AV);
-//
-//		/*  clear VMDq pool/queue selection for RAR 0 */
-//		hw->mac.ops.clear_vmdq(hw, 0, RNP_CLEAR_VMDQ_ALL);
-//	}
-//	hw->addr_ctrl.overflow_promisc = 0;
-//
-//	hw->addr_ctrl.rar_used_count = 1;
-//
-//	/* Zero out the other receive addresses. */
-//	hw_dbg(hw, "Clearing RAR[1-%d]\n", rar_entries - 1);
-//	for (i = 1; i < rar_entries; i++) {
-//		wr32(hw, RNP_ETH_RAR_RL(i), 0);
-//		wr32(hw, RNP_ETH_RAR_RH(i), 0);
-//	}
-//
-//	/* Clear the MTA */
-//	hw->addr_ctrl.mta_in_use = 0;
-//	v = rd32(hw, RNP_ETH_DMAC_MCSTCTRL);
-//	v &= (~0x3);
-//	v |= hw->mac.mc_filter_type;
-//	wr32(hw, RNP_ETH_DMAC_MCSTCTRL, v);
-//
-//	hw_dbg(hw, " Clearing MTA\n");
-//	for (i = 0; i < hw->mac.mcft_size; i++)
-//		wr32(hw, RNP_MTA(i), 0);
-//
-//	if (hw->mac.ops.init_uta_tables)
-//		hw->mac.ops.init_uta_tables(hw);
+	//	u32 i;
+	//	u32 rar_entries = hw->mac.num_rar_entries;
+	//	u32 v;
+	//
+	//	hw_dbg(hw,
+	//		   "init_rx_addrs:rar_entries:%d, mac.addr:%pM\n",
+	//		   rar_entries,
+	//		   hw->mac.addr);
+	//	/*
+	//	 * If the current mac address is valid, assume it is a software override
+	//	 * to the permanent address.
+	//	 * Otherwise, use the permanent address from the eeprom.
+	//	 */
+	//	if (!is_valid_ether_addr(hw->mac.addr)) {
+	//		/* Get the MAC address from the RAR0 for later reference */
+	//		hw->mac.ops.get_mac_addr(hw, hw->mac.addr);
+	//		hw_dbg(hw, " Keeping Current RAR0 Addr =%pM\n", hw->mac.addr);
+	//	} else {
+	//		/* Setup the receive address. */
+	//		hw_dbg(hw, "Overriding MAC Address in RAR[0]\n");
+	//		hw_dbg(hw, " New MAC Addr =%pM\n", hw->mac.addr);
+	//
+	//		hw->mac.ops.set_rar(hw, 0, hw->mac.addr, 0, RNP_RAH_AV);
+	//
+	//		/*  clear VMDq pool/queue selection for RAR 0 */
+	//		hw->mac.ops.clear_vmdq(hw, 0, RNP_CLEAR_VMDQ_ALL);
+	//	}
+	//	hw->addr_ctrl.overflow_promisc = 0;
+	//
+	//	hw->addr_ctrl.rar_used_count = 1;
+	//
+	//	/* Zero out the other receive addresses. */
+	//	hw_dbg(hw, "Clearing RAR[1-%d]\n", rar_entries - 1);
+	//	for (i = 1; i < rar_entries; i++) {
+	//		wr32(hw, RNP_ETH_RAR_RL(i), 0);
+	//		wr32(hw, RNP_ETH_RAR_RH(i), 0);
+	//	}
+	//
+	//	/* Clear the MTA */
+	//	hw->addr_ctrl.mta_in_use = 0;
+	//	v = rd32(hw, RNP_ETH_DMAC_MCSTCTRL);
+	//	v &= (~0x3);
+	//	v |= hw->mac.mc_filter_type;
+	//	wr32(hw, RNP_ETH_DMAC_MCSTCTRL, v);
+	//
+	//	hw_dbg(hw, " Clearing MTA\n");
+	//	for (i = 0; i < hw->mac.mcft_size; i++)
+	//		wr32(hw, RNP_MTA(i), 0);
+	//
+	//	if (hw->mac.ops.init_uta_tables)
+	//		hw->mac.ops.init_uta_tables(hw);
 
 	return 0;
 }
@@ -1063,7 +1015,7 @@ static s32 rnp_mta_vector(struct rnp_hw *hw, u8 *mc_addr)
 	default: /* Invalid mc_filter_type */
 		hw_dbg(hw, "MC filter type param set incorrectly\n");
 		break;
-}
+	}
 
 	/* vector can only be 12-bits or boundary will be exceeded */
 	vector &= 0xFFF;
@@ -1079,11 +1031,8 @@ static void rnp_set_vf_mta(struct rnp_hw *hw, u16 vector)
 
 	vector_reg = (vector >> 5) & 0x7F;
 	vector_bit = vector & 0x1F;
-	hw_dbg(hw,
-		   "\t\t vf M: MTA-BIT:%4d, MTA_REG[%d][%d] <= 1\n",
-		   vector,
-		   vector_reg,
-		   vector_bit);
+	hw_dbg(hw, "\t\t vf M: MTA-BIT:%4d, MTA_REG[%d][%d] <= 1\n",
+	       vector, vector_reg, vector_bit);
 	hw->mac.mta_shadow[vector_reg] |= (1 << vector_bit);
 }
 /**
@@ -1114,12 +1063,8 @@ static void rnp_set_mta(struct rnp_hw *hw, u8 *mc_addr)
 	 */
 	vector_reg = (vector >> 5) & 0x7F;
 	vector_bit = vector & 0x1F;
-	hw_dbg(hw,
-		   "\t\t%pM: MTA-BIT:%4d, MTA_REG[%d][%d] <= 1\n",
-		   mc_addr,
-		   vector,
-		   vector_reg,
-		   vector_bit);
+	hw_dbg(hw, "\t\t%pM: MTA-BIT:%4d, MTA_REG[%d][%d] <= 1\n", mc_addr,
+	       vector, vector_reg, vector_bit);
 	hw->mac.mta_shadow[vector_reg] |= (1 << vector_bit);
 }
 
@@ -1131,11 +1076,14 @@ u8 *rnp_addr_list_itr(struct rnp_hw __maybe_unused *hw, u8 **mc_addr_ptr)
 	struct dev_mc_list *mc_ptr;
 #endif
 	u8 *addr = *mc_addr_ptr;
+
 #ifdef NETDEV_HW_ADDR_T_MULTICAST
 	mc_ptr = container_of(addr, struct netdev_hw_addr, addr[0]);
 	if (mc_ptr->list.next) {
 		struct netdev_hw_addr *ha;
-		ha = list_entry(mc_ptr->list.next, struct netdev_hw_addr, list);
+
+		ha = list_entry(mc_ptr->list.next, struct netdev_hw_addr,
+				list);
 		*mc_addr_ptr = ha->addr;
 	}
 #else
@@ -1145,6 +1093,7 @@ u8 *rnp_addr_list_itr(struct rnp_hw __maybe_unused *hw, u8 **mc_addr_ptr)
 #endif
 	else
 		*mc_addr_ptr = NULL;
+
 	return addr;
 }
 
@@ -1159,7 +1108,7 @@ u8 *rnp_addr_list_itr(struct rnp_hw __maybe_unused *hw, u8 **mc_addr_ptr)
  *  multicast table.
  **/
 s32 rnp_update_mc_addr_list_generic(struct rnp_hw *hw,
-		struct net_device *netdev)
+				    struct net_device *netdev)
 {
 #ifdef NETDEV_HW_ADDR_T_MULTICAST
 	struct netdev_hw_addr *ha;
@@ -1187,8 +1136,8 @@ s32 rnp_update_mc_addr_list_generic(struct rnp_hw *hw,
 	addr_count = netdev_mc_count(netdev);
 
 #ifdef NETDEV_HW_ADDR_T_MULTICAST
-	ha = list_first_entry(&netdev->mc.list,
-			struct netdev_hw_addr, list);
+	ha = list_first_entry(&netdev->mc.list, struct netdev_hw_addr,
+			      list);
 	addr_list = ha->addr;
 #else
 	addr_list = netdev->mc_list->dmi_addr;
@@ -1202,32 +1151,35 @@ s32 rnp_update_mc_addr_list_generic(struct rnp_hw *hw,
 	//	rnp_set_mta(hw, ha->addr);
 	//}
 
-
 	// sriov mode should set for vf multicast
 	if (adapter->flags & RNP_FLAG_SRIOV_ENABLED) {
 		for (i = 0; i < adapter->num_vfs; i++) {
-			struct vf_data_storage *vfinfo = &adapter->vfinfo[i];
+			struct vf_data_storage *vfinfo =
+				&adapter->vfinfo[i];
 			int j;
 
 			for (j = 0; j < vfinfo->num_vf_mc_hashes; j++)
-				rnp_set_vf_mta(hw, vfinfo->vf_mc_hashes[j]);
+				rnp_set_vf_mta(hw,
+					       vfinfo->vf_mc_hashes[j]);
 		}
 	}
 
 	/* Enable mta */
 	for (i = 0; i < hw->mac.mcft_size; i++) {
 		if (hw->addr_ctrl.mta_in_use)
-			wr32(hw, RNP_ETH_MUTICAST_HASH_TABLE(i), hw->mac.mta_shadow[i]);
+			wr32(hw, RNP_ETH_MULTICAST_HASH_TABLE(i),
+			     hw->mac.mta_shadow[i]);
 	}
 
 	if (hw->addr_ctrl.mta_in_use > 0) {
 		v = rd32(hw, RNP_ETH_DMAC_MCSTCTRL);
-		wr32(hw,
-			 RNP_ETH_DMAC_MCSTCTRL,
-			 v | RNP_MCSTCTRL_MULTICASE_TBL_EN | hw->mac.mc_filter_type);
+		wr32(hw, RNP_ETH_DMAC_MCSTCTRL,
+		     v | RNP_MCSTCTRL_MULTICASE_TBL_EN |
+			     hw->mac.mc_filter_type);
 	}
 
-	hw_dbg(hw, " update MTA Done. mta_in_use:%d\n", hw->addr_ctrl.mta_in_use);
+	hw_dbg(hw, " update MTA Done. mta_in_use:%d\n",
+	       hw->addr_ctrl.mta_in_use);
 	return hw->addr_ctrl.mta_in_use;
 }
 
@@ -1296,10 +1248,12 @@ s32 rnp_fc_enable_generic(struct rnp_hw *hw)
 	}
 
 	for (i = 0; i < RNP_MAX_TRAFFIC_CLASS; i++) {
-		if ((hw->fc.current_mode & rnp_fc_tx_pause) && hw->fc.high_water[i]) {
+		if ((hw->fc.current_mode & rnp_fc_tx_pause) &&
+		    hw->fc.high_water[i]) {
 			if (!hw->fc.low_water[i] ||
-				hw->fc.low_water[i] >= hw->fc.high_water[i]) {
-				hw_dbg(hw, "Invalid water mark configuration\n");
+			    hw->fc.low_water[i] >= hw->fc.high_water[i]) {
+				hw_dbg(hw,
+				       "Invalid water mark configuration\n");
 				ret_val = RNP_ERR_INVALID_LINK_SETTINGS;
 				goto out;
 			}
@@ -1330,26 +1284,26 @@ s32 rnp_fc_enable_generic(struct rnp_hw *hw)
 	switch (hw->fc.current_mode) {
 	case rnp_fc_none:
 		/*
-		* Flow control is disabled by software override or autoneg.
-		* The code below will actually disable it in the HW.
-		*/
+			 * Flow control is disabled by software override or autoneg.
+			 * The code below will actually disable it in the HW.
+			 */
 		break;
 	case rnp_fc_rx_pause:
 		/*
-		* Rx Flow control is enabled and Tx Flow control is
-		* disabled by software override. Since there really
-		* isn't a way to advertise that we are capable of RX
-		* Pause ONLY, we will advertise that we support both
-		* symmetric and asymmetric Rx PAUSE.  Later, we will
-		* disable the adapter's ability to send PAUSE frames.
-		*/
+			 * Rx Flow control is enabled and Tx Flow control is
+			 * disabled by software override. Since there really
+			 * isn't a way to advertise that we are capable of RX
+			 * Pause ONLY, we will advertise that we support both
+			 * symmetric and asymmetric Rx PAUSE.  Later, we will
+			 * disable the adapter's ability to send PAUSE frames.
+			 */
 		rxctl_reg |= (RNP_RX_FLOW_ENABLE_MASK);
 		break;
 	case rnp_fc_tx_pause:
 		/*
-		* Tx Flow control is enabled, and Rx Flow control is
-		* disabled by software override.
-		*/
+			 * Tx Flow control is enabled, and Rx Flow control is
+			 * disabled by software override.
+			 */
 		for (i = 0; i < RNP_MAX_TRAFFIC_CLASS; i++)
 			txctl_reg[i] |= (RNP_TX_FLOW_ENABLE_MASK);
 		break;
@@ -1368,10 +1322,12 @@ s32 rnp_fc_enable_generic(struct rnp_hw *hw)
 	for (i = 0; i < RNP_MAX_TRAFFIC_CLASS; i++) {
 		if ((hw->fc.current_mode & rnp_fc_tx_pause)) {
 			if (hw->fc.high_water[i]) {
-				wr32(hw, RNP_ETH_HIGH_WATER(i), hw->fc.high_water[i]);
+				wr32(hw, RNP_ETH_HIGH_WATER(i),
+				     hw->fc.high_water[i]);
 			}
 			if (hw->fc.low_water[i]) {
-				wr32(hw, RNP_ETH_LOW_WATER(i), hw->fc.low_water[i]);
+				wr32(hw, RNP_ETH_LOW_WATER(i),
+				     hw->fc.low_water[i]);
 			}
 		}
 	}
@@ -1402,13 +1358,10 @@ out:
  *  Find the intersection between advertised settings and link partner's
  *  advertised settings
  **/
-static s32 rnp_negotiate_fc(struct rnp_hw *hw,
-							u32 adv_reg,
-							u32 lp_reg,
-							u32 adv_sym,
-							u32 adv_asm,
-							u32 lp_sym,
-							u32 lp_asm)
+__maybe_unused static s32 rnp_negotiate_fc(struct rnp_hw *hw, u32 adv_reg,
+					   u32 lp_reg, u32 adv_sym,
+					   u32 adv_asm, u32 lp_sym,
+					   u32 lp_asm)
 {
 #if 0
 	if ((!(adv_reg)) ||  (!(lp_reg)))
@@ -1451,7 +1404,7 @@ static s32 rnp_negotiate_fc(struct rnp_hw *hw,
  *
  *  Enable flow control according on 1 gig fiber.
  **/
-static s32 rnp_fc_autoneg_fiber(struct rnp_hw *hw)
+__maybe_unused static s32 rnp_fc_autoneg_fiber(struct rnp_hw *hw)
 {
 	s32 ret_val = RNP_ERR_FC_NOT_NEGOTIATED;
 #if 0
@@ -1488,7 +1441,7 @@ out:
  *
  *  Enable flow control according to IEEE clause 37.
  **/
-static s32 rnp_fc_autoneg_backplane(struct rnp_hw *hw)
+__maybe_unused static s32 rnp_fc_autoneg_backplane(struct rnp_hw *hw)
 {
 	s32 ret_val = RNP_ERR_FC_NOT_NEGOTIATED;
 #if 0
@@ -1530,7 +1483,7 @@ out:
  *
  *  Enable flow control according to IEEE clause 37.
  **/
-static s32 rnp_fc_autoneg_copper(struct rnp_hw *hw)
+__maybe_unused static s32 rnp_fc_autoneg_copper(struct rnp_hw *hw)
 {
 #if 0
 	u16 technology_ability_reg = 0;
@@ -1561,8 +1514,8 @@ static s32 rnp_fc_autoneg_copper(struct rnp_hw *hw)
  **/
 void rnp_fc_autoneg(struct rnp_hw *hw)
 {
-	s32 ret_val = RNP_ERR_FC_NOT_NEGOTIATED;
 #if 0
+	s32 ret_val = RNP_ERR_FC_NOT_NEGOTIATED;
 	rnp_link_speed speed;
 	bool link_up;
 
@@ -1625,7 +1578,7 @@ out:
  **/
 static s32 rnp_disable_pcie_master(struct rnp_hw *hw)
 {
-	struct rnp_adapter *adapter = hw->back;
+	//struct rnp_adapter *adapter = hw->back;
 
 	// disable dma rx/tx
 	wr32(hw, RNP_DMA_AXI_EN, 0);
@@ -1643,11 +1596,11 @@ static s32 rnp_disable_pcie_master(struct rnp_hw *hw)
  **/
 s32 rnp_acquire_swfw_sync(struct rnp_hw *hw, u16 mask)
 {
+#if 0
 	u32 gssr;
 	u32 swmask = mask;
 	u32 fwmask = mask << 5;
 	s32 timeout = 200;
-#if 0
 	while (timeout) {
 		/*
 		 * SW EEPROM semaphore bit is used for access to all
@@ -1692,9 +1645,9 @@ s32 rnp_acquire_swfw_sync(struct rnp_hw *hw, u16 mask)
  **/
 void rnp_release_swfw_sync(struct rnp_hw *hw, u16 mask)
 {
+#if 0
 	u32 gssr;
 	u32 swmask = mask;
-#if 0
 
 #endif
 }
@@ -1708,8 +1661,8 @@ void rnp_release_swfw_sync(struct rnp_hw *hw, u16 mask)
  **/
 s32 rnp_disable_rx_buff_generic(struct rnp_hw *hw)
 {
-	u32 v;
 #if 0
+	u32 v;
 
 #endif
 	return 0;
@@ -1723,9 +1676,8 @@ s32 rnp_disable_rx_buff_generic(struct rnp_hw *hw)
  **/
 s32 rnp_enable_rx_buff_generic(struct rnp_hw *hw)
 {
-	int secrxreg;
-
 #if 0
+	int secrxreg;
 
 #endif
 
@@ -1753,11 +1705,12 @@ s32 rnp_enable_rx_dma_generic(struct rnp_hw *hw, u32 regval)
  **/
 s32 rnp_blink_led_start_generic(struct rnp_hw *hw, u32 index)
 {
-	rnp_link_speed speed = 0;
-	bool link_up = false;
 	s32 ret_val = 0;
 
 #if 0
+	rnp_link_speed speed = 0;
+	bool link_up = false;
+
 	u32 autoc_reg = RNP_READ_REG(hw, RNP_AUTOC);
 	u32 led_reg = RNP_READ_REG(hw, RNP_LEDCTL);
 
@@ -1894,7 +1847,6 @@ s32 rnp_clear_vmdq_generic(struct rnp_hw *hw, u32 rar, u32 vmdq)
  **/
 s32 rnp_set_vmdq_generic(struct rnp_hw *hw, u32 rar, u32 vmdq)
 {
-	u32 mpsar;
 	u32 rar_entries = hw->mac.num_rar_entries;
 
 	/* Make sure we are using a valid rar index range */
@@ -1929,7 +1881,7 @@ s32 rnp_init_uta_tables_generic(struct rnp_hw *hw)
  *  return the VLVF index where this VLAN id should be placed
  *
  **/
-static s32 rnp_find_vlvf_slot(struct rnp_hw *hw, u32 vlan)
+__maybe_unused static s32 rnp_find_vlvf_slot(struct rnp_hw *hw, u32 vlan)
 {
 	u32 bits = 0;
 	u32 first_empty_slot = 0;
@@ -1976,13 +1928,12 @@ static s32 rnp_find_vlvf_slot(struct rnp_hw *hw, u32 vlan)
  *
  *  Turn on/off specified VLAN in the VLAN filter table.
  **/
-s32 rnp_set_vfta_generic(struct rnp_hw *hw, u32 vlan, u32 vind, bool vlan_on)
+s32 rnp_set_vfta_generic(struct rnp_hw *hw, u32 vlan, u32 vind,
+			 bool vlan_on)
 {
 	s32 regindex;
 	u32 bitindex;
 	u32 vfta;
-	u32 bits;
-	u32 vt;
 	u32 targetbit;
 	bool vfta_changed = false;
 
@@ -2019,98 +1970,6 @@ s32 rnp_set_vfta_generic(struct rnp_hw *hw, u32 vlan, u32 vind, bool vlan_on)
 		}
 	}
 
-/*
- * to enable two vf have same vlan feature, disable vlvf function.
- * as vlan has high-priority than mac-address filter, which means
- * two vf can't have same vlan.
- */
-#if 0
-	/* Part 2
-	 * If VT Mode is set
-	 *   Either vlan_on
-	 *     make sure the vlan is in VLVF
-	 *     set the vind bit in the matching VLVFB
-	 *   Or !vlan_on
-	 *     clear the pool bit and possibly the vind
-	 */
-	vt = rd32(hw, RNP_VT_CTL);
-	if (vt & RNP_VT_CTL_VT_ENABLE) {
-		s32 vlvf_index;
-
-		vlvf_index = rnp_find_vlvf_slot(hw, vlan);
-		if (vlvf_index < 0)
-			return vlvf_index;
-
-		if (vlan_on) {
-			/* set the pool bit */
-			if (vind < 32) {
-				bits = rd32(hw,
-						RNP_VLVFB(vlvf_index*2));
-				bits |= (1 << vind);
-				wr32(hw,
-						RNP_VLVFB(vlvf_index*2),
-						bits);
-			} else {
-				bits = rd32(hw,
-						RNP_VLVFB((vlvf_index*2)+1));
-				bits |= (1 << (vind-32));
-				wr32(hw,
-						RNP_VLVFB((vlvf_index*2)+1),
-						bits);
-			}
-		} else {
-			/* clear the pool bit */
-			if (vind < 32) {
-				bits = rd32(hw,
-						RNP_VLVFB(vlvf_index*2));
-				bits &= ~(1 << vind);
-				wr32(hw,
-						RNP_VLVFB(vlvf_index*2),
-						bits);
-				bits |= rd32(hw,
-						RNP_VLVFB((vlvf_index*2)+1));
-			} else {
-				bits = rd32(hw,
-						RNP_VLVFB((vlvf_index*2)+1));
-				bits &= ~(1 << (vind-32));
-				wr32(hw,
-						RNP_VLVFB((vlvf_index*2)+1),
-						bits);
-				bits |= rd32(hw,
-						RNP_VLVFB(vlvf_index*2));
-			}
-		}
-
-		/*
-		 * If there are still bits set in the VLVFB registers
-		 * for the VLAN ID indicated we need to see if the
-		 * caller is requesting that we clear the VFTA entry bit.
-		 * If the caller has requested that we clear the VFTA
-		 * entry bit but there are still pools/VFs using this VLAN
-		 * ID entry then ignore the request.  We're not worried
-		 * about the case where we're turning the VFTA VLAN ID
-		 * entry bit on, only when requested to turn it off as
-		 * there may be multiple pools and/or VFs using the
-		 * VLAN ID entry.  In that case we cannot clear the
-		 * VFTA bit until all pools/VFs using that VLAN ID have also
-		 * been cleared.  This will be indicated by "bits" being
-		 * zero.
-		 */
-		if (bits) {
-			wr32(hw, RNP_VLVF(vlvf_index),
-					(RNP_VLVF_VIEN | vlan));
-			if (!vlan_on) {
-				/* someone wants to clear the vfta entry
-				 * but some pools/VFs are still using it.
-				 * Ignore it.
-				 */
-				vfta_changed = false;
-			}
-		} else
-			wr32(hw, RNP_VLVF(vlvf_index), 0);
-	}
-#endif
-
 	if (vfta_changed)
 		wr32(hw, RNP_VFTA(regindex), vfta);
 	return 0;
@@ -2144,25 +2003,19 @@ s32 rnp_clear_vfta_generic(struct rnp_hw *hw)
  *
  *  Reads the links register to determine if link is up and the current speed
  **/
-s32 rnp_check_mac_link_generic(struct rnp_hw *hw,
-		rnp_link_speed *speed,
-		bool *link_up,
-		bool link_up_wait_to_complete)
+s32 rnp_check_mac_link_generic(struct rnp_hw *hw, rnp_link_speed *speed,
+			       bool *link_up,
+			       bool link_up_wait_to_complete)
 {
-	struct rnp_adapter *adapter = (struct rnp_adapter *)hw->back;
-	struct rnp_pcs_info *pcs = &hw->pcs;
-
-	u32 status;
-
 #ifdef NO_MBX_VERSION
+	struct rnp_pcs_info *pcs = &hw->pcs;
+	u32 status;
 
 	// if vu440 , we assume link always
 	if (hw->rss_type == rnp_rss_uv440) {
-
 		*link_up = true;
 		*speed = RNP_LINK_SPEED_40GB_FULL;
 		goto skip_get_link;
-
 	}
 
 	status = pcs->ops.read(hw, 0, RNP_PCS_LINK_STATUS);
@@ -2179,15 +2032,18 @@ s32 rnp_check_mac_link_generic(struct rnp_hw *hw,
 		case RNP_PCS_SPPEED_10G:
 			// printk("10G mode\n");
 			*speed = RNP_LINK_SPEED_10GB_FULL;
+
 			break;
 		case RNP_PCS_SPPEED_40G:
 			*speed = RNP_LINK_SPEED_40GB_FULL;
 			// printk("40G mode\n");
+
 			break;
 		}
 	} else {
 		// printk("1G mode\n");
 	}
+skip_get_link:
 #else
 
 	if (hw->speed == 10) {
@@ -2209,22 +2065,6 @@ s32 rnp_check_mac_link_generic(struct rnp_hw *hw,
 	*link_up = hw->link;
 #endif
 
-skip_get_link:
-
-	/* always assume link is up, if no check link function */
-	//#if CONFIG_RNP_FPGA
-	//	/* used to simulate link down */
-	//	if (adapter->priv_flags & RNP_PRIV_FLAG_SIMUATE_DOWN) {
-	//		dbg("simulate link is down\n");
-	//		*link_up = false;
-	//		*speed = RNP_LINK_SPEED_UNKNOWN;
-	//	} else {
-	//		*link_up = true;
-	//		*speed = RNP_LINK_SPEED_10GB_FULL;
-	//	}
-	//#else
-	//	link_up = false;
-	//#endif
 	return 0;
 }
 
@@ -2238,9 +2078,8 @@ skip_get_link:
  *  This function will read the EEPROM from the alternative SAN MAC address
  *  block to check the support for the alternative WWNN/WWPN prefix support.
  **/
-s32 rnp_get_wwn_prefix_generic(struct rnp_hw *hw,
-							   u16 *wwnn_prefix,
-							   u16 *wwpn_prefix)
+s32 rnp_get_wwn_prefix_generic(struct rnp_hw *hw, u16 *wwnn_prefix,
+			       u16 *wwpn_prefix)
 {
 #if 0
 	u16 offset, caps;
@@ -2285,11 +2124,11 @@ wwn_prefix_out:
  **/
 void rnp_set_mac_anti_spoofing(struct rnp_hw *hw, bool enable, int pf)
 {
+#if 0
 	int j;
 	int pf_target_reg = pf >> 3;
 	int pf_target_shift = pf % 8;
 	u32 pfvfspoof = 0;
-#if 0
 
 	if (hw->mac.type == rnp_mac_82598EB)
 		return;
@@ -2368,10 +2207,8 @@ s32 rnp_get_device_caps_generic(struct rnp_hw *hw, u16 *device_caps)
  * @headroom: reserve n KB of headroom
  * @strategy: packet buffer allocation strategy
  **/
-void rnp_set_rxpba_generic(struct rnp_hw *hw,
-						   int num_pb,
-						   u32 headroom,
-						   int strategy)
+void rnp_set_rxpba_generic(struct rnp_hw *hw, int num_pb, u32 headroom,
+			   int strategy)
 {
 #if 0
 	u32 pbsize = hw->mac.rx_pb_size;
@@ -2437,7 +2274,7 @@ void rnp_set_rxpba_generic(struct rnp_hw *hw,
  *  Calculates the checksum for some buffer on a specified length.  The
  *  checksum calculated is returned.
  **/
-static u8 rnp_calculate_checksum(u8 *buffer, u32 length)
+__maybe_unused static u8 rnp_calculate_checksum(u8 *buffer, u32 length)
 {
 	u32 i;
 	u8 sum = 0;
@@ -2461,7 +2298,7 @@ static u8 rnp_calculate_checksum(u8 *buffer, u32 length)
  *  Communicates with the manageability block.  On success return 0
  *  else return RNP_ERR_HOST_INTERFACE_COMMAND.
  **/
-static s32
+__maybe_unused static s32
 rnp_host_interface_command(struct rnp_hw *hw, u32 *buffer, u32 length)
 {
 	return -1;
@@ -2480,8 +2317,8 @@ rnp_host_interface_command(struct rnp_hw *hw, u32 *buffer, u32 length)
  *  else returns RNP_ERR_SWFW_SYNC when encountering an error acquiring
  *  semaphore or RNP_ERR_HOST_INTERFACE_COMMAND when command fails.
  **/
-s32 rnp_set_fw_drv_ver_generic(
-	struct rnp_hw *hw, u8 maj, u8 min, u8 build, u8 sub)
+s32 rnp_set_fw_drv_ver_generic(struct rnp_hw *hw, u8 maj, u8 min, u8 build,
+			       u8 sub)
 {
 	return -1;
 }
@@ -2496,7 +2333,7 @@ s32 rnp_set_fw_drv_ver_generic(
  **/
 void rnp_clear_tx_pending(struct rnp_hw *hw)
 {
-	u32 gcr_ext, hlreg0;
+	//u32 gcr_ext, hlreg0;
 
 	/*
 	 * If double reset is not requested then all transactions should
@@ -2507,7 +2344,3 @@ void rnp_clear_tx_pending(struct rnp_hw *hw)
 }
 
 // common ethtool add here
-
-
-
-

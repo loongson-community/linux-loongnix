@@ -73,16 +73,6 @@
  *
  * Default Value: 27
  */
-TXGBE_PARAM(an73_train_mode, "an73_train_mode to different switch(0 to centc, 1 to other)");
-#define TXGBE_DEFAULT_FFE_AN73_TRAIN_MODE   0
-
-
-/* ffe_main (KR/KX4/KX/SFI)
- *
- * Valid Range: 0-60
- *
- * Default Value: 27
- */
 TXGBE_PARAM(FFE_MAIN, "TX_EQ MAIN (0 - 40)");
 #define TXGBE_DEFAULT_FFE_MAIN              27
 
@@ -104,7 +94,7 @@ TXGBE_PARAM(FFE_PRE, "TX_EQ PRE (0 - 40)");
 TXGBE_PARAM(FFE_POST, "TX_EQ POST (0 - 40)");
 #define TXGBE_DEFAULT_FFE_POST              44
 
-/* ffe_set
+/* ffe_set 
  *
  * Valid Range: 0-4
  *
@@ -113,7 +103,7 @@ TXGBE_PARAM(FFE_POST, "TX_EQ POST (0 - 40)");
 TXGBE_PARAM(FFE_SET, "TX_EQ SET must choose to take effect (0 = NULL, 1 = sfi, 2 = kr, 3 = kx4, 4 = kx)");
 #define TXGBE_DEFAULT_FFE_SET              0
 
-/* backplane_mode
+/* backplane_mode 
  *
  * Valid Range: 0-4
  *  - 0 - NULL
@@ -282,7 +272,9 @@ TXGBE_PARAM(VEPA, "VEPA Bridge Mode: 0 = VEB (default), 1 = VEPA");
  *
  * Default Value: 1
  */
-#define DEFAULT_ITR             1
+#define DEFAULT_ITR             (TXGBE_STATIC_ITR == 0) || \
+	(TXGBE_STATIC_ITR == 1)?TXGBE_STATIC_ITR:(u16)((1000000/TXGBE_STATIC_ITR) << 2)
+
 TXGBE_PARAM(InterruptThrottleRate, "Maximum interrupts per second, per vector, "
 	    "(0,1,980-500000), default 1");
 #define MAX_ITR         TXGBE_MAX_INT_RATE
@@ -400,10 +392,7 @@ TXGBE_PARAM(LRO, "Large Receive Offload (0,1), default 1 = on");
 TXGBE_PARAM(allow_unsupported_sfp, "Allow unsupported and untested "
 	    "SFP+ modules on adapters, default 0 = Disable");
 
-#if defined(TXGBE_SUPPORT_KYLIN_FT)
 TXGBE_PARAM(Fdir, "Support Flow director, default 1 = Enable, 0 = Disable ");
-#endif
-
 /* Enable/disable support for DMA coalescing
  *
  * Valid Values: 0(off), 41 - 10000(on)
@@ -550,33 +539,6 @@ void __devinit txgbe_check_options(struct txgbe_adapter *adapter)
 #endif
 	}
 		{ /* MAIN */
-			u32 an73_mode;
-			static struct txgbe_option opt = {
-				.type = range_option,
-				.name = "an73_train_mode",
-				.err =
-				  "using default of "__MODULE_STRING(TXGBE_DEFAULT_FFE_AN73_TRAIN_MODE),
-				.def = TXGBE_DEFAULT_FFE_AN73_TRAIN_MODE,
-				.arg = { .r = { .min = 0,
-						.max = 1} }
-			};
-
-#ifdef module_param_array
-			if (num_an73_train_mode > bd) {
-#endif
-				an73_mode = an73_train_mode[bd];
-				if (an73_mode == OPTION_UNSET)
-					an73_mode = an73_train_mode[bd];
-				txgbe_validate_option(&an73_mode, &opt);
-				adapter->an73_mode = an73_mode;
-#ifdef module_param_array
-			} else {
-				adapter->an73_mode = 0;
-			}
-#endif
-		}
-
-		{ /* MAIN */
 			u32 ffe_main;
 			static struct txgbe_option opt = {
 				.type = range_option,
@@ -587,9 +549,9 @@ void __devinit txgbe_check_options(struct txgbe_adapter *adapter)
 				.arg = { .r = { .min = 0,
 						.max = 60} }
 			};
-
+	
 #ifdef module_param_array
-			if (num_FFE_MAIN > bd) {
+			if (num_FFE_MAIN > bd ) {
 #endif
 				ffe_main = FFE_MAIN[bd];
 				if (ffe_main == OPTION_UNSET)
@@ -614,9 +576,9 @@ void __devinit txgbe_check_options(struct txgbe_adapter *adapter)
 				.arg = { .r = { .min = 0,
 						.max = 60} }
 			};
-
+	
 #ifdef module_param_array
-			if (num_FFE_PRE > bd) {
+			if (num_FFE_PRE > bd ) {
 #endif
 				ffe_pre = FFE_PRE[bd];
 				if (ffe_pre == OPTION_UNSET)
@@ -641,9 +603,9 @@ void __devinit txgbe_check_options(struct txgbe_adapter *adapter)
 				.arg = { .r = { .min = 0,
 						.max = 60} }
 			};
-
+	
 #ifdef module_param_array
-			if (num_FFE_POST > bd) {
+			if (num_FFE_POST > bd ) {
 #endif
 				ffe_post = FFE_POST[bd];
 				if (ffe_post == OPTION_UNSET)
@@ -668,9 +630,9 @@ void __devinit txgbe_check_options(struct txgbe_adapter *adapter)
 				.arg = { .r = { .min = 0,
 						.max = 4} }
 			};
-
+	
 #ifdef module_param_array
-			if (num_FFE_SET > bd) {
+			if (num_FFE_SET > bd ) {
 #endif
 				ffe_set = FFE_SET[bd];
 				if (ffe_set == OPTION_UNSET)
@@ -695,9 +657,9 @@ void __devinit txgbe_check_options(struct txgbe_adapter *adapter)
 				.arg = { .r = { .min = 0,
 						.max = 4} }
 			};
-
+	
 #ifdef module_param_array
-			if (num_backplane_mode > bd) {
+			if (num_backplane_mode > bd ) {
 #endif
 				bp_mode = backplane_mode[bd];
 				if (bp_mode == OPTION_UNSET)
@@ -722,9 +684,9 @@ void __devinit txgbe_check_options(struct txgbe_adapter *adapter)
 				.arg = { .r = { .min = 0,
 						.max = 2} }
 			};
-
+	
 #ifdef module_param_array
-			if (num_backplane_auto > bd) {
+			if (num_backplane_auto > bd ) {
 #endif
 				bp_auto = backplane_auto[bd];
 				if (bp_auto == OPTION_UNSET)
@@ -751,7 +713,7 @@ void __devinit txgbe_check_options(struct txgbe_adapter *adapter)
 		};
 
 #ifdef module_param_array
-		if (num_vf_alloc_mode > bd) {
+		if (num_vf_alloc_mode > bd ) {
 #endif
 			vf_mode = vf_alloc_mode[bd];
 			if (vf_mode == OPTION_UNSET)
@@ -923,7 +885,8 @@ void __devinit txgbe_check_options(struct txgbe_adapter *adapter)
 		};
 		u32 rss = RSS[bd];
 		/* adjust Max allowed RSS queues based on MAC type */
-		opt.arg.r.max = txgbe_max_rss_indices(adapter);
+		opt.arg.r.max = min_t(int, txgbe_max_rss_indices(adapter),
+						     num_online_cpus());
 
 #ifdef module_param_array
 		if (num_RSS > bd) {
@@ -941,6 +904,7 @@ void __devinit txgbe_check_options(struct txgbe_adapter *adapter)
 		} else if (opt.def == 0) {
 			rss = min_t(int, txgbe_max_rss_indices(adapter),
 				    num_online_cpus());
+			feature[RING_F_FDIR].limit = (u16)rss;
 			feature[RING_F_RSS].limit = rss;
 		}
 #endif
@@ -1409,7 +1373,6 @@ void __devinit txgbe_check_options(struct txgbe_adapter *adapter)
 #endif
 	}
 
-#if defined(TXGBE_SUPPORT_KYLIN_FT)
 	{
 	struct txgbe_option opt = {
 			.type = enable_option,
@@ -1435,7 +1398,6 @@ void __devinit txgbe_check_options(struct txgbe_adapter *adapter)
 			}
 #endif
 	}
-#endif
 
 	{ /* DMA Coalescing */
 		struct txgbe_option opt = {

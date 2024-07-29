@@ -72,6 +72,14 @@
 #define TXGBE_ETH_P_LLDP                        0x88CC
 #define TXGBE_ETH_P_CNM                         0x22E7
 
+#ifdef HAVE_XDP_SUPPORT
+DECLARE_STATIC_KEY_FALSE(txgbe_xdp_locking_key);
+#endif
+
+#ifndef XDP_PACKET_HEADROOM
+#define XDP_PACKET_HEADROOM 256
+#endif
+
 /* TX/RX descriptor defines */
 #if defined(DEFAULT_TXD) || defined(DEFAULT_TX_WORK)
 #define TXGBE_DEFAULT_TXD               DEFAULT_TXD
@@ -114,12 +122,10 @@
 #define TXGBE_RXBUFFER_2K       2048
 #define TXGBE_RXBUFFER_3K       3072
 #define TXGBE_RXBUFFER_4K       4096
-#ifdef CONFIG_TXGBE_DISABLE_PACKET_SPLIT
 #define TXGBE_RXBUFFER_1536     1536
 #define TXGBE_RXBUFFER_7K       7168
 #define TXGBE_RXBUFFER_8K       8192
 #define TXGBE_RXBUFFER_15K      15360
-#endif /* CONFIG_TXGBE_DISABLE_PACKET_SPLIT */
 #define TXGBE_MAX_RXBUFFER      16384  /* largest size for single descriptor */
 
 #define TXGBE_BP_M_NULL                      0
@@ -200,37 +206,6 @@ enum txgbe_tx_flags {
 #define VMDQ_P(p)       (p)
 #endif
 
-#define UPDATE_VF_COUNTER_32bit(reg, last_counter, counter)     \
-	{                                                       \
-		u32 current_counter = rd32(hw, reg);  \
-		if (current_counter < last_counter)             \
-			counter += 0x100000000LL;               \
-		last_counter = current_counter;                 \
-		counter &= 0xFFFFFFFF00000000LL;                \
-		counter |= current_counter;                     \
-	}
-
-#define UPDATE_VF_COUNTER_36bit(reg_lsb, reg_msb, last_counter, counter) \
-	{                                                                \
-		u64 current_counter_lsb = rd32(hw, reg_lsb);   \
-		u64 current_counter_msb = rd32(hw, reg_msb);   \
-		u64 current_counter = (current_counter_msb << 32) |      \
-			current_counter_lsb;                             \
-		if (current_counter < last_counter)                      \
-			counter += 0x1000000000LL;                       \
-		last_counter = current_counter;                          \
-		counter &= 0xFFFFFFF000000000LL;                         \
-		counter |= current_counter;                              \
-	}
-
-struct vf_stats {
-	u64 gprc;
-	u64 gorc;
-	u64 gptc;
-	u64 gotc;
-	u64 mprc;
-};
-
 struct vf_data_storage {
 	struct pci_dev *vfdev;
 	u8 IOMEM *b4_addr;
@@ -241,9 +216,6 @@ struct vf_data_storage {
 	u16 default_vf_vlan_id;
 	u16 vlans_enabled;
 	bool clear_to_send;
-	struct vf_stats vfstats;
-	struct vf_stats last_vfstats;
-	struct vf_stats saved_rst_vfstats;
 	bool pf_set_mac;
 	u16 pf_vlan; /* When set, guest VLAN config not allowed. */
 	u16 pf_qos;
@@ -251,6 +223,9 @@ struct vf_data_storage {
 	u16 max_tx_rate;
 	u16 vlan_count;
 	u8 spoofchk_enabled;
+	int link_enable;
+	int link_state;
+
 #ifdef HAVE_NDO_SET_VF_RSS_QUERY_EN
 	bool rss_query_enabled;
 #endif
@@ -315,7 +290,15 @@ struct txgbe_lro_list {
 struct txgbe_tx_buffer {
 	union txgbe_tx_desc *next_to_watch;
 	unsigned long time_stamp;
-	struct sk_buff *skb;
+	union {
+		struct sk_buff *skb;
+		/* XDP uses address ptr on irq_clean */
+#ifdef HAVE_XDP_FRAME_STRUCT
+		struct xdp_frame *xdpf;
+#else
+		void *data;
+#endif
+	};
 	unsigned int bytecount;
 	unsigned short gso_segs;
 	__be16 protocol;
@@ -329,8 +312,24 @@ struct txgbe_rx_buffer {
 	dma_addr_t dma;
 #ifndef CONFIG_TXGBE_DISABLE_PACKET_SPLIT
 	dma_addr_t page_dma;
-	struct page *page;
-	unsigned int page_offset;
+	union{
+		struct {
+		struct page *page;
+		unsigned int page_offset;
+		u16 pagecnt_bias;
+		};
+#ifdef HAVE_AF_XDP_ZC_SUPPORT
+		struct {
+#ifndef HAVE_MEM_TYPE_XSK_BUFF_POOL
+			void *addr;
+			u64 handle;
+#else
+			bool discard;
+			struct xdp_buff *xdp;
+#endif
+		};
+#endif
+	};
 #endif
 };
 
@@ -372,8 +371,12 @@ enum txgbe_ring_state_t {
 	__TXGBE_HANG_CHECK_ARMED,
 	__TXGBE_RX_HS_ENABLED,
 	__TXGBE_RX_RSC_ENABLED,
+	__TXGBE_TX_XDP_RING,
 #if IS_ENABLED(CONFIG_FCOE)
 	__TXGBE_RX_FCOE,
+#endif
+#ifdef HAVE_AF_XDP_ZC_SUPPORT
+	__TXGBE_TX_DISABLED,
 #endif
 };
 
@@ -412,17 +415,26 @@ struct txgbe_fwd_adapter {
 #define clear_ring_rsc_enabled(ring) \
 	clear_bit(__TXGBE_RX_RSC_ENABLED, &(ring)->state)
 
+#define ring_is_xdp(ring) \
+	test_bit(__TXGBE_TX_XDP_RING, &(ring)->state)
+#define set_ring_xdp(ring) \
+	set_bit(__TXGBE_TX_XDP_RING, &(ring)->state)
+#define clear_ring_xdp(ring) \
+	clear_bit(__TXGBE_TX_XDP_RING, &(ring)->state)
+
 struct txgbe_ring {
 	struct txgbe_ring *next;        /* pointer to next ring in q_vector */
 	struct txgbe_q_vector *q_vector; /* backpointer to host q_vector */
 	struct net_device *netdev;      /* netdev ring belongs to */
 	struct device *dev;             /* device for DMA mapping */
+	struct bpf_prog *xdp_prog;
 	struct txgbe_fwd_adapter *accel;
 	void *desc;                     /* descriptor ring memory */
 	union {
 		struct txgbe_tx_buffer *tx_buffer_info;
 		struct txgbe_rx_buffer *rx_buffer_info;
 	};
+	spinlock_t tx_lock;		/* used in XDP mode */
 	unsigned long state;
 	u8 __iomem *tail;
 	dma_addr_t dma;                 /* phys. address of descriptor ring */
@@ -454,6 +466,12 @@ struct txgbe_ring {
 		};
 	};
 
+#ifdef HAVE_XDP_SUPPORT
+#ifdef HAVE_AF_XDP_ZC_SUPPORT
+	u16 xdp_tx_active;
+#endif /* HAVE_AF_XDP_ZC_SUPPORT */
+#endif /* HAVE_XDP_SUPPORT */
+
 	u8 dcb_tc;
 	struct txgbe_queue_stats stats;
 #ifdef HAVE_NDO_GET_STATS64
@@ -463,6 +481,19 @@ struct txgbe_ring {
 		struct txgbe_tx_queue_stats tx_stats;
 		struct txgbe_rx_queue_stats rx_stats;
 	};
+#ifdef HAVE_XDP_BUFF_RXQ
+	struct xdp_rxq_info xdp_rxq;
+#ifdef HAVE_AF_XDP_ZC_SUPPORT
+#ifdef HAVE_NETDEV_BPF_XSK_POOL
+	struct xsk_buff_pool *xsk_pool;
+#else
+	struct xdp_umem *xsk_pool;
+#endif
+#ifndef HAVE_MEM_TYPE_XSK_BUFF_POOL
+	struct zero_copy_allocator zca; /* ZC allocator anchor */
+#endif
+#endif
+#endif
 } ____cacheline_internodealigned_in_smp;
 
 enum txgbe_ring_f_enum {
@@ -477,6 +508,7 @@ enum txgbe_ring_f_enum {
 };
 
 #define TXGBE_MAX_DCB_INDICES           8
+#define TXGBE_MAX_XDP_RSS_INDICES	32
 #define TXGBE_MAX_RSS_INDICES           63
 #define TXGBE_MAX_VMDQ_INDICES          64
 #define TXGBE_MAX_FDIR_INDICES          63
@@ -488,7 +520,7 @@ enum txgbe_ring_f_enum {
 #define MAX_RX_QUEUES   (TXGBE_MAX_FDIR_INDICES + 1)
 #define MAX_TX_QUEUES   (TXGBE_MAX_FDIR_INDICES + 1)
 #endif /* CONFIG_FCOE */
-#define MAX_XDP_QUEUES  (TXGBE_MAX_FDIR_INDICES + 1)
+#define MAX_XDP_QUEUES  32
 
 #define TXGBE_MAX_L2A_QUEUES    4
 #define TXGBE_BAD_L2A_QUEUE     3
@@ -508,6 +540,49 @@ struct txgbe_ring_feature {
 #define TXGBE_VMDQ_2Q_MASK 0x7E
 
 #ifndef CONFIG_TXGBE_DISABLE_PACKET_SPLIT
+
+
+#if (PAGE_SIZE < 8192)
+#define TXGBE_2K_TOO_SMALL_WITH_PADDING \
+((NET_SKB_PAD + TXGBE_RXBUFFER_1536) > SKB_WITH_OVERHEAD(TXGBE_RXBUFFER_2K))
+
+static inline int txgbe_compute_pad(int rx_buf_len)
+{
+	int page_size, pad_size;
+
+	page_size = ALIGN(rx_buf_len, PAGE_SIZE / 2);
+	pad_size = SKB_WITH_OVERHEAD(page_size) - rx_buf_len;
+
+	return pad_size;
+}
+
+static inline int txgbe_skb_pad(void)
+{
+	int rx_buf_len;
+
+	/* If a 2K buffer cannot handle a standard Ethernet frame then
+	 * optimize padding for a 3K buffer instead of a 1.5K buffer.
+	 *
+	 * For a 3K buffer we need to add enough padding to allow for
+	 * tailroom due to NET_IP_ALIGN possibly shifting us out of
+	 * cache-line alignment.
+	 */
+	if (TXGBE_2K_TOO_SMALL_WITH_PADDING)
+		rx_buf_len = TXGBE_RXBUFFER_3K + SKB_DATA_ALIGN(NET_IP_ALIGN);
+	else
+		rx_buf_len = TXGBE_RXBUFFER_1536;
+
+	/* if needed make room for NET_IP_ALIGN */
+	rx_buf_len -= NET_IP_ALIGN;
+
+	return txgbe_compute_pad(rx_buf_len);
+}
+
+#define TXGBE_SKB_PAD	txgbe_skb_pad()
+#else
+#define TXGBE_SKB_PAD	(NET_SKB_PAD + NET_IP_ALIGN)
+#endif
+
 /*
  * FCoE requires that all Rx buffers be over 2200 bytes in length.  Since
  * this is twice the size of a half page we need to double the page order
@@ -523,6 +598,10 @@ static inline unsigned int txgbe_rx_bufsz(struct txgbe_ring __maybe_unused *ring
 		return (PAGE_SIZE < 8192) ? TXGBE_RXBUFFER_4K :
 					    TXGBE_RXBUFFER_3K;
 #endif
+#ifdef HAVE_XDP_SUPPORT
+	if (test_bit(__TXGBE_RX_3K_BUFFER, &ring->state))
+		return TXGBE_RXBUFFER_3K;
+#endif
 	return TXGBE_RXBUFFER_2K;
 #endif
 }
@@ -533,9 +612,22 @@ static inline unsigned int txgbe_rx_pg_order(struct txgbe_ring __maybe_unused *r
 	if (test_bit(__TXGBE_RX_FCOE, &ring->state))
 		return (PAGE_SIZE < 8192) ? 1 : 0;
 #endif
+#if (PAGE_SIZE < 8192)
+	if (test_bit(__TXGBE_RX_3K_BUFFER, &ring->state))
+		return 1;
+#endif
 	return 0;
 }
 #define txgbe_rx_pg_size(_ring) (PAGE_SIZE << txgbe_rx_pg_order(_ring))
+
+static inline unsigned int txgbe_rx_offset(struct txgbe_ring *rx_ring)
+{
+	if (rx_ring->xdp_prog)
+		return TXGBE_SKB_PAD;
+	else
+		return 0;
+}
+
 
 #endif
 struct txgbe_ring_container {
@@ -834,6 +926,7 @@ struct txgbe_therm_proc_data {
 #define TXGBE_FLAG2_EEE_CAPABLE                 (1U << 14)
 #define TXGBE_FLAG2_EEE_ENABLED                 (1U << 15)
 #define TXGBE_FLAG2_VXLAN_REREG_NEEDED          (1U << 16)
+#define TXGBE_FLAG2_VLAN_PROMISC                (1U << 17)
 #define TXGBE_FLAG2_DEV_RESET_REQUESTED         (1U << 18)
 #define TXGBE_FLAG2_RESET_INTR_RECEIVED         (1U << 19)
 #define TXGBE_FLAG2_GLOBAL_RESET_REQUESTED      (1U << 20)
@@ -845,7 +938,10 @@ struct txgbe_therm_proc_data {
 #define TXGBE_FLAG2_LINK_DOWN                   (1U << 26)
 #define TXGBE_FLAG2_KR_PRO_DOWN                 (1U << 27)
 #define TXGBE_FLAG2_KR_PRO_REINIT               (1U << 28)
+#define TXGBE_FLAG2_ECC_ERR_RESET               (1U << 29)
 #define TXGBE_FLAG2_PCIE_NEED_RECOVER           (1U << 31)
+
+
 
 
 #define TXGBE_SET_FLAG(_input, _flag, _result) \
@@ -873,6 +969,7 @@ struct txgbe_adapter {
 #endif
 	/* OS defined structs */
 	struct net_device *netdev;
+	struct bpf_prog *xdp_prog;
 	struct pci_dev *pdev;
 
 	unsigned long state;
@@ -909,9 +1006,12 @@ struct txgbe_adapter {
 	unsigned int num_vmdqs; /* does not include pools assigned to VFs */
 	unsigned int queues_per_pool;
 
+	bool lro_before_xdp;
+	u16 old_rss_limit;
 	/* XDP */
 	int num_xdp_queues;
 	struct txgbe_ring *xdp_ring[MAX_XDP_QUEUES];
+	unsigned long *af_xdp_zc_qps;
 
 	/* TX */
 	struct txgbe_ring *tx_ring[MAX_TX_QUEUES] ____cacheline_aligned_in_smp;
@@ -980,6 +1080,7 @@ struct txgbe_adapter {
 	u32 *config_space;
 	u64 tx_busy;
 	unsigned int tx_ring_count;
+	unsigned int xdp_ring_count;
 	unsigned int rx_ring_count;
 
 	u32 link_speed;
@@ -989,6 +1090,7 @@ struct txgbe_adapter {
 
 	struct timer_list service_timer;
 	struct work_struct service_task;
+	struct work_struct sfp_sta_task;
 #ifdef POLL_LINK_STATUS
 	struct timer_list link_check_timer;
 #endif
@@ -1013,6 +1115,7 @@ struct txgbe_adapter {
 #endif
 
 	char eeprom_id[32];
+	char fw_version[32];
 	u16 eeprom_cap;
 	bool netdev_registered;
 	u32 interrupt_event;
@@ -1093,6 +1196,21 @@ struct txgbe_adapter {
 	dma_addr_t isb_dma;
 	u32 *isb_mem;
 	u32 isb_tag[TXGBE_ISB_MAX];
+
+	u64 eth_priv_flags;
+#define TXGBE_ETH_PRIV_FLAG_LLDP		BIT(0)
+
+#ifdef HAVE_AF_XDP_ZC_SUPPORT
+	/* AF_XDP zero-copy */
+#ifdef HAVE_NETDEV_BPF_XSK_POOL
+	struct xsk_buff_pool **xsk_pools;
+#else
+	struct xdp_umem **xsk_pools;
+#endif /* HAVE_NETDEV_BPF_XSK_POOL */
+	u16 num_xsk_pools_used;
+	u16 num_xsk_pools;
+#endif
+	bool cmplt_to_dis;
 };
 
 static inline u32 txgbe_misc_isb(struct txgbe_adapter *adapter,
@@ -1100,7 +1218,7 @@ static inline u32 txgbe_misc_isb(struct txgbe_adapter *adapter,
 {
 	u32 cur_tag = 0;
 	u32 cur_diff = 0;
-
+    
     cur_tag = adapter->isb_mem[TXGBE_ISB_HEADER];
     cur_diff = cur_tag - adapter->isb_tag[idx];
 
@@ -1111,6 +1229,8 @@ static inline u32 txgbe_misc_isb(struct txgbe_adapter *adapter,
 
 static inline u8 txgbe_max_rss_indices(struct txgbe_adapter *adapter)
 {
+	if (adapter->xdp_prog)
+		return TXGBE_MAX_XDP_RSS_INDICES;
 	return TXGBE_MAX_RSS_INDICES;
 }
 
@@ -1238,6 +1358,7 @@ void txgbe_vlan_strip_disable(struct txgbe_adapter *adapter);
 #ifdef ETHTOOL_OPS_COMPAT
 int ethtool_ioctl(struct ifreq *ifr);
 #endif
+void txgbe_print_tx_hang_status(struct txgbe_adapter *adapter);
 
 #if IS_ENABLED(CONFIG_FCOE)
 void txgbe_configure_fcoe(struct txgbe_adapter *adapter);
@@ -1329,6 +1450,14 @@ void txgbe_set_rx_drop_en(struct txgbe_adapter *adapter);
 
 u32 txgbe_rss_indir_tbl_entries(struct txgbe_adapter *adapter);
 void txgbe_store_reta(struct txgbe_adapter *adapter);
+
+int txgbe_setup_isb_resources(struct txgbe_adapter *adapter);
+void txgbe_free_isb_resources(struct txgbe_adapter *adapter);
+void txgbe_configure_isb(struct txgbe_adapter *adapter);
+
+void txgbe_clean_tx_ring(struct txgbe_ring *tx_ring);
+void txgbe_clean_rx_ring(struct txgbe_ring *rx_ring);
+u32 txgbe_tx_cmd_type(u32 tx_flags);
 
 /**
  * interrupt masking operations. each bit in PX_ICn correspond to a interrupt.

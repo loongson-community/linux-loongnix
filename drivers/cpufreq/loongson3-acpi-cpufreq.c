@@ -346,7 +346,6 @@ static int cpufreq_perf_find_freq(struct acpi_processor_performance *perf,
 	return 0;
 }
 
-
 static inline struct core_data * get_core_data(int cpu)
 {
 	int package_id = cpu_data[cpu].package;
@@ -1334,6 +1333,8 @@ static int loongson3_cpufreq_cpu_init(struct cpufreq_policy *policy)
 	if (has_boost_freq() && boost_supported())
 		loongson3_cpufreq_attr[1] = &cpufreq_freq_attr_scaling_boost_freqs;
 
+	policy->cur = core->normal_max_freq * 1000;
+
 	pr_info("CPU%u - ACPI performance management activated.\n", cpu);
 	for (i = 0; i < perf->state_count; i++)
 		pr_debug("     %cP%d: %d MHz, %d mW, %d uS %d level\n",
@@ -1648,8 +1649,8 @@ static int __init loongson3_cpufreq_init(void)
 
 	cpufreq_register_notifier(&loongson3_cpufreq_notifier_block,
 					CPUFREQ_TRANSITION_NOTIFIER);
-	ret = cpufreq_register_driver(&loongson3_cpufreq_driver);
 	cpufreq_kthread_create();
+	ret = cpufreq_register_driver(&loongson3_cpufreq_driver);
 	if (ret) {
 		free_acpi_perf_data();
 	}

@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: GPL-2.0 */
+/* Copyright(c) 1999 - 2022  Beijing WangXun Technology Co., Ltd. */
 #ifndef _NGBE_PCIERR_H_
 #define _NGBE_PCIERR_H_
 

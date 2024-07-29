@@ -175,6 +175,7 @@ SYM_FUNC_END(except_vec_vi_handler)
 	BUILD_HANDLER lasx lasx sti
 	BUILD_HANDLER lbt lbt kmode
 	BUILD_HANDLER ale ale kmode
+	BUILD_HANDLER bce bce kmode
 	BUILD_HANDLER reserved reserved csti	/* others */
 	BUILD_HANDLER watch watch none
 

@@ -32,6 +32,8 @@
 #include <boot_param.h>
 #include <loongson.h>
 
+extern bool is_kexec;
+
 static __initdata unsigned long screen_info_table = EFI_INVALID_TABLE_ADDR;
 static __initdata unsigned long new_memmap = EFI_INVALID_TABLE_ADDR;
 static __initdata unsigned long initrd = EFI_INVALID_TABLE_ADDR;
@@ -209,7 +211,7 @@ unsigned int __init enter_virt_mode(void)
 	efi_memory_desc_t *in, *runtime_map;
 	efi_memory_desc_t *runtime_phy;
 
-	if (efi_bp)
+	if (efi_bp || is_kexec)
 		return EFI_SUCCESS;
 
 	entry = count = 0;

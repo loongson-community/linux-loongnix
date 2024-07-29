@@ -129,6 +129,7 @@ static void ngbe_ptp_convert_to_hwtstamp(struct ngbe_adapter *adapter,
 	hwtstamp->hwtstamp = ns_to_ktime(ns);
 }
 
+
 /**
  * ngbe_ptp_adjfreq
  * @ptp: the ptp clock structure
@@ -137,7 +138,8 @@ static void ngbe_ptp_convert_to_hwtstamp(struct ngbe_adapter *adapter,
  * adjust the frequency of the ptp cycle counter by the
  * indicated ppb from the base frequency.
  */
-static int ngbe_ptp_adjfreq(struct ptp_clock_info *ptp, s32 ppb)
+ #ifndef HAVE_NOT_PTT_ADJFREQ
+static int ngbe_ptp_adjfreq(struct ptp_clock_info *ptp, int ppb)
 {
 	struct ngbe_adapter *adapter =
 		container_of(ptp, struct ngbe_adapter, ptp_caps);
@@ -167,7 +169,7 @@ static int ngbe_ptp_adjfreq(struct ptp_clock_info *ptp, s32 ppb)
 
 	return 0;
 }
-
+#endif
 
 /**
  * ngbe_ptp_adjtime
@@ -291,20 +293,12 @@ static int ngbe_ptp_feature_enable(struct ptp_clock_info *ptp,
  */
 void ngbe_ptp_check_pps_event(struct ngbe_adapter *adapter)
 {
-	struct ptp_clock_event event;
-
-	event.type = PTP_CLOCK_PPS;
-
 	/* this check is necessary in case the interrupt was enabled via some
 	 * alternative means (ex. debug_fs). Better to check here than
 	 * everywhere that calls this function.
 	 */
 	if (!adapter->ptp_clock)
 		return;
-
-	/* we don't config PPS on SDP yet, so just return.
-	 * ptp_clock_event(adapter->ptp_clock, &event);
-	 */
 }
 
 /**
@@ -788,7 +782,9 @@ static long ngbe_ptp_create_clock(struct ngbe_adapter *adapter)
 	adapter->ptp_caps.n_ext_ts = 0;
 	adapter->ptp_caps.n_per_out = 0;
 	adapter->ptp_caps.pps = 0;
+#ifndef HAVE_NOT_PTT_ADJFREQ
 	adapter->ptp_caps.adjfreq = ngbe_ptp_adjfreq;
+#endif
 	adapter->ptp_caps.adjtime = ngbe_ptp_adjtime;
 #ifdef HAVE_PTP_CLOCK_INFO_GETTIME64
 	adapter->ptp_caps.gettime64 = ngbe_ptp_gettime64;

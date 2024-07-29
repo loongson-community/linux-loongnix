@@ -1,0 +1,19 @@
+#
+# Motorcomm network device configuration
+#
+
+config NET_VENDOR_MOTORCOMM
+	bool "Motorcomm devices"
+	default y
+	---help---
+	  If you have a network (Ethernet) card belonging to this class, say Y.
+
+if NET_VENDOR_MOTORCOMM
+
+config YT6801
+	tristate "YT6801 PCI-Express Gigabit Ethernet support"
+	depends on PCI
+	default m
+	---help---
+	  This driver supports YT6801 gigabit ethernet.
+endif # NET_VENDOR_MOTORCOMM

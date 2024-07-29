@@ -37,9 +37,9 @@ enum acpi_irq_model_id acpi_irq_model = ACPI_IRQ_MODEL_PIC;
 
 u64 acpi_saved_sp;
 
-static struct acpi_madt_core_pic cpu_madt_core_pic[NR_CPUS];
+struct acpi_madt_core_pic cpu_madt_core_pic[NR_CPUS];
 
-int pptt_enabled = 1;
+int pptt_enabled;
 EXPORT_SYMBOL(pptt_enabled);
 
 #define MAX_LOCAL_APIC 256
@@ -112,6 +112,231 @@ void acpi_unregister_gsi(u32 gsi)
 
 }
 EXPORT_SYMBOL_GPL(acpi_unregister_gsi);
+
+static struct fwnode_handle *acpi_get_gsi_domain_id(u32 gsi)
+{
+	int id;
+	struct fwnode_handle *domain_handle = NULL;
+
+	switch (gsi) {
+	case GSI_MIN_CPU_IRQ ... GSI_MAX_CPU_IRQ:
+		domain_handle = liointc_get_fwnode();
+		break;
+
+	case LOONGSON_LPC_IRQ_BASE ... LOONGSON_LPC_IRQ_END:
+		domain_handle = pch_lpc_get_fwnode();
+		break;
+
+	case LOONGSON_PCH_IRQ_BASE ... LOONGSON_PCH_IRQ_END:
+		id = find_pch_pic(gsi);
+		if (id >= 0)
+			domain_handle = pch_pic_get_fwnode(id);
+		break;
+	}
+
+	return domain_handle;
+}
+
+/**
+ * acpi_get_irq_source_fwhandle() - Retrieve fwhandle from IRQ resource source.
+ * @source: acpi_resource_source to use for the lookup.
+ *
+ * Description:
+ * Retrieve the fwhandle of the device referenced by the given IRQ resource
+ * source.
+ *
+ * Return:
+ * The referenced device fwhandle or NULL on failure
+ */
+static struct fwnode_handle *
+acpi_get_irq_source_fwhandle(const struct acpi_resource_source *source,
+			     u32 gsi)
+{
+	struct fwnode_handle *result;
+	struct acpi_device *device;
+	acpi_handle handle;
+	acpi_status status;
+
+	if (!source->string_length)
+		return acpi_get_gsi_domain_id(gsi);
+
+	status = acpi_get_handle(NULL, source->string_ptr, &handle);
+	if (WARN_ON(ACPI_FAILURE(status)))
+		return NULL;
+
+	device = acpi_bus_get_acpi_device(handle);
+	if (WARN_ON(!device))
+		return NULL;
+
+	result = &device->fwnode;
+	acpi_bus_put_acpi_device(device);
+	return result;
+}
+
+/*
+ * Context for the resource walk used to lookup IRQ resources.
+ * Contains a return code, the lookup index, and references to the flags
+ * and fwspec where the result is returned.
+ */
+struct acpi_irq_parse_one_ctx {
+	int rc;
+	unsigned int index;
+	unsigned long *res_flags;
+	struct irq_fwspec *fwspec;
+};
+
+/**
+ * acpi_irq_parse_one_match - Handle a matching IRQ resource.
+ * @fwnode: matching fwnode
+ * @hwirq: hardware IRQ number
+ * @triggering: triggering attributes of hwirq
+ * @polarity: polarity attributes of hwirq
+ * @polarity: polarity attributes of hwirq
+ * @shareable: shareable attributes of hwirq
+ * @ctx: acpi_irq_parse_one_ctx updated by this function
+ *
+ * Description:
+ * Handle a matching IRQ resource by populating the given ctx with
+ * the information passed.
+ */
+static inline void acpi_irq_parse_one_match(struct fwnode_handle *fwnode,
+					    u32 hwirq, u8 triggering,
+					    u8 polarity, u8 shareable,
+					    struct acpi_irq_parse_one_ctx *ctx)
+{
+	if (!fwnode)
+		return;
+	ctx->rc = 0;
+	*ctx->res_flags = acpi_dev_irq_flags(triggering, polarity, shareable);
+	ctx->fwspec->fwnode = fwnode;
+	ctx->fwspec->param[0] = hwirq;
+	ctx->fwspec->param[1] = acpi_dev_get_irq_type(triggering, polarity);
+	ctx->fwspec->param_count = 2;
+}
+
+/**
+ * acpi_irq_parse_one_cb - Handle the given resource.
+ * @ares: resource to handle
+ * @context: context for the walk
+ *
+ * Description:
+ * This is called by acpi_walk_resources passing each resource returned by
+ * the _CRS method. We only inspect IRQ resources. Since IRQ resources
+ * might contain multiple interrupts we check if the index is within this
+ * one's interrupt array, otherwise we subtract the current resource IRQ
+ * count from the lookup index to prepare for the next resource.
+ * Once a match is found we call acpi_irq_parse_one_match to populate
+ * the result and end the walk by returning AE_CTRL_TERMINATE.
+ *
+ * Return:
+ * AE_OK if the walk should continue, AE_CTRL_TERMINATE if a matching
+ * IRQ resource was found.
+ */
+static acpi_status acpi_irq_parse_one_cb(struct acpi_resource *ares,
+					 void *context)
+{
+	struct acpi_irq_parse_one_ctx *ctx = context;
+	struct acpi_resource_irq *irq;
+	struct acpi_resource_extended_irq *eirq;
+	struct fwnode_handle *fwnode;
+
+	switch (ares->type) {
+	case ACPI_RESOURCE_TYPE_IRQ:
+		irq = &ares->data.irq;
+		if (ctx->index >= irq->interrupt_count) {
+			ctx->index -= irq->interrupt_count;
+			return AE_OK;
+		}
+		fwnode = acpi_get_gsi_domain_id(irq->interrupts[ctx->index]);
+		acpi_irq_parse_one_match(fwnode, irq->interrupts[ctx->index],
+					 irq->triggering, irq->polarity,
+					 irq->sharable, ctx);
+		return AE_CTRL_TERMINATE;
+	case ACPI_RESOURCE_TYPE_EXTENDED_IRQ:
+		eirq = &ares->data.extended_irq;
+		if (eirq->producer_consumer == ACPI_PRODUCER)
+			return AE_OK;
+		if (ctx->index >= eirq->interrupt_count) {
+			ctx->index -= eirq->interrupt_count;
+			return AE_OK;
+		}
+		fwnode = acpi_get_irq_source_fwhandle(&eirq->resource_source,
+						      eirq->interrupts[ctx->index]);
+		acpi_irq_parse_one_match(fwnode, eirq->interrupts[ctx->index],
+					 eirq->triggering, eirq->polarity,
+					 eirq->sharable, ctx);
+		return AE_CTRL_TERMINATE;
+	}
+
+	return AE_OK;
+}
+
+/**
+ * acpi_irq_parse_one - Resolve an interrupt for a device
+ * @handle: the device whose interrupt is to be resolved
+ * @index: index of the interrupt to resolve
+ * @fwspec: structure irq_fwspec filled by this function
+ * @flags: resource flags filled by this function
+ *
+ * Description:
+ * Resolves an interrupt for a device by walking its CRS resources to find
+ * the appropriate ACPI IRQ resource and populating the given struct irq_fwspec
+ * and flags.
+ *
+ * Return:
+ * The result stored in ctx.rc by the callback, or the default -EINVAL value
+ * if an error occurs.
+ */
+static int acpi_irq_parse_one(acpi_handle handle, unsigned int index,
+			      struct irq_fwspec *fwspec, unsigned long *flags)
+{
+	struct acpi_irq_parse_one_ctx ctx = { -EINVAL, index, flags, fwspec };
+
+	acpi_walk_resources(handle, METHOD_NAME__CRS, acpi_irq_parse_one_cb, &ctx);
+	return ctx.rc;
+}
+
+/**
+ * acpi_irq_get - Lookup an ACPI IRQ resource and use it to initialize resource.
+ * @handle: ACPI device handle
+ * @index:  ACPI IRQ resource index to lookup
+ * @res:    Linux IRQ resource to initialize
+ *
+ * Description:
+ * Look for the ACPI IRQ resource with the given index and use it to initialize
+ * the given Linux IRQ resource.
+ *
+ * Return:
+ * 0 on success
+ * -EINVAL if an error occurs
+ * -EPROBE_DEFER if the IRQ lookup/conversion failed
+ */
+int acpi_irq_get(acpi_handle handle, unsigned int index, struct resource *res)
+{
+	struct irq_fwspec fwspec;
+	struct irq_domain *domain;
+	unsigned long flags;
+	int rc;
+
+	rc = acpi_irq_parse_one(handle, index, &fwspec, &flags);
+	if (rc)
+		return rc;
+
+	domain = irq_find_matching_fwnode(fwspec.fwnode, DOMAIN_BUS_ANY);
+	if (!domain)
+		return -EPROBE_DEFER;
+
+	rc = irq_create_fwspec_mapping(&fwspec);
+	if (rc <= 0)
+		return -EINVAL;
+
+	res->start = rc;
+	res->end = rc;
+	res->flags = flags;
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(acpi_irq_get);
 
 static int __init
 acpi_parse_pch_pic(struct acpi_subtable_header *header,
@@ -329,16 +554,7 @@ err:
 	loongson_sysconf.nr_cpus = num_processors;
 }
 
-static bool __init acpi_cpu_has_smt(int cpu)
-{
-	int has_smt = acpi_pptt_cpu_is_thread(cpu);
-
-	if (has_smt < 0)
-		return 0;
-	return !!(has_smt);
-}
-
-static void __init acpi_parse_pptt(void)
+static int __init acpi_parse_pptt(void)
 {
 	int cpu, topology_id;
 
@@ -347,24 +563,21 @@ static void __init acpi_parse_pptt(void)
 		topology_id = find_acpi_cpu_topology(cpu, 0);
 		if (topology_id < 0) {
 			pr_warn("Invalid BIOS PPTT\n");
-			goto pptt_err;
+			return -ENOENT;
 		}
 
-		if (acpi_cpu_has_smt(cpu)) {
-			smp_num_siblings = LOONGARCH_DEFAULT_SMT_SIBLINGS;
+		if (acpi_pptt_cpu_is_thread(cpu) > 0) {
 			topology_id = find_acpi_cpu_topology(cpu, 1);
 			if (topology_id < 0)
-				goto pptt_err;
+				return -ENOENT;
 			cpu_data[cpu].core = topology_id;
 		} else {
 			cpu_data[cpu].core = topology_id;
 		}
 	}
 
-	return;
-pptt_err:
-	pptt_enabled = 0;
-	smp_num_siblings = 1;
+	pptt_enabled = 1;
+	return 0;
 }
 
 #ifndef CONFIG_SUSPEND
@@ -525,11 +738,6 @@ int acpi_map_cpu(acpi_handle handle, phys_cpuid_t physid, u32 acpi_id,
 	return 0;
 }
 EXPORT_SYMBOL(acpi_map_cpu);
-
-struct acpi_madt_core_pic *acpi_cpu_get_madt_core_pic(int cpu)
-{
-	return &cpu_madt_core_pic[cpu];
-}
 
 int acpi_unmap_cpu(int cpu)
 {

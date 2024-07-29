@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-2.0
+/* Copyright(c) 2022 - 2023 Mucse Corporation. */
 #include <linux/netdevice.h>
 #ifdef NETIF_F_HW_TC
 #include <net/tc_act/tc_gact.h>
@@ -247,7 +249,7 @@ int rnpm_setup_tx_maxrate(void __iomem *ioaddr,
 //
 //	input->hw_idx = adapter->tuple_5_count;
 //	input->sw_idx = loc;
-//	spin_lock(&adapter->fdir_perfect_lock);
+//	spin_lock_irqsave(&adapter->fdir_perfect_lock);
 //
 //	ret = rnpm_fdir_write_perfect_filter(adapter->fdir_mode, hw,
 //			&input->filter, input->hw_idx,
@@ -259,11 +261,11 @@ int rnpm_setup_tx_maxrate(void __iomem *ioaddr,
 //		goto err_out_w_lock;
 //
 //	rnpm_update_ethtool_fdir_entry(adapter, input, input->sw_idx);
-//	spin_unlock(&adapter->fdir_perfect_lock);
+//	spin_unlock_irqrestore(&adapter->fdir_perfect_lock);
 //
 //	return 0;
 //err_out_w_lock:
-//	spin_unlock(&adapter->fdir_perfect_lock);
+//	spin_unlock_irqrestore(&adapter->fdir_perfect_lock);
 //out:
 //	kfree(input);
 //	return -EOPNOTSUPP;
@@ -280,9 +282,9 @@ int rnpm_setup_tx_maxrate(void __iomem *ioaddr,
 //	if ((uhtid != 0x800))
 //		return -EINVAL;
 //
-//	spin_lock(&adapter->fdir_perfect_lock);
+//	spin_lock_irqsave(&adapter->fdir_perfect_lock);
 //	ret = rnpm_update_ethtool_fdir_entry(adapter, NULL, loc);
-//	spin_unlock(&adapter->fdir_perfect_lock);
+//	spin_unlock_irqrestore(&adapter->fdir_perfect_lock);
 //
 //	return ret;
 //}

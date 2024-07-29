@@ -208,7 +208,7 @@ MTD_STATUS mtdCheckDeviceCapabilities(
 	if (major == 0 && minor == 0 && inc == 0 && test == 0) {
 		/* no code loaded into internal processor */
 		/* have to read it from the device itself the hard way */
-		MTD_U16 reg2, reg3;
+		MTD_U16 reg2, reg3; 
 		MTD_U16 index, index2;
 		MTD_U16 temp;
 		MTD_U16 bit16thru23[8];
@@ -771,14 +771,12 @@ MTD_STATUS mtdGetAutonegSpeedDuplexResolution(
 					default:
 						/* this is an error */
 						return MTD_FAIL;
-						break;
 					}
 				}
 				break;
 			default:
 				/* this is an error */
 				return MTD_FAIL;
-				break;
 			}
 
 		}
@@ -841,7 +839,6 @@ MTD_STATUS mtdIsBaseTUp(
 
 		default:
 			return MTD_FAIL;
-			break;
 		}
 	} else {
 		/* must be going through AN */
@@ -867,7 +864,6 @@ MTD_STATUS mtdIsBaseTUp(
 				break;
 			default:
 				return MTD_FAIL;
-				break;
 			}
 
 		}
@@ -1194,7 +1190,6 @@ MTD_STATUS mtdIsPhyRevisionValid(IN MTD_DEVICE_ID phyRev)
 	case MTD_REV_2340_A1:
 	case MTD_REV_2320_A0:
 		return MTD_OK;
-		break;
 
 	/* unsupported PHYs */
 	case MTD_REV_3310P_Z1:
@@ -1220,7 +1215,6 @@ MTD_STATUS mtdIsPhyRevisionValid(IN MTD_DEVICE_ID phyRev)
 	case MTD_REV_E2040_Z2:
 	default:
 		return MTD_FAIL; /* is either MTD_REV_UNKNOWN or not in the above list */
-		break;
 	}
 }
 

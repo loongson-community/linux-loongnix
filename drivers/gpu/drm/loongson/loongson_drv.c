@@ -507,19 +507,19 @@ int loongson_general_kms_init(struct loongson_device *ldev)
 
 int get_gpu_resource_from_vbios(struct loongson_device *ldev)
 {
+	struct pci_dev *pdev = NULL;
 	char *vram_type[] = {"DDR3", "DDR4", "DDR5"};
 	u32 cap;
 
 	cap = get_cap(ldev);
 	if (cap) {
-		DRM_INFO("loongson vram type:%s", vram_type[get_vram_type(ldev)]);
-		DRM_INFO("bit width:%dbit", get_bit_width(ldev));
-		DRM_INFO("capacity:%dMB", cap);
-		DRM_INFO("vram freq:%dMHZ\n", get_freq(ldev));
-
-		DRM_INFO("loongson gpu freq count:%d\n", get_count_freq(ldev));
-		DRM_INFO("shaders num:%d", get_shaders_num(ldev));
-		DRM_INFO("shaders freq:%dMHZ\n", get_shaders_freq(ldev));
+		pdev = pci_get_device(PCI_VENDOR_ID_LOONGSON, PCI_DEVICE_ID_GSGPU_DC, NULL);
+		if (pdev) {
+			dev_info(&pdev->dev, "VRAM: %dM %s %dbit %dMhz.\n", cap,
+				vram_type[get_vram_type(ldev)], get_bit_width(ldev), get_freq(ldev));
+			dev_info(&pdev->dev, "GSGPU: shaders_num: %d, shaders_freq: %d, freq_count: %d.\n",
+				get_shaders_num(ldev), get_shaders_freq(ldev), get_count_freq(ldev));
+		}
 	} else
 		DRM_WARN("The video memory and gpu information is not obtained from the vbios! \n");
 

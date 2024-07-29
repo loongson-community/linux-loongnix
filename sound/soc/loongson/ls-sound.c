@@ -19,11 +19,6 @@ static struct snd_soc_ops loongson_ops = {
 
 static int loongson_es8388_init_paiftx(struct snd_soc_pcm_runtime *rtd)
 {
-	/* Enabling the microphone requires the fitting of a 0R
-	 * resistor to connect the line from the microphone jack.
-	 */
-	snd_soc_dapm_disable_pin(&rtd->card->dapm, "MicIn");
-
 	return 0;
 }
 

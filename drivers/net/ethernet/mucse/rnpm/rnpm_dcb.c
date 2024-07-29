@@ -1,12 +1,12 @@
+// SPDX-License-Identifier: GPL-2.0
+/* Copyright(c) 2022 - 2023 Mucse Corporation. */
 #include <linux/dcbnl.h>
 
 #include "rnpm.h"
 #include "rnpm_dcb.h"
 #include "rnpm_sriov.h"
 
-
-static void rnpm_config_prio_map(struct rnpm_adapter *adapter,
-		u8 pfc_map)
+static void rnpm_config_prio_map(struct rnpm_adapter *adapter, u8 pfc_map)
 {
 	int i, j;
 	u32 prio_map = 0;
@@ -19,13 +19,13 @@ static void rnpm_config_prio_map(struct rnpm_adapter *adapter,
 		if (i > RNPM_MAX_TCS_NUM)
 			break;
 		for (j = 0; j < RNPM_MAX_USER_PRIO; j++) {
-			dbg("prio_tc[%d]==%d tc_num[%d] pfc_map 0x%.2x\n",
-				j, prio_tc[j], i, pfc_map);
+			dbg("prio_tc[%d]==%d tc_num[%d] pfc_map 0x%.2x\n", j,
+			    prio_tc[j], i, pfc_map);
 			if ((prio_tc[j] == i) && (pfc_map & BIT(j))) {
 				dbg("match rule tc_num %d prio_%d\n", i, j);
 				prio_map |= (i << (2 * j));
 				dbg("match prio_tc change to 0x%.2x\n",
-					prio_map);
+				    prio_map);
 			}
 		}
 	}
@@ -42,8 +42,7 @@ static void rnpm_config_prio_map(struct rnpm_adapter *adapter,
 	rnpm_wr_reg(ioaddr + RNPM_FC_EN_CONF_AVAILBLE, 1);
 }
 
-static int rnpm_dcb_hw_pfc_config(struct rnpm_adapter *adapter,
-		u8 pfc_map)
+static int rnpm_dcb_hw_pfc_config(struct rnpm_adapter *adapter, u8 pfc_map)
 {
 	struct rnpm_dcb_cfg *dcb = &adapter->dcb_cfg;
 	struct rnpm_pfc_cfg *pfc = &dcb->pfc_cfg;
@@ -53,16 +52,16 @@ static int rnpm_dcb_hw_pfc_config(struct rnpm_adapter *adapter,
 	u8 num_tc = adapter->num_tc;
 
 	if (!(adapter->flags & RNPM_FLAG_DCB_ENABLED) ||
-			adapter->num_rx_queues <= 1) {
+	    adapter->num_rx_queues <= 1) {
 		dev_warn(&adapter->pdev->dev, "%s DCB_FLAG%d",
-				"don't support pfc when rx quene less"
-				"than 1 or disable dcb feature \n",
-				adapter->flags & RNPM_FLAG_DCB_ENABLED);
+			 "don't support pfc when rx quene less"
+			 "than 1 or disable dcb feature \n",
+			 adapter->flags & RNPM_FLAG_DCB_ENABLED);
 		return 0;
 	}
 	/* 1.Enable Receive Priority Flow Control */
 	reg = RNPM_RX_RFE | RNPM_PFCE;
-	rnpm_wr_reg(ioaddr + RNPM_MAC_RX_FLOW_CTRL(adapter->port), reg);
+	rnpm_wr_reg(ioaddr + RNPM_MAC_RX_FLOW_CTRL, reg);
 	/* 2.Configure which port will in pfc mode*/
 	reg = rnpm_rd_reg(ioaddr + RNPM_FC_PORT_ENABLE);
 	/* 3.For Now just support two port Version So just enabled
@@ -76,7 +75,7 @@ static int rnpm_dcb_hw_pfc_config(struct rnpm_adapter *adapter,
 
 		for (j = 0; j < RNPM_MAX_USER_PRIO; j++) {
 			if ((adapter->prio_tc_map[j] == i) &&
-				(pfc_map & BIT(j))) {
+			    (pfc_map & BIT(j))) {
 				enabled = 1;
 				dcb->pfc_cfg.hw_pfc_map |= BIT(j);
 				dcb->pfc_cfg.pfc_num++;
@@ -86,12 +85,11 @@ static int rnpm_dcb_hw_pfc_config(struct rnpm_adapter *adapter,
 		if (enabled) {
 			/* 4.Enable Transmit Priority Flow Control */
 			reg = RNPM_TX_TFE |
-				(RNPM_PAUSE_28_SLOT_TIME <<
-				RNPM_FC_TX_PLTH_OFFSET) |
-				(RNPM_DEFAULT_PAUSE_TIME <<
-				RNPM_FC_TX_PT_OFFSET);
+			      (RNPM_PAUSE_28_SLOT_TIME
+			       << RNPM_FC_TX_PLTH_OFFSET) |
+			      (RNPM_DEFAULT_PAUSE_TIME << RNPM_FC_TX_PT_OFFSET);
 
-			rnpm_wr_reg(ioaddr + RNPM_MAC_Q0_TX_FLOW_CTRL(adapter->port, j), reg);
+			rnpm_wr_reg(ioaddr + RNPM_MAC_Q0_TX_FLOW_CTRL(j), reg);
 		}
 	}
 	/* the below configure can just use default config */
@@ -112,17 +110,16 @@ static int rnpm_dcb_hw_fc_enable(struct rnpm_adapter *adapter)
 	void __iomem *ioaddr = adapter->hw.hw_addr;
 
 	/* 1. Enabled Transmit Flow Control */
-	rnpm_wr_reg(ioaddr + RNPM_MAC_Q0_TX_FLOW_CTRL(adapter->port, 0), RNPM_TX_TFE);
+	rnpm_wr_reg(ioaddr + RNPM_MAC_Q0_TX_FLOW_CTRL(0), RNPM_TX_TFE);
 	/* 2. Enabled Recvive Flow Control */
-	rnpm_wr_reg(ioaddr + RNPM_MAC_RX_FLOW_CTRL(adapter->port), RNPM_RX_RFE);
+	rnpm_wr_reg(ioaddr + RNPM_MAC_RX_FLOW_CTRL, RNPM_RX_RFE);
 	/* 3. Configure Fc Pause Time And Pause Low Threshold
 	 * just use default value?
 	 */
 	return 0;
 }
 
-static int rnpm_dcbnl_getpfc(struct net_device *dev,
-		struct ieee_pfc *pfc)
+static int rnpm_dcbnl_getpfc(struct net_device *dev, struct ieee_pfc *pfc)
 {
 	struct rnpm_adapter *adapter = netdev_priv(dev);
 	struct rnpm_dcb_cfg *dcb = &adapter->dcb_cfg;
@@ -134,7 +131,7 @@ static int rnpm_dcbnl_getpfc(struct net_device *dev,
 	for (i = 0; i < adapter->num_tc; i++) {
 		for (j = 0; j < RNPM_MAX_USER_PRIO; j++) {
 			if ((adapter->prio_tc_map[j] == i) &&
-				(dcb->pfc_cfg.hw_pfc_map & BIT(i)))
+			    (dcb->pfc_cfg.hw_pfc_map & BIT(i)))
 				pfc->pfc_en |= BIT(j);
 		}
 	}
@@ -199,8 +196,7 @@ static u8 rnpm_dcbnl_setdcbx(struct net_device *net_dev, u8 mode)
 	return (mode != (adapter->dcb_cfg.dcbx_mode)) ? 1 : 0;
 }
 
-static int rnpm_dcb_parse_config(struct rnpm_dcb_cfg *dcb,
-		struct ieee_pfc *pfc)
+static int rnpm_dcb_parse_config(struct rnpm_dcb_cfg *dcb, struct ieee_pfc *pfc)
 {
 	u8 j = 0, pfc_en_num = 0, pfc_map = 0;
 
@@ -218,15 +214,13 @@ static int rnpm_dcb_parse_config(struct rnpm_dcb_cfg *dcb,
 	return pfc_map;
 }
 
-static int rnpm_dcbnl_setpfc(struct net_device *dev,
-		struct ieee_pfc *pfc)
+static int rnpm_dcbnl_setpfc(struct net_device *dev, struct ieee_pfc *pfc)
 {
 	struct rnpm_adapter *adapter = netdev_priv(dev);
 	struct rnpm_dcb_cfg *dcb = &adapter->dcb_cfg;
 	u8 pfc_map = 0;
 
-	dbg("%s:%d pfc enabled %d\n", __func__, __LINE__,
-		pfc->pfc_en);
+	dbg("%s:%d pfc enabled %d\n", __func__, __LINE__, pfc->pfc_en);
 	if (pfc->pfc_en) {
 		/*set PFC Priority mask */
 		pfc_map = rnpm_dcb_parse_config(dcb, pfc);
@@ -278,20 +272,19 @@ static void rnpm_dcbnl_setpfcstate(struct net_device *netdev, u8 state)
 const struct dcbnl_rtnl_ops rnpm_dcbnl_ops = {
 	/*DCB PFC*/
 	/*IEEE*/
-	.ieee_getpfc            = rnpm_dcbnl_getpfc,
-	.ieee_setpfc            = rnpm_dcbnl_setpfc,
-	.getcap                 = rnpm_dcbnl_getcap,
-	.setdcbx                = rnpm_dcbnl_setdcbx,
-	.getdcbx                = rnpm_dcbnl_getdcbx,
+	.ieee_getpfc = rnpm_dcbnl_getpfc,
+	.ieee_setpfc = rnpm_dcbnl_setpfc,
+	.getcap = rnpm_dcbnl_getcap,
+	.setdcbx = rnpm_dcbnl_setdcbx,
+	.getdcbx = rnpm_dcbnl_getdcbx,
 	/*CEE*/
-	.getstate               = rnpm_dcbnl_getstate,
+	.getstate = rnpm_dcbnl_getstate,
 
-	.getpfcstate		= rnpm_dcbnl_getpfcstate,
-	.setpfcstate		= rnpm_dcbnl_setpfcstate,
+	.getpfcstate = rnpm_dcbnl_getpfcstate,
+	.setpfcstate = rnpm_dcbnl_setpfcstate,
 };
 
-int rnpm_dcb_init(struct net_device *dev,
-		struct rnpm_adapter *adapter)
+int rnpm_dcb_init(struct net_device *dev, struct rnpm_adapter *adapter)
 {
 	struct rnpm_dcb_cfg *dcb = &adapter->dcb_cfg;
 

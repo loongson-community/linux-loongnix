@@ -1,5 +1,15 @@
+/*
+ * WangXun 10 Gigabit PCI Express Linux driver
+ * Copyright (c) 2015 - 2017 Beijing WangXun Technology Co., Ltd.
+ *
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms and conditions of the GNU General Public License,
+ * version 2, as published by the Free Software Foundation.
+ */
 #include <linux/delay.h>
 #include <linux/pci.h>
+#include <linux/bitops.h>
+
 #include "txgbe_pcierr.h"
 #include "txgbe.h"
 #define TXGBE_ROOT_PORT_INTR_ON_MESG_MASK	(PCI_ERR_ROOT_CMD_COR_EN|	\
@@ -11,11 +21,60 @@
 #define PCI_ERS_RESULT_NO_AER_DRIVER ((__force pci_ers_result_t) 6)
 #endif
 
-#if (RHEL_RELEASE_CODE && (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7, 0)))
+static const char *aer_correctable_error_string[16] = {
+	"RxErr",			/* Bit Position 0	*/
+	NULL,
+	NULL,
+	NULL,
+	NULL,
+	NULL,
+	"BadTLP",			/* Bit Position 6	*/
+	"BadDLLP",			/* Bit Position 7	*/
+	"Rollover",			/* Bit Position 8	*/
+	NULL,
+	NULL,
+	NULL,
+	"Timeout",			/* Bit Position 12	*/
+	"NonFatalErr",			/* Bit Position 13	*/
+	"CorrIntErr",			/* Bit Position 14	*/
+	"HeaderOF",			/* Bit Position 15	*/
+};
+
+static const char *aer_uncorrectable_error_string[27] = {
+	"Undefined",			/* Bit Position 0	*/
+	NULL,
+	NULL,
+	NULL,
+	"DLP",				/* Bit Position 4	*/
+	"SDES",				/* Bit Position 5	*/
+	NULL,
+	NULL,
+	NULL,
+	NULL,
+	NULL,
+	NULL,
+	"TLP",				/* Bit Position 12	*/
+	"FCP",				/* Bit Position 13	*/
+	"CmpltTO",			/* Bit Position 14	*/
+	"CmpltAbrt",			/* Bit Position 15	*/
+	"UnxCmplt",			/* Bit Position 16	*/
+	"RxOF",				/* Bit Position 17	*/
+	"MalfTLP",			/* Bit Position 18	*/
+	"ECRC",				/* Bit Position 19	*/
+	"UnsupReq",			/* Bit Position 20	*/
+	"ACSViol",			/* Bit Position 21	*/
+	"UncorrIntErr",			/* Bit Position 22	*/
+	"BlockedTLP",			/* Bit Position 23	*/
+	"AtomicOpBlocked",		/* Bit Position 24	*/
+	"TLPBlockedErr",		/* Bit Position 25	*/
+	"PoisonTLPBlocked",		/* Bit Position 26	*/
+};
+
+
+#if (RHEL_RELEASE_CODE && (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,0)))
 /* redefinition because centos 6 can't use pci_walk_bus in pci.h*/
 
 struct rw_semaphore pci_bus_sem;
-
 /** pci_walk_bus - walk devices on/under bus, calling callback.
  *  @top      bus whose devices should be walked
  *  @cb       callback to be called for each device found
@@ -88,7 +147,7 @@ static pci_ers_result_t merge_result(enum pci_ers_result orig,
 }
 
 static int txgbe_report_error_detected(struct pci_dev *dev,
-				 enum pci_channel_state state,
+				 pci_channel_state_t state,
 				 enum pci_ers_result *result)
 {
 	pci_ers_result_t vote;
@@ -202,7 +261,7 @@ void txgbe_pcie_do_recovery(struct pci_dev *dev)
 
 	pci_walk_bus(bus, txgbe_report_frozen_detected, &status);
 	pos = pci_find_ext_capability(dev, PCI_EXT_CAP_ID_ERR);
-		if (pos) {
+ 	if (pos) {			
 		/* Disable Root's interrupt in response to error messages */
 		pci_read_config_dword(dev, pos + PCI_ERR_ROOT_COMMAND, &reg32);
 		reg32 &= ~TXGBE_ROOT_PORT_INTR_ON_MESG_MASK;
@@ -228,7 +287,7 @@ void txgbe_pcie_do_recovery(struct pci_dev *dev)
 	 * 	 * delay before we can consider subordinate devices to
 	 * 	 * be re-initialized.  PCIe has some ways to shorten this,
 	 * 	 * but we don't make use of them yet.
-	 * 	 */
+	 * 	 */				
 	ssleep(1);
 
 	pci_read_config_dword(dev, PCI_COMMAND, &id);
@@ -236,13 +295,13 @@ void txgbe_pcie_do_recovery(struct pci_dev *dev)
 		if (delay > 60000) {
 			pci_warn(dev, "not ready %dms after %s; giving up\n",
 				 delay - 1, "bus_reset");
-					return;
+		 		return;
 		}
 
 		if (delay > 1000)
 			pci_info(dev, "not ready %dms after %s; waiting\n",
 				 delay - 1, "bus_reset");
-
+							
 		msleep(delay);
 		delay *= 2;
 		pci_read_config_dword(dev, PCI_COMMAND, &id);
@@ -264,7 +323,7 @@ void txgbe_pcie_do_recovery(struct pci_dev *dev)
 	reg32 |= TXGBE_ROOT_PORT_INTR_ON_MESG_MASK;
 	pci_write_config_dword(dev, pos + PCI_ERR_ROOT_COMMAND, reg32);
 	}
-
+	
 	if (status == PCI_ERS_RESULT_CAN_RECOVER) {
 		status = PCI_ERS_RESULT_RECOVERED;
 		pci_dbg(dev, "broadcast mmio_enabled message\n");
@@ -286,9 +345,48 @@ void txgbe_pcie_do_recovery(struct pci_dev *dev)
 		goto failed;
 
 	pci_dbg(dev, "broadcast resume message\n");
-	pci_walk_bus(bus, txgbe_report_resume, &status);
-
+	pci_walk_bus(bus, txgbe_report_resume, &status);	
+	
 failed:
 	;
 }
 
+void txgbe_aer_print_error(struct txgbe_adapter *adapter, u32 severity, u32 status)
+{
+	unsigned long i;
+	const char *errmsg = NULL;
+	struct pci_dev *pdev = adapter->pdev;
+	unsigned long val = status;
+
+	for_each_set_bit(i, &val, 32) {
+		if (severity == TXGBE_AER_CORRECTABLE) {
+			errmsg = i < ARRAY_SIZE(aer_correctable_error_string) ?
+				aer_correctable_error_string[i] : NULL;
+		} else {
+			errmsg = i < ARRAY_SIZE(aer_uncorrectable_error_string) ?
+				aer_uncorrectable_error_string[i] : NULL;
+
+			if (errmsg != NULL && i == 14)
+				adapter->cmplt_to_dis = true;
+		}
+		if (errmsg)
+			dev_info(&pdev->dev, "   [%2ld] %-22s\n", i, errmsg);
+
+	}
+}
+
+bool txgbe_check_recovery_capability(struct pci_dev *dev)
+{
+#if defined(__i386__) || defined(__x86_64__)
+	return true;
+#else
+	/* check upstream bridge is root or PLX brigde,
+	 * or cpu is kupeng 920 or not
+	 */
+	if (dev->bus->self->vendor == 0x10b5 ||
+		dev->bus->self->vendor == 0x19e5)
+		return true;
+	else
+		return false;
+#endif
+}

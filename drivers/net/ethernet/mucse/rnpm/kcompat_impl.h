@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0 */
-/* Copyright(c) 1999 - 2021 Intel Corporation. */
+/* Copyright(c) 2021 - 2023 Mucse Corporation. */
 
 #ifndef _KCOMPAT_IMPL_H_
 #define _KCOMPAT_IMPL_H_
@@ -49,25 +49,31 @@ static inline void eth_hw_addr_set(struct net_device *dev, const u8 *addr)
 	ether_addr_copy(dev->dev_addr, addr);
 }
 #endif
-/* NEED_SKB_FRAG_OFF_ACCESSORS
+
+/* NEED_SKB_FRAG_OFF and NEED_SKB_FRAG_OFF_ADD
  *
  * skb_frag_off and skb_frag_off_add were added in upstream commit
  * 7240b60c98d6 ("linux: Add skb_frag_t page_offset accessors")
  *
  * Implementing the wrappers directly for older kernels which still have the
  * old implementation of skb_frag_t is trivial.
+ *
+ * LTS 4.19 backported the define for skb_frag_off in 4.19.201.
+ * d94d95ae0dd0 ("gro: ensure frag0 meets IP header alignment")
+ * Need to exclude defining skb_frag_off for 4.19.X where X > 200
  */
-#ifdef NEED_SKB_FRAG_OFF_ACCESSORS
+#ifdef NEED_SKB_FRAG_OFF
 static inline unsigned int skb_frag_off(const skb_frag_t *frag)
 {
 	return frag->page_offset;
 }
-
+#endif /* NEED_SKB_FRAG_OFF */
+#ifdef NEED_SKB_FRAG_OFF_ADD
 static inline void skb_frag_off_add(skb_frag_t *frag, int delta)
 {
 	frag->page_offset += delta;
 }
-#endif
+#endif /* NEED_SKB_FRAG_OFF_ADD */
 
 /*
  * NETIF_F_HW_L2FW_DOFFLOAD related functions
@@ -231,13 +237,12 @@ devlink_flash_update_status_notify(struct devlink __always_unused *devlink,
  * notification messages without timeout information.
  */
 #ifdef NEED_DEVLINK_FLASH_UPDATE_TIMEOUT_NOTIFY
-static inline void
-devlink_flash_update_timeout_notify(struct devlink *devlink,
-				    const char *status_msg,
-				    const char *component,
-				    unsigned long __always_unused timeout)
+static inline void devlink_flash_update_timeout_notify(
+	struct devlink *devlink, const char *status_msg, const char *component,
+	unsigned long __always_unused timeout)
 {
-	devlink_flash_update_status_notify(devlink, status_msg, component, 0, 0);
+	devlink_flash_update_status_notify(devlink, status_msg, component, 0,
+					   0);
 }
 #endif /* NEED_DEVLINK_FLASH_UPDATE_TIMEOUT_NOTIFY */
 
@@ -298,8 +303,7 @@ struct _kc_devlink_port_pci_vf_attrs {
 };
 
 struct _kc_devlink_port_attrs {
-	u8 split:1,
-	   splittable:1;
+	u8 split : 1, splittable : 1;
 	u32 lanes;
 	enum devlink_port_flavour flavour;
 	struct netdev_phys_item_id switch_id;
@@ -317,12 +321,14 @@ _kc_devlink_port_attrs_set(struct devlink_port *devlink_port,
 			   struct _kc_devlink_port_attrs *attrs)
 {
 #if defined(HAVE_DEVLINK_PORT_ATTRS_SET_SWITCH_ID)
-	devlink_port_attrs_set(devlink_port, attrs->flavour, attrs->phys.port_number,
-			       attrs->split, attrs->phys.split_subport_number,
+	devlink_port_attrs_set(devlink_port, attrs->flavour,
+			       attrs->phys.port_number, attrs->split,
+			       attrs->phys.split_subport_number,
 			       attrs->switch_id.id, attrs->switch_id.id_len);
 #elif defined(HAVE_DEVLINK_PORT_ATTRS_SET_PORT_FLAVOUR)
-	devlink_port_attrs_set(devlink_port, attrs->flavour, attrs->phys.port_number,
-			       attrs->split, attrs->phys.split_subport_number);
+	devlink_port_attrs_set(devlink_port, attrs->flavour,
+			       attrs->phys.port_number, attrs->split,
+			       attrs->phys.split_subport_number);
 #else
 	if (attrs->split)
 		devlink_port_split_set(devlink_port, attrs->phys.port_number);
@@ -349,38 +355,37 @@ _kc_devlink_port_attrs_set(struct devlink_port *devlink_port,
  */
 #ifdef NEED_DEV_PRINTK_ONCE
 #ifdef CONFIG_PRINTK
-#define dev_level_once(dev_level, dev, fmt, ...)			\
-do {									\
-	static bool __print_once __read_mostly;				\
-									\
-	if (!__print_once) {						\
-		__print_once = true;					\
-		dev_level(dev, fmt, ##__VA_ARGS__);			\
-	}								\
-} while (0)
+#define dev_level_once(dev_level, dev, fmt, ...)                               \
+	do {                                                                   \
+		static bool __print_once __read_mostly;                        \
+		if (!__print_once) {                                           \
+			__print_once = true;                                   \
+			dev_level(dev, fmt, ##__VA_ARGS__);                    \
+		}                                                              \
+	} while (0)
 #else
-#define dev_level_once(dev_level, dev, fmt, ...)			\
-do {									\
-	if (0)								\
-		dev_level(dev, fmt, ##__VA_ARGS__);			\
-} while (0)
+#define dev_level_once(dev_level, dev, fmt, ...)                               \
+	do {                                                                   \
+		if (0)                                                         \
+			dev_level(dev, fmt, ##__VA_ARGS__);                    \
+	} while (0)
 #endif
 
-#define dev_emerg_once(dev, fmt, ...)					\
+#define dev_emerg_once(dev, fmt, ...)                                          \
 	dev_level_once(dev_emerg, dev, fmt, ##__VA_ARGS__)
-#define dev_alert_once(dev, fmt, ...)					\
+#define dev_alert_once(dev, fmt, ...)                                          \
 	dev_level_once(dev_alert, dev, fmt, ##__VA_ARGS__)
-#define dev_crit_once(dev, fmt, ...)					\
+#define dev_crit_once(dev, fmt, ...)                                           \
 	dev_level_once(dev_crit, dev, fmt, ##__VA_ARGS__)
-#define dev_err_once(dev, fmt, ...)					\
+#define dev_err_once(dev, fmt, ...)                                            \
 	dev_level_once(dev_err, dev, fmt, ##__VA_ARGS__)
-#define dev_warn_once(dev, fmt, ...)					\
+#define dev_warn_once(dev, fmt, ...)                                           \
 	dev_level_once(dev_warn, dev, fmt, ##__VA_ARGS__)
-#define dev_notice_once(dev, fmt, ...)					\
+#define dev_notice_once(dev, fmt, ...)                                         \
 	dev_level_once(dev_notice, dev, fmt, ##__VA_ARGS__)
-#define dev_info_once(dev, fmt, ...)					\
+#define dev_info_once(dev, fmt, ...)                                           \
 	dev_level_once(dev_info, dev, fmt, ##__VA_ARGS__)
-#define dev_dbg_once(dev, fmt, ...)					\
+#define dev_dbg_once(dev, fmt, ...)                                            \
 	dev_level_once(dev_dbg, dev, fmt, ##__VA_ARGS__)
 #endif /* NEED_DEV_PRINTK_ONCE */
 

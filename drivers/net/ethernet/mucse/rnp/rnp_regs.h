@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: GPL-2.0 */
+/* Copyright(c) 2022 - 2023 Mucse Corporation. */
+
 #ifndef RNP_REGS_H
 #define RNP_REGS_H
 
@@ -21,9 +24,6 @@
 #define RNP10_RING_BASE (0x8000)
 // n20
 #define RNP20_RING_BASE (0x8000)
-// n500 
-#define RNP500_RING_BASE (0x1000)
-
 
 #define RING_OFFSET(queue_idx) (0x100 * (queue_idx))
 
@@ -57,6 +57,7 @@
 #define TX_INT_MASK (1 << 1)
 #define RX_INT_MASK (1 << 0)
 #define RNP_DMA_INT_CLR (0x28)
+#define RNP_DMA_INT_TRIG (0x2c)
 
 #define RNP_DMA_AXI_EN (0x0010)
 #define RX_AXI_RW_EN (0x03 << 0)
@@ -90,7 +91,7 @@
 #define RNP_DMA_REG_RX_INT_DELAY_PKTCNT (0x4c)
 #define RNP_DMA_REG_RX_ARB_DEF_LVL (0x50)
 #define PCI_DMA_REG_RX_DESC_TIMEOUT_TH (0x54)
-#define PCI_DMA_REG_RX_SCATTER_LENGH (0x58)
+#define PCI_DMA_REG_RX_SCATTER_LENGTH (0x58)
 // TX-Queue Registers
 #define RNP_DMA_REG_TX_DESC_BUF_BASE_ADDR_HI (0x60)
 #define RNP_DMA_REG_TX_DESC_BUF_BASE_ADDR_LO (0x64)
@@ -103,16 +104,18 @@
 #define RNP_DMA_REG_TX_ARB_DEF_LVL (0x80)
 #define RNP_DMA_REG_TX_FLOW_CTRL_TH (0x84)
 #define RNP_DMA_REG_TX_FLOW_CTRL_TM (0x88)
+#define RNP_DMA_PKT_FIFO_DATA_PROG_FULL_THRESH (0x0098)
 
 // VEB Registers
 // fixme
 #define VEB_TBL_CNTS 64
-#define RNP_DMA_PORT_VBE_MAC_LO_TBL(port, vf)                                  \
+#define RNP_DMA_PORT_VBE_MAC_LO_TBL(port, vf) \
 	(0x80A0 + 4 * (port) + 0x100 * (vf))
-#define RNP_DMA_PORT_VBE_MAC_HI_TBL(port, vf)                                  \
+#define RNP_DMA_PORT_VBE_MAC_HI_TBL(port, vf) \
 	(0x80B0 + 4 * (port) + 0x100 * (vf))
-#define RNP_DMA_PORT_VEB_VID_TBL(port, vf) (0x80C0 + 4 * (port) + 0x100 * (vf))
-#define RNP_DMA_PORT_VEB_VF_RING_TBL(port, vf)                                 \
+#define RNP_DMA_PORT_VEB_VID_TBL(port, vf) \
+	(0x80C0 + 4 * (port) + 0x100 * (vf))
+#define RNP_DMA_PORT_VEB_VF_RING_TBL(port, vf) \
 	(0x80D0 + 4 * (port) + 0x100 * (vf))
 // cannot found ....
 // #define RNP_DMA_STATS_DMA_TO_MAC                    (0x1a0)
@@ -133,7 +136,6 @@
 
 #define RNP10_ETH_BASE (0x10000)
 
-
 #define RNP10_ETH_ENABLE_RSS_ONLY (0x3f30001)
 #define RNP10_RAH_AV 0x80000000
 #define RNP10_ETH_RAR_RL(n) (0xa000 + 0x04 * n)
@@ -143,10 +145,10 @@
 #define RNP10_ETH_DMAC_MCSTCTRL (0x9114)
 #define RNP10_MCSTCTRL_MULTICASE_TBL_EN (1 << 2)
 #define RNP10_MCSTCTRL_UNICASE_TBL_EN (1 << 3)
-#define RNP10_VM_DMAC_MPSAR_RING(entry)                                          \
+#define RNP10_VM_DMAC_MPSAR_RING(entry) \
 	(0xb400 + (4 * (entry))) // ring = (value*2)
 
-#define RNP10_ETH_MUTICAST_HASH_TABLE(n) (0xac00 + 0x04 * n)
+#define RNP10_ETH_MULTICAST_HASH_TABLE(n) (0xac00 + 0x04 * n)
 
 #define RNP10_ETH_LAYER2_ETQF(n) (0x9200 + 0x04 * (n))
 #define RNP10_ETH_LAYER2_ETQS(n) (0x9240 + 0x04 * (n))
@@ -154,24 +156,24 @@
 /* ==================== RNP10-TCAM Global Registers ==================== */
 #define RNP10_TCAM_BASE (0xc0000 - RNP10_ETH_BASE)
 
-#define RNP10_TCAM_SDPQF(n)                                                      \
+#define RNP10_TCAM_SDPQF(n) \
 	(RNP10_TCAM_BASE + 0x00 + 0x40 * (n / 2) + 0x10 * (n % 2))
-#define RNP10_TCAM_DAQF(n)                                                       \
+#define RNP10_TCAM_DAQF(n) \
 	(RNP10_TCAM_BASE + 0x04 + 0x40 * (n / 2) + 0x10 * (n % 2))
-#define RNP10_TCAM_SAQF(n)                                                       \
+#define RNP10_TCAM_SAQF(n) \
 	(RNP10_TCAM_BASE + 0x08 + 0x40 * (n / 2) + 0x10 * (n % 2))
-#define RNP10_TCAM_APQF(n)                                                       \
+#define RNP10_TCAM_APQF(n) \
 	(RNP10_TCAM_BASE + 0x0c + 0x40 * (n / 2) + 0x10 * (n % 2))
 
 #define RNP10_ETH_TCAM_EN (0x8024)
 
-#define RNP10_TCAM_SDPQF_MASK(n)                                                 \
+#define RNP10_TCAM_SDPQF_MASK(n) \
 	(RNP10_TCAM_BASE + 0x20 + 0x40 * (n / 2) + 0x10 * (n % 2))
-#define RNP10_TCAM_DAQF_MASK(n)                                                  \
+#define RNP10_TCAM_DAQF_MASK(n) \
 	(RNP10_TCAM_BASE + 0x24 + 0x40 * (n / 2) + 0x10 * (n % 2))
-#define RNP10_TCAM_SAQF_MASK(n)                                                  \
+#define RNP10_TCAM_SAQF_MASK(n) \
 	(RNP10_TCAM_BASE + 0x28 + 0x40 * (n / 2) + 0x10 * (n % 2))
-#define RNP10_TCAM_APQF_MASK(n)                                                  \
+#define RNP10_TCAM_APQF_MASK(n) \
 	(RNP10_TCAM_BASE + 0x2c + 0x40 * (n / 2) + 0x10 * (n % 2))
 
 #define RNP10_TCAM_MODE (RNP10_TCAM_BASE + 0x20000)
@@ -179,15 +181,17 @@
 #define RNP10_TCAM_CACHE_ADDR_CLR (RNP10_TCAM_BASE + 0x20008)
 #define RNP10_TCAM_CACHE_REQ_CLR (RNP10_TCAM_BASE + 0x2000c)
 
-#define RNP10_TOP_ETH_TCAM_CONFIG_ENABLE (0x30000 - RNP10_ETH_BASE + 0x8050)
+#define RNP10_TOP_ETH_TCAM_CONFIG_ENABLE \
+	(0x30000 - RNP10_ETH_BASE + 0x8050)
 
 #define RNP10_VEB_TBL_CNTS 64
-#define RNP10_DMA_PORT_VBE_MAC_LO_TBL(port, vf)                                  \
+#define RNP10_DMA_PORT_VBE_MAC_LO_TBL(port, vf) \
 	(0x80A0 + 4 * (port) + 0x100 * (vf))
-#define RNP10_DMA_PORT_VBE_MAC_HI_TBL(port, vf)                                  \
+#define RNP10_DMA_PORT_VBE_MAC_HI_TBL(port, vf) \
 	(0x80B0 + 4 * (port) + 0x100 * (vf))
-#define RNP10_DMA_PORT_VEB_VID_TBL(port, vf) (0x80C0 + 4 * (port) + 0x100 * (vf))
-#define RNP10_DMA_PORT_VEB_VF_RING_TBL(port, vf)                                 \
+#define RNP10_DMA_PORT_VEB_VID_TBL(port, vf) \
+	(0x80C0 + 4 * (port) + 0x100 * (vf))
+#define RNP10_DMA_PORT_VEB_VF_RING_TBL(port, vf) \
 	(0x80D0 + 4 * (port) + 0x100 * (vf))
 
 /*
@@ -212,12 +216,12 @@
 
 #define RNP10_ETH_TC_IPH_OFFSET_TABLE(n) (0xe800 + 0x04 * (n))
 
-#define RNP10_ETH_RSS_INDIR_TBL(n)                                            \
-	(0xe000 + 0x04 * (n))
+#define RNP10_ETH_RSS_INDIR_TBL(n) (0xe000 + 0x04 * (n))
 
 #define RNP10_ETH_VLAN_FILTER_TABLE(n) (0xb000 + 0x04 * (n))
 #define RNP10_VFTA RNP10_ETH_VLAN_FILTER_TABLE
 #define RNP10_VLVF(idx) (0xb600 + 4 * (idx))
+#define RNP10_VLVF_TABLE(idx) (0xb700 + 4 * (idx))
 
 #define RNP10_ETH_TUPLE5_SAQF(n) (0xc000 + 0x04 * (n))
 #define RNP10_ETH_TUPLE5_DAQF(n) (0xc400 + 0x04 * (n))
@@ -252,13 +256,14 @@
 #define RNP10_TOP_MAC_SN (RNP10_COMM_REG0 + 0xc008)
 
 #define RNP10_ETH_TUNNEL_MOD (0x8004)
+#define INNER_L4_BIT BIT(6)
 #define PKT_LEN_ERR (2)
 #define HDR_LEN_ERR (1)
 #define RNP10_ETH_ERR_MASK_VECTOR (0x8060)
 
 #define RNP10_ETH_BYPASS (0x8000)
 #define RNP10_ETH_DEFAULT_RX_RING (0x806c)
-#define DROP_ALL_THRESH (2046) //drop all rx 
+#define DROP_ALL_THRESH (2046) //drop all rx
 #define RECEIVE_ALL_THRESH (0x270) //receive all rx
 #define RNP10_ETH_RX_PROGFULL_THRESH_PORT (0x8070)
 
@@ -266,7 +271,10 @@
 #define RNP10_ETH_LOW_WATER(n) (0x80c4 + n * (0x08))
 #define RNP10_ETH_WRAP_FIELD_TYPE (0x805c)
 #define RNP10_MRQC_IOV_EN (0x92a0)
+#define RNP10_ETH_SYNQF (0x9290)
+#define RNP10_ETH_SYNQF_PRIORITY (0x9294)
 
+#define RNP10_RXTRANS_DROP(port) (0x8904 + 0x40 * (port))
 #define RNP10_RXTRANS_WDT_ERR_PKTS(port) (0x8908 + 0x40 * (port))
 #define RNP10_RXTRANS_CODE_ERR_PKTS(port) (0x890c + 0x40 * (port))
 #define RNP10_RXTRANS_CRC_ERR_PKTS(port) (0x8910 + 0x40 * (port))
@@ -303,16 +311,16 @@
 
 #define RNP10_VLVF(idx) (0xb600 + 4 * (idx))
 
-
 #define RNP500_VEB_TBL_CNTS 8
-#define RNP500_DMA_PORT_VBE_MAC_LO_TBL(port, vf)                                  \
+#define RNP500_DMA_RBUF_FIFO (0x00b0)
+#define RNP500_DMA_PORT_VBE_MAC_LO_TBL(port, vf) \
 	(0x10c0 + 4 * (port) + 0x100 * (vf))
-#define RNP500_DMA_PORT_VBE_MAC_HI_TBL(port, vf)                                  \
+#define RNP500_DMA_PORT_VBE_MAC_HI_TBL(port, vf) \
 	(0x10c4 + 4 * (port) + 0x100 * (vf))
-#define RNP500_DMA_PORT_VEB_VID_TBL(port, vf) (0x80C8 + 4 * (port) + 0x100 * (vf))
-#define RNP500_DMA_PORT_VEB_VF_RING_TBL(port, vf)                                 \
+#define RNP500_DMA_PORT_VEB_VID_TBL(port, vf) \
+	(0x10C8 + 4 * (port) + 0x100 * (vf))
+#define RNP500_DMA_PORT_VEB_VF_RING_TBL(port, vf) \
 	(0x10cc + 4 * (port) + 0x100 * (vf))
-
 
 #define RNP500_ETH_BASE (0x10000)
 
@@ -326,15 +334,25 @@
 #define RNP500_ETH_DEFAULT_RX_MAX_LEN (0x80f4)
 
 #define RNP500_ETH_VLAN_VME_REG(n) (0x8040 + 0x04 * (n))
+#define RNP500_ETH_ERR_MASK_VECTOR (0x8060)
 
+#define RNP500_ETH_RSS_MASK (0x3ff0001)
 #define RNP500_ETH_ENABLE_RSS_ONLY (0x3f30001)
 #define RNP500_ETH_RSS_CONTROL (0x92a0)
 #define RNP500_MRQC_IOV_EN (0x92a0)
 #define RNP500_IOV_ENABLED (1 << 3)
 #define RNP500_ETH_DISABLE_RSS (0)
+#define RNP500_ETH_SYNQF (0x9290)
+#define RNP500_ETH_SYNQF_PRIORITY (0x9294)
 
+#define RNP500_ETH_FCS_EN (0x804c)
 #define RNP500_ETH_HIGH_WATER(n) (0x80c0 + n * (0x08))
 #define RNP500_ETH_LOW_WATER(n) (0x80c4 + n * (0x08))
+#define RNP500_ETH_WRAP_FIELD_TYPE (0x805c)
+#define RNP500_ETH_TX_VLAN_CONTROL_ENABLE (0x0070)
+#define RNP500_ETH_TX_VLAN_TYPE (0x0074)
+#define RNP500_ETH_RX_MAC_LEN_REG (0x80e0)
+#define RNP500_ETH_WHOLE_PKT_LEN_ERR_DROP (0x807c)
 
 #define RNP500_RAH_AV 0x80000000
 #define RNP500_ETH_RAR_RL(n) (0xa000 + 0x04 * n)
@@ -349,58 +367,54 @@
 #define RNP500_MCSTCTRL_MULTICASE_TBL_EN (1 << 4)
 #define RNP500_MCSTCTRL_UNICASE_TBL_EN (1 << 3)
 
-#define RNP500_VM_DMAC_MPSAR_RING(entry)                                          \
+#define RNP500_VM_DMAC_MPSAR_RING(entry) \
 	(0xb400 + (4 * (entry))) // ring = (value*2)
 
-#define RNP500_ETH_MUTICAST_HASH_TABLE(n) (0xac00 + 0x04 * n)
+#define RNP500_ETH_MULTICAST_HASH_TABLE(n) (0xac00 + 0x04 * n)
 
 #define RNP500_ETH_RSS_KEY (0x92d0)
 
 #define RNP500_ETH_TC_IPH_OFFSET_TABLE(n) (0xe800 + 0x04 * (n))
 
-#define RNP500_ETH_RSS_INDIR_TBL(n)                                            \
-	(0xe000 + 0x04 * (n))
+#define RNP500_ETH_RSS_INDIR_TBL(n) (0xe000 + 0x04 * (n))
 
 #define RNP500_ETH_VLAN_FILTER_TABLE(n) (0xb000 + 0x04 * (n))
 #define RNP500_VFTA RNP500_ETH_VLAN_FILTER_TABLE
 
 #define RNP500_VLVF(idx) (0xb600 + 4 * (idx))
+#define RNP500_VLVF_TABLE(idx) (0xb700 + 4 * (idx))
 #define RNP500_ETH_VLAN_FILTER_ENABLE (0x9118)
+#define RNP500_PRIORITY_1_MARK (0x8080)
+#define RNP500_PRIORITY_1 (400)
+#define RNP500_PRIORITY_0 (300)
+#define RNP500_PRIORITY_0_MARK (0x8084)
+#define RNP500_PRIORITY_EN (0x8088)
+
+#define RNP500_PRIORITY_EN_8023 (0x808c)
 
 #define RNP500_ETH_LAYER2_ETQF(n) (0x9200 + 0x04 * (n))
 #define RNP500_ETH_LAYER2_ETQS(n) (0x9240 + 0x04 * (n))
 
 #define RNP500_ETH_BYPASS (0x8000)
 #define RNP500_ETH_ERR_MASK_VECTOR (0x8060)
+#define RNP500_ETH_PRIV_DATA_CONTROL_REG (0x8068)
 #define RNP500_ETH_DEFAULT_RX_RING (0x806c)
 
+#define RNP500_ETH_DOUBLE_VLAN_DROP (0x8078)
+
 #define RNP500_HOST_FILTER_EN (0x800c)
+#define RNP500_BAD_PACKETS_RECEIVE_EN (0x8024)
 #define RNP500_REDIR_EN (0x8030)
-#define RNP500_ETH_SCTP_CHECKSUM_EN (0x8038)
-
-
-#define RNP500_VEB_VFMPRC(n) (0x4018 + 0x100 * n)
-#define RNP500_VEB_VFBPRC(n) (0x401c + 0x100 * n)
-// n500 statistics REG
-#define RNP500_RX_MULTI_PKT_NUM (0x8224)
-#define RNP500_RX_BROAD_PKT_NUM (0x8228)
-#define RNP500_RX_MAC_CUT_NUM (0x8304)
-#define RNP500_RX_MAC_LCS_ERR_NUM (0x8308)
-#define RNP500_RX_MAC_LEN_ERR_NUM (0X830C)
-#define RNP500_RX_MAC_SLEN_ERR_NUM (0x8310)
-#define RNP500_RX_MAC_GLEN_ERR_NUM (0x8314)
-#define RNP500_RX_MAC_FCS_ERR_NUM (0x8318)
-#define RNP500_RX_MAC_SFCS_ERR_NUM (0x831c)
-#define RNP500_RX_MAC_GFCS_ERR_NUM (0x8320)
-
-#define RNP500_RX_DROP_PKT_NUM (0X8230)
-#define RNP500_DECAP_PKT_DROP1_NUM (0X82ec)
-#define RNP500_RX_DEBUG(n) (0x8400 + 0x04 * n)
-#define RNP500_ETH_HOST_L2_DROP_PKTS RNP500_RX_DEBUG(4)
-#define RNP500_ETH_REDIR_INPUT_MATCH_DROP_PKTS RNP500_RX_DEBUG(5)
-#define RNP500_ETH_ETYPE_DROP_PKTS RNP500_RX_DEBUG(6)
-#define RNP500_ETH_TCP_SYN_DROP_PKTS RNP500_RX_DEBUG(7)
-#define RNP500_ETH_REDIR_TUPLE5_DROP_PKTS RNP500_RX_DEBUG(8)
+#define WATCHDOG_TIMER_ERROR BIT(0)
+#define RUN_FRAME_ERROR BIT(1)
+#define GAINT_FRAME_ERROR BIT(2)
+#define LATE_COLLISION_ERROR BIT(3)
+#define GMII_ERROR BIT(4)
+#define DRIBBLING_BIT_ERROR BIT(5)
+#define CRC_ERROR BIT(6)
+#define LENGTH_ERROR BIT(8)
+#define DA_FILTER_ERROR BIT(9)
+#define SA_FILTER_ERROR BIT(10)
 
 /* ================================================================== */
 #define ETH_ERR_SCTP (1 << 4)
@@ -408,16 +422,18 @@
 #define ETH_ERR_L3 (1 << 2)
 #define ETH_ERR_PKT_LEN_ERR (1 << 1)
 #define ETH_ERR_HDR_LEN_ERR (1 << 0)
-#define ETH_IGNORE_ALL_ERR                                                     \
-	(ETH_ERR_SCTP | ETH_ERR_L4 | ETH_ERR_L3 | ETH_ERR_PKT_LEN_ERR |        \
+#define ETH_IGNORE_ALL_ERR                                              \
+	(ETH_ERR_SCTP | ETH_ERR_L4 | ETH_ERR_L3 | ETH_ERR_PKT_LEN_ERR | \
 	 ETH_ERR_HDR_LEN_ERR)
 #define VM_DMAC_TBL_SZ 128
 #define RNP_ETH_ENABLE_RSS_ONLY (0x3f30001)
 #define RNP_ETH_DISABLE_RSS (0)
 
 // opp
-#define RNP_ETH_TX_PROGFULL_THRESH_PORT(n) (RNP_ETH_BASE + 0x0060 + 0x08 * (n))
-#define RNP_ETH_TX_PROGEMPTY_THRESH_PORT(n) (RNP_ETH_BASE + 0x0064 + 0x08 * (n))
+#define RNP_ETH_TX_PROGFULL_THRESH_PORT(n) \
+	(RNP_ETH_BASE + 0x0060 + 0x08 * (n))
+#define RNP_ETH_TX_PROGEMPTY_THRESH_PORT(n) \
+	(RNP_ETH_BASE + 0x0064 + 0x08 * (n))
 
 #define RNP_ETH_EMAC_DMA_PROFULL_THRESH (RNP_ETH_BASE + 0x0080)
 #define RNP_ETH_EMAC_DMA_PROEMPTY_THRESH (RNP_ETH_BASE + 0x0084)
@@ -441,13 +457,19 @@
 #define RNP_ETH_1TO4_INST1_IN_PKTS (RNP_ETH_BASE + 0x0204)
 #define RNP_ETH_1TO4_INST2_IN_PKTS (RNP_ETH_BASE + 0x0208)
 #define RNP_ETH_1TO4_INST3_IN_PKTS (RNP_ETH_BASE + 0x020c)
-#define RNP_ETH_IN_0_TX_PKT_NUM(port) (RNP_ETH_BASE + 0x0210 + 0x10 * (port))
-#define RNP_ETH_IN_1_TX_PKT_NUM(port) (RNP_ETH_BASE + 0x0214 + 0x10 * (port))
-#define RNP_ETH_IN_2_TX_PKT_NUM(port) (RNP_ETH_BASE + 0x0218 + 0x10 * (port))
-#define RNP_ETH_IN_3_TX_PKT_NUM(port) (RNP_ETH_BASE + 0x021c + 0x10 * (port))
+#define RNP_ETH_IN_0_TX_PKT_NUM(port) \
+	(RNP_ETH_BASE + 0x0210 + 0x10 * (port))
+#define RNP_ETH_IN_1_TX_PKT_NUM(port) \
+	(RNP_ETH_BASE + 0x0214 + 0x10 * (port))
+#define RNP_ETH_IN_2_TX_PKT_NUM(port) \
+	(RNP_ETH_BASE + 0x0218 + 0x10 * (port))
+#define RNP_ETH_IN_3_TX_PKT_NUM(port) \
+	(RNP_ETH_BASE + 0x021c + 0x10 * (port))
 
-#define RNP_ETH_EMAC_TX_TO_PHY_PKTS(port) (RNP_ETH_BASE + 0x0250 + 4 * (port))
-#define RNP_ETH_TXTRANS_PTP_PKT_NUM(port) (RNP_ETH_BASE + 0x0260 + 4 * (port))
+#define RNP_ETH_EMAC_TX_TO_PHY_PKTS(port) \
+	(RNP_ETH_BASE + 0x0250 + 4 * (port))
+#define RNP_ETH_TXTRANS_PTP_PKT_NUM(port) \
+	(RNP_ETH_BASE + 0x0260 + 4 * (port))
 
 #define RNP_ETH_TX_DEBUG(n) (RNP_ETH_BASE + 0x0300 + 0x04 * (n))
 //1588
@@ -457,7 +479,8 @@
 #define RNP_ETH_PTP_TX_TSVALUE_STATUS(n) (RNP_ETH_BASE + 0x040c)
 #define RNP_ETH_PTP_TX_CLEAR(n) (RNP_ETH_BASE + 0x0410)
 #define RNP_ETH_MAC_SPEED_PORT(n) (RNP_ETH_BASE + 0x0450 + 0x04 * (n))
-#define RNP_ETH_MAC_LOOPBACK_MODE_PORT(n) (RNP_ETH_BASE + 0x0460 + 0x04 * (n))
+#define RNP_ETH_MAC_LOOPBACK_MODE_PORT(n) \
+	(RNP_ETH_BASE + 0x0460 + 0x04 * (n))
 #define RNP_ETH_EXCEPT_DROP_PROC (RNP_ETH_BASE + 0x0470)
 
 #define RNP_ETH_IPP (RNP_ETH_BASE + 0x8000)
@@ -481,8 +504,10 @@
 #define RNP_ETH_WRAP_FIELD_TYPE (RNP_ETH_BASE + 0x805c)
 #define RNP_ETH_ERR_MASK_VECTOR (RNP_ETH_BASE + 0x8060)
 #define RNP_ETH_DEFAULT_RX_RING (RNP_ETH_BASE + 0x806c)
-#define RNP_ETH_RX_PROGFULL_THRESH_PORT(n) (RNP_ETH_BASE + 0x8070 + 0x08 * (n))
-#define RNP_ETH_RX_PROGEMPTY_THRESH_PORT(n) (RNP_ETH_BASE + 0x8074 + 0x08 * (n))
+#define RNP_ETH_RX_PROGFULL_THRESH_PORT(n) \
+	(RNP_ETH_BASE + 0x8070 + 0x08 * (n))
+#define RNP_ETH_RX_PROGEMPTY_THRESH_PORT(n) \
+	(RNP_ETH_BASE + 0x8074 + 0x08 * (n))
 
 #define RNP_ETH_EMAC_GAT_PROGFULL_THRESH (RNP_ETH_BASE + 0x8090)
 #define RNP_ETH_EMAC_GAT_PROGEMPTY_THRESH (RNP_ETH_BASE + 0x8094)
@@ -521,7 +546,8 @@
 #define RNP_ETH_PFC_CONFIG_PROT(n) (RNP_ETH_BASE + 0x8180 + n * (0x04))
 
 #define RNP_ETH_RX_PKT_NUM(port) (RNP_ETH_BASE + 0x8220 + 0x04 * (port))
-#define RNP_ETH_RX_DROP_PKT_NUM(port) (RNP_ETH_BASE + 0x8230 + 0x04 * (port))
+#define RNP_ETH_RX_DROP_PKT_NUM(port) \
+	(RNP_ETH_BASE + 0x8230 + 0x04 * (port))
 #define RNP_ETH_TOTAL_GAT_RX_PKT_NUM (RNP_ETH_BASE + 0x8240)
 #define RNP_ETH_PKT_ARP_REQ_NUM (RNP_ETH_BASE + 0x8250)
 #define RNP_ETH_PKT_ARP_RESPONSE_NUM (RNP_ETH_BASE + 0x8254)
@@ -560,7 +586,8 @@
 #define RNP_ETH_DECAP_BMC_OUT_NUM (RNP_ETH_BASE + 0x82dc)
 #define RNP_ETH_DECAP_SW_OUT_NUM (RNP_ETH_BASE + 0x82e0)
 #define RNP_ETH_DECAP_MIRROR_OUT_NUM (RNP_ETH_BASE + 0x82e4)
-#define RNP_ETH_DECAP_PKT_DROP_NUM(port) (RNP_ETH_BASE + 0x82e8 + 0x04 * (port))
+#define RNP_ETH_DECAP_PKT_DROP_NUM(port) \
+	(RNP_ETH_BASE + 0x82e8 + 0x04 * (port))
 #define RNP_ETH_INVALID_DROP_PKTS RNP_ETH_DECAP_PKT_DROP_NUM(0)
 #define RNP_ETH_FILTER_DROP_PKTS RNP_ETH_DECAP_PKT_DROP_NUM(1)
 #define RNP_ETH_DECAP_DMAC_DROP_NUM (RNP_ETH_BASE + 0x82f0)
@@ -598,17 +625,27 @@
 // tc 8
 #define RNP_RXTRANS_RX_PKTS(port) (RNP_ETH_BASE + 0x8900 + 0x40 * (port))
 #define RNP_RXTRANS_DROP_PKTS(port) (RNP_ETH_BASE + 0x8904 + 0x40 * (port))
-#define RNP_RXTRANS_WDT_ERR_PKTS(port) (RNP_ETH_BASE + 0x8908 + 0x40 * (port))
-#define RNP_RXTRANS_CODE_ERR_PKTS(port) (RNP_ETH_BASE + 0x890c + 0x40 * (port))
-#define RNP_RXTRANS_CRC_ERR_PKTS(port) (RNP_ETH_BASE + 0x8910 + 0x40 * (port))
-#define RNP_RXTRANS_SLEN_ERR_PKTS(port) (RNP_ETH_BASE + 0x8914 + 0x40 * (port))
-#define RNP_RXTRANS_GLEN_ERR_PKTS(port) (RNP_ETH_BASE + 0x8918 + 0x40 * (port))
-#define RNP_RXTRANS_IPH_ERR_PKTS(port) (RNP_ETH_BASE + 0x891c + 0x40 * (port))
-#define RNP_RXTRANS_CSUM_ERR_PKTS(port) (RNP_ETH_BASE + 0x8920 + 0x40 * (port))
-#define RNP_RXTRANS_LEN_ERR_PKTS(port) (RNP_ETH_BASE + 0x8924 + 0x40 * (port))
-#define RNP_RXTRANS_CUT_ERR_PKTS(port) (RNP_ETH_BASE + 0x8928 + 0x40 * (port))
-#define RNP_RXTRANS_EXCEPT_BYTES(port) (RNP_ETH_BASE + 0x892c + 0x40 * (port))
-#define RNP_RXTRANS_G1600_BYTES_PKTS(port)                                     \
+#define RNP_RXTRANS_WDT_ERR_PKTS(port) \
+	(RNP_ETH_BASE + 0x8908 + 0x40 * (port))
+#define RNP_RXTRANS_CODE_ERR_PKTS(port) \
+	(RNP_ETH_BASE + 0x890c + 0x40 * (port))
+#define RNP_RXTRANS_CRC_ERR_PKTS(port) \
+	(RNP_ETH_BASE + 0x8910 + 0x40 * (port))
+#define RNP_RXTRANS_SLEN_ERR_PKTS(port) \
+	(RNP_ETH_BASE + 0x8914 + 0x40 * (port))
+#define RNP_RXTRANS_GLEN_ERR_PKTS(port) \
+	(RNP_ETH_BASE + 0x8918 + 0x40 * (port))
+#define RNP_RXTRANS_IPH_ERR_PKTS(port) \
+	(RNP_ETH_BASE + 0x891c + 0x40 * (port))
+#define RNP_RXTRANS_CSUM_ERR_PKTS(port) \
+	(RNP_ETH_BASE + 0x8920 + 0x40 * (port))
+#define RNP_RXTRANS_LEN_ERR_PKTS(port) \
+	(RNP_ETH_BASE + 0x8924 + 0x40 * (port))
+#define RNP_RXTRANS_CUT_ERR_PKTS(port) \
+	(RNP_ETH_BASE + 0x8928 + 0x40 * (port))
+#define RNP_RXTRANS_EXCEPT_BYTES(port) \
+	(RNP_ETH_BASE + 0x892c + 0x40 * (port))
+#define RNP_RXTRANS_G1600_BYTES_PKTS(port) \
 	(RNP_ETH_BASE + 0x8930 + 0x40 * (port))
 
 #define RNP_RX_RING_MAXRATE(n) (RNP_ETH_BASE + 0x8a00 + (0x4 * n))
@@ -662,17 +699,17 @@
 #define RNP_ETH_RAR_RL(n) (RNP_ETH_BASE + 0xa000 + 0x04 * n)
 #define RNP_ETH_RAR_RH(n) (RNP_ETH_BASE + 0xa400 + 0x04 * n)
 #define RNP_ETH_UTA(n) (RNP_ETH_BASE + 0xa800 + 0x04 * n)
-#define RNP_ETH_MUTICAST_HASH_TABLE(n) (RNP_ETH_BASE + 0xac00 + 0x04 * n)
-#define RNP_MTA(n) RNP_ETH_MUTICAST_HASH_TABLE(n)
+#define RNP_ETH_MULTICAST_HASH_TABLE(n) (RNP_ETH_BASE + 0xac00 + 0x04 * n)
+#define RNP_MTA(n) RNP_ETH_MULTICAST_HASH_TABLE(n)
 
 #define RNP_ETH_VLAN_FILTER_TABLE(n) (RNP_ETH_BASE + 0xb000 + 0x04 * (n))
 #define RNP_VFTA RNP_ETH_VLAN_FILTER_TABLE
 #define RNP_FCTRL_MULTICASE_BYPASS (1 << 8)
 #define RNP_FCTRL_UNICASE_BYPASS (1 << 9)
-#define RNP_FCTRL_BROADCASE_BYPASS (1 << 10)
+#define RNP_FCTRL_BROADCAST_BYPASS (1 << 10)
 
 #define RNP_ETH_ETYPE_TABLE(n) (RNP_ETH_BASE + 0xb300 + 0x04 * (n))
-#define RNP_VM_DMAC_MPSAR_RING(entry)                                          \
+#define RNP_VM_DMAC_MPSAR_RING(entry) \
 	(RNP_ETH_BASE + 0xb400 + (4 * (entry))) // ring = (value*2)
 #define RNP_VLVF(idx) (RNP_ETH_BASE + 0xb600 + 4 * (idx))
 #define RNP_VLVFB(idx) (RNP_ETH_BASE + 0xb700 + 4 * (idx))
@@ -685,13 +722,15 @@
 #define RNP_ETH_TUPLE5_SDPQF(n) (RNP_ETH_BASE + 0xc800 + 0x04 * (n))
 #define RNP_ETH_TUPLE5_FTQF(n) (RNP_ETH_BASE + 0xcc00 + 0x04 * (n))
 #define RNP_ETH_TUPLE5_POLICY(n) (RNP_ETH_BASE + 0xd000 + 0x04 * (n))
-#define RNP_ETH_RSS_INDIR_TBL(p, n)                                            \
+#define RNP_ETH_RSS_INDIR_TBL(p, n) \
 	(RNP_ETH_BASE + 0xe000 + 0x04 * (n) + 0x200 * (p))
 // tc is 8
 #define RNP_ETH_TC_IPH_OFFSET_TABLE(n) (RNP_ETH_BASE + 0xe800 + 0x04 * (n))
-#define RNP_ETH_TC_VLAN_OFFSET_TABLE(n) (RNP_ETH_BASE + 0xe820 + 0x04 * (n))
+#define RNP_ETH_TC_VLAN_OFFSET_TABLE(n) \
+	(RNP_ETH_BASE + 0xe820 + 0x04 * (n))
 // port is 4
-#define RNP_ETH_TC_PORT_OFFSET_TABLE(n) (RNP_ETH_BASE + 0xe840 + 0x04 * (n))
+#define RNP_ETH_TC_PORT_OFFSET_TABLE(n) \
+	(RNP_ETH_BASE + 0xe840 + 0x04 * (n))
 #define RNP_REDIR_RING_MASK (RNP_ETH_BASE + 0xe860)
 // uv3p only
 #define RNP_ETH_RSS_MODE (0x6fe00)
@@ -705,6 +744,8 @@
 
 #define RNP500_TOP_NIC_VERSION (0x8000 + 0x0000)
 #define RNP500_FPGA_VERSION (0x8020)
+#define RNP500_FPGA_TIME (0x8024)
+#define RNP500_LEGANCY_ENABLE (0xd004)
 #define RNP_TOP_NIC_CONFIG (RNP_COMM_REG0 + 0x0004)
 #define RNP_TOP_NIC_STAT (RNP_COMM_REG0 + 0x0008)
 #define RNP_TOP_NIC_DUMMY (RNP_COMM_REG0 + 0x000c)
@@ -719,8 +760,10 @@
 #define RNP_TOP_ETH_INF_ETH_STATUS (RNP_COMM_REG0 + 0x8018)
 #define RNP_TOP_ETH_BUG_40G_PATCH (RNP_COMM_REG0 + 0x801c)
 #define RNP_TOP_ETH_PWR_PORT_NUM (4)
-#define RNP_TOP_ETH_PWR_CLAMP_CTRL_PORT(n) (RNP_COMM_REG0 + 0x8020 + 0xc * (n))
-#define RNP_TOP_ETH_PWR_ISOLATE_PORT(n) (RNP_COMM_REG0 + 0x8024 + 0xc * (n))
+#define RNP_TOP_ETH_PWR_CLAMP_CTRL_PORT(n) \
+	(RNP_COMM_REG0 + 0x8020 + 0xc * (n))
+#define RNP_TOP_ETH_PWR_ISOLATE_PORT(n) \
+	(RNP_COMM_REG0 + 0x8024 + 0xc * (n))
 #define RNP_TOP_ETH_PWR_DOWN_PORT(n) (RNP_COMM_REG0 + 0x8028 + 0xc * (n))
 #define RNP_TOP_ETH_TCAM_CONFIG_ENABLE (RNP_COMM_REG0 + 0x8050)
 #define RNP_TOP_ETH_SLIP (RNP_COMM_REG0 + 0x8060)
@@ -730,7 +773,7 @@
 // ??
 #define RNP_FC_PORT_ENABLE (RNP_COMM_REG0 + 0x9004)
 #define RNP_FC_PORT_PRIO_MAP(n) (RNP_COMM_REG0 + 0x9008 + (0x04 * n))
-#define RNP_FC_EN_CONF_AVAILBLE (RNP_COMM_REG0 + 0x9018)
+#define RNP_FC_EN_CONF_AVAILABLE (RNP_COMM_REG0 + 0x9018)
 #define RNP_FC_UNCTAGS_MAP_OFFSET (16)
 // mac top
 #define RNP_TOP_MAC_OUI (RNP_COMM_REG0 + 0xc004)
@@ -760,8 +803,8 @@
 
 #define RNP10_MAC_TX_CFG (0x0000)
 #define RNP10_MAC_RX_CFG (0x0004)
-#define RNP_RX_ALL		   BIT(31)
-#define RNP_RX_ALL_MUL	   BIT(4)
+#define RNP_RX_ALL BIT(31)
+#define RNP_RX_ALL_MUL BIT(4)
 #define RNP10_MAC_PKT_FLT (0x0008)
 #define RNP10_MAC_LPI_CTRL (0x00d0)
 
@@ -779,7 +822,6 @@
 #define RNP10_MAC_UNICAST_HIGH(i) (0x300 + i * 0x08)
 
 #define RNP500_MAC_BASE (0x20000)
-
 
 #define RNP_MODE_NO_SA_INSER (0x0)
 #define RNP_SARC_OFFSET (28)
@@ -810,64 +852,73 @@
 #define RNP_RE_MASK BIT(2)
 #define RNP_PRELEN_MODE (0)
 
+#define RNP500_MAC_UNICAST_LOW(i) (0x44 + i * 0x08)
+#define RNP500_MAC_UNICAST_HIGH(i) (0x40 + i * 0x08)
 
-#define GMAC_CONTROL            0x00000000      /* Configuration */
-#define GMAC_FRAME_FILTER       0x00000004      /* Frame Filter */
-#define GMAC_HASH_HIGH          0x00000008      /* Multicast Hash Table High */
-#define GMAC_HASH_LOW           0x0000000c      /* Multicast Hash Table Low */
-#define GMAC_MII_ADDR           0x00000010      /* MII Address */
-#define GMAC_MII_DATA           0x00000014      /* MII Data */
-#define GMAC_FLOW_CTRL          0x00000018      /* Flow Control */
+#define GMAC_CONTROL 0x00000000 /* Configuration */
+#define GMAC_FRAME_FILTER 0x00000004 /* Frame Filter */
+#define GMAC_HASH_HIGH 0x00000008 /* Multicast Hash Table High */
+#define GMAC_HASH_LOW 0x0000000c /* Multicast Hash Table Low */
+#define GMAC_MII_ADDR 0x00000010 /* MII Address */
+#define GMAC_MII_DATA 0x00000014 /* MII Data */
+#define GMAC_FLOW_CTRL 0x00000018 /* Flow Control */
+
+#define GMAC_PMT 0x0000002c
+enum power_event {
+	pointer_reset = 0x80000000,
+	global_unicast = 0x00000200,
+	wake_up_rx_frame = 0x00000040,
+	magic_frame = 0x00000020,
+	wake_up_frame_en = 0x00000004,
+	magic_pkt_en = 0x00000002,
+	power_down = 0x00000001,
+};
 
 #define GMAC_VTHM_MASK BIT(19)
 #define GMAC_ESVL_MASK BIT(18)
 #define GMAC_VTIM_MASK BIT(17)
 #define GMAC_ETV_MASK BIT(16)
-#define GMAC_VLAN_TAG_CTRL 	0x0000001c 
+#define GMAC_VLAN_TAG_CTRL 0x0000001c
 
-
-
-#define GMAC_CONTROL_DCRS       0x00010000      /* Disable carrier sense */
-#define GMAC_CONTROL_PS         0x00008000      /* Port Select 0:GMI 1:MII */
-#define GMAC_CONTROL_FES        0x00004000      /* Speed 0:10 1:100 */
-#define GMAC_CONTROL_DO         0x00002000      /* Disable Rx Own */
-#define GMAC_CONTROL_LM         0x00001000      /* Loop-back mode */
-#define GMAC_CONTROL_DM         0x00000800      /* Duplex Mode */
-#define GMAC_CONTROL_IPC        0x00000400      /* Checksum Offload */
-#define GMAC_CONTROL_DR         0x00000200      /* Disable Retry */
-#define GMAC_CONTROL_LUD        0x00000100      /* Link up/down */
-#define GMAC_CONTROL_ACS        0x00000080      /* Auto Pad/FCS Stripping */
-#define GMAC_CONTROL_DC         0x00000010      /* Deferral Check */
-#define GMAC_CONTROL_TE         0x00000008      /* Transmitter Enable */
-#define GMAC_CONTROL_RE         0x00000004      /* Receiver Enable */
+#define GMAC_CONTROL_DCRS 0x00010000 /* Disable carrier sense */
+#define GMAC_CONTROL_PS 0x00008000 /* Port Select 0:GMI 1:MII */
+#define GMAC_CONTROL_FES 0x00004000 /* Speed 0:10 1:100 */
+#define GMAC_CONTROL_DO 0x00002000 /* Disable Rx Own */
+#define GMAC_CONTROL_LM 0x00001000 /* Loop-back mode */
+#define GMAC_CONTROL_DM 0x00000800 /* Duplex Mode */
+#define GMAC_CONTROL_IPC 0x00000400 /* Checksum Offload */
+#define GMAC_CONTROL_DR 0x00000200 /* Disable Retry */
+#define GMAC_CONTROL_LUD 0x00000100 /* Link up/down */
+#define GMAC_CONTROL_ACS 0x00000080 /* Auto Pad/FCS Stripping */
+#define GMAC_CONTROL_DC 0x00000010 /* Deferral Check */
+#define GMAC_CONTROL_TE 0x00000008 /* Transmitter Enable */
+#define GMAC_CONTROL_RE 0x00000004 /* Receiver Enable */
 
 /* GMAC Frame Filter defines */
-#define GMAC_FRAME_FILTER_PR    0x00000001      /* Promiscuous Mode */
-#define GMAC_FRAME_FILTER_HUC   0x00000002      /* Hash Unicast */
-#define GMAC_FRAME_FILTER_HMC   0x00000004      /* Hash Multicast */
-#define GMAC_FRAME_FILTER_DAIF  0x00000008      /* DA Inverse Filtering */
-#define GMAC_FRAME_FILTER_PM    0x00000010      /* Pass all multicast */
-#define GMAC_FRAME_FILTER_DBF   0x00000020      /* Disable Broadcast frames */
-#define GMAC_FRAME_FILTER_PCF   0x00000080      /* Pass Control frames */
-#define GMAC_FRAME_FILTER_SAIF  0x00000100      /* Inverse Filtering */
-#define GMAC_FRAME_FILTER_SAF   0x00000200      /* Source Address Filter */
-#define GMAC_FRAME_FILTER_HPF   0x00000400      /* Hash or perfect Filter */
-#define GMAC_FRAME_FILTER_VLAN  0x00010000      /* vlan filter open */
-#define GMAC_FRAME_FILTER_RA    0x80000000      /* Receive all mode */
+#define GMAC_FRAME_FILTER_PR 0x00000001 /* Promiscuous Mode */
+#define GMAC_FRAME_FILTER_HUC 0x00000002 /* Hash Unicast */
+#define GMAC_FRAME_FILTER_HMC 0x00000004 /* Hash Multicast */
+#define GMAC_FRAME_FILTER_DAIF 0x00000008 /* DA Inverse Filtering */
+#define GMAC_FRAME_FILTER_PM 0x00000010 /* Pass all multicast */
+#define GMAC_FRAME_FILTER_DBF 0x00000020 /* Disable Broadcast frames */
+#define GMAC_FRAME_FILTER_PCF 0x00000080 /* Pass Control frames */
+#define GMAC_FRAME_FILTER_SAIF 0x00000100 /* Inverse Filtering */
+#define GMAC_FRAME_FILTER_SAF 0x00000200 /* Source Address Filter */
+#define GMAC_FRAME_FILTER_HPF 0x00000400 /* Hash or perfect Filter */
+#define GMAC_FRAME_FILTER_VLAN 0x00010000 /* vlan filter open */
+#define GMAC_FRAME_FILTER_RA 0x80000000 /* Receive all mode */
 /* GMII ADDR  defines */
-#define GMAC_MII_ADDR_WRITE     0x00000002      /* MII Write */
-#define GMAC_MII_ADDR_BUSY      0x00000001      /* MII Busy */
+#define GMAC_MII_ADDR_WRITE 0x00000002 /* MII Write */
+#define GMAC_MII_ADDR_BUSY 0x00000001 /* MII Busy */
 /* GMAC FLOW CTRL defines */
-#define GMAC_FLOW_CTRL_PT_MASK  0xffff0000      /* Pause Time Mask */
+#define GMAC_FLOW_CTRL_PT_MASK 0xffff0000 /* Pause Time Mask */
 #define GMAC_FLOW_CTRL_PT_SHIFT 16
-#define GMAC_FLOW_CTRL_UP       0x00000008      /* Unicast pause frame enable */
-#define GMAC_FLOW_CTRL_RFE      0x00000004      /* Rx Flow Control Enable */
-#define GMAC_FLOW_CTRL_TFE      0x00000002      /* Tx Flow Control Enable */
-#define GMAC_FLOW_CTRL_FCB_BPA  0x00000001      /* Flow Control Busy ... */
+#define GMAC_FLOW_CTRL_UP 0x00000008 /* Unicast pause frame enable */
+#define GMAC_FLOW_CTRL_RFE 0x00000004 /* Rx Flow Control Enable */
+#define GMAC_FLOW_CTRL_TFE 0x00000002 /* Tx Flow Control Enable */
+#define GMAC_FLOW_CTRL_FCB_BPA 0x00000001 /* Flow Control Busy ... */
 
-
-// n500 mac regs here
-
+#define GMAC_MANAGEMENT_RX_UNDERSIZE (0x01a4)
 #define RNP_MAC_TX_CFG (RNP_XLMAC + 0x0000)
 #define RNP_MAC_RX_CFG (RNP_XLMAC + 0x0004)
 #define RNP_MAC_PKT_FLT (RNP_XLMAC + 0x0008)
@@ -912,44 +963,52 @@
 #define RNP_SWITCH_BASE 0xB0000
 
 // port is 6
-#define RNP_SWITCH_RULE_INGS(port, n)                                          \
+#define RNP_SWITCH_RULE_INGS(port, n) \
 	(RNP_SWITCH_BASE + 0x24 * (port) + 0x1000 + 0x04 * (n))
-#define RNP_SWITCH_RULE_INGS_RPU_NP(port)                                      \
+#define RNP_SWITCH_RULE_INGS_RPU_NP(port) \
 	(RNP_SWITCH_BASE + 0x24 * (port) + 0x1014)
-#define RNP_SWITCH_RULE_INGS_RPU_SWITCH(port)                                  \
+#define RNP_SWITCH_RULE_INGS_RPU_SWITCH(port) \
 	(RNP_SWITCH_BASE + 0x24 * (port) + 0x1018)
-#define RNP_SWITCH_RULE_INGS_SEC(port)                                         \
+#define RNP_SWITCH_RULE_INGS_SEC(port) \
 	(RNP_SWITCH_BASE + 0x24 * (port) + 0x101c)
-#define RNP_SWITCH_RULE_INGS_EXFPGA(port)                                      \
+#define RNP_SWITCH_RULE_INGS_EXFPGA(port) \
 	(RNP_SWITCH_BASE + 0x24 * (port) + 0x1020)
 
-#define RNP_SWITCH_CNT_EGRESS_PKT(port) (RNP_SWITCH_BASE + 0x10db + 0x04 * (n))
-#define RNP_SWITCH_CNT_INGRESS_PKT(port) (RNP_SWITCH_BASE + 0x10f0 + 0x04 * (n))
+#define RNP_SWITCH_CNT_EGRESS_PKT(port) \
+	(RNP_SWITCH_BASE + 0x10db + 0x04 * (n))
+#define RNP_SWITCH_CNT_INGRESS_PKT(port) \
+	(RNP_SWITCH_BASE + 0x10f0 + 0x04 * (n))
 #define RNP_SWITCH_RPUUP_DATA_PROG_FULL_THRESH (RNP_SWITCH_BASE + 0x1108)
 #define RNP_SWITCH_RPUDN_DATA_PROG_FULL_THRESH (RNP_SWITCH_BASE + 0x110c)
 #define RNP_SWITCH_MAC0_DATA_PROG_FULL_THRESH (RNP_SWITCH_BASE + 0x1110)
 #define RNP_SWITCH_MAC1_DATA_PROG_FULL_THRESH (RNP_SWITCH_BASE + 0x1114)
 #define RNP_SWITCH_DMA0_DATA_PROG_FULL_THRESH (RNP_SWITCH_BASE + 0x1118)
 #define RNP_SWITCH_DMA1_DATA_PROG_FULL_THRESH (RNP_SWITCH_BASE + 0x111c)
-#define RNP_SWITCH_REG1_INGRESS_STATUS(port)                                   \
+#define RNP_SWITCH_REG1_INGRESS_STATUS(port) \
 	(RNP_SWITCH_BASE + 0x1120 + 0x08 * (port))
-#define RNP_SWITCH_REG2_INGRESS_STATUS(port)                                   \
+#define RNP_SWITCH_REG2_INGRESS_STATUS(port) \
 	(RNP_SWITCH_BASE + 0x1124 + 0x08 * (port))
 
-#define RNP_SWITCH_REG_STATUS_ROBIN(port)                                      \
+#define RNP_SWITCH_REG_STATUS_ROBIN(port) \
 	(RNP_SWITCH_BASE + 0x1150 + 0x04 * (port))
-#define RNP_SWITCH_REG_EGRESS_STATUS(port)                                     \
+#define RNP_SWITCH_REG_EGRESS_STATUS(port) \
 	(RNP_SWITCH_BASE + 0x1168 + 0x04 * (port))
-#define RNP_SWITCH_INFO_FIFO_DMA_TX(n) (RNP_SWITCH_BASE + 0x1198 + 0x08 * (n))
-#define RNP_SWITCH_INFO_FIFO_DMA_RX(n) (RNP_SWITCH_BASE + 0x119c + 0x08 * (n))
-#define RNP_SWITCH_INFO_FIFO_MAC_TX(n) (RNP_SWITCH_BASE + 0x11a8 + 0x08 * (n))
-#define RNP_SWITCH_INFO_FIFO_MAC_RX(n) (RNP_SWITCH_BASE + 0x11ac + 0x08 * (n))
-#define RNP_SWITCH_INFO_FIFO_RPUUP_RX(n) (RNP_SWITCH_BASE + 0x11bc + 0x08 * (n))
-#define RNP_SWITCH_INFO_FIFO_RPUDN_RX(n) (RNP_SWITCH_BASE + 0x11c0 + 0x08 * (n))
+#define RNP_SWITCH_INFO_FIFO_DMA_TX(n) \
+	(RNP_SWITCH_BASE + 0x1198 + 0x08 * (n))
+#define RNP_SWITCH_INFO_FIFO_DMA_RX(n) \
+	(RNP_SWITCH_BASE + 0x119c + 0x08 * (n))
+#define RNP_SWITCH_INFO_FIFO_MAC_TX(n) \
+	(RNP_SWITCH_BASE + 0x11a8 + 0x08 * (n))
+#define RNP_SWITCH_INFO_FIFO_MAC_RX(n) \
+	(RNP_SWITCH_BASE + 0x11ac + 0x08 * (n))
+#define RNP_SWITCH_INFO_FIFO_RPUUP_RX(n) \
+	(RNP_SWITCH_BASE + 0x11bc + 0x08 * (n))
+#define RNP_SWITCH_INFO_FIFO_RPUDN_RX(n) \
+	(RNP_SWITCH_BASE + 0x11c0 + 0x08 * (n))
 #define RNP_SWITCH_EN_SOFT_RESET (RNP_SWITCH_BASE + 0xf000)
 #define RNP_SWITCH_SOFT_RESET (RNP_SWITCH_BASE + 0xf004)
 #define RNP_SWITCH_CLR_INGS_ERR (RNP_SWITCH_BASE + 0xf008)
-#define RNP_SWITCH_ERR_CODE_INGS(port)                                         \
+#define RNP_SWITCH_ERR_CODE_INGS(port) \
 	(RNP_SWITCH_BASE + 0xf010 + 0x04 * (port))
 #define RNP_SWITCH_MEM_SD (RNP_SWITCH_BASE + 0xf028)
 #define RNP_SWITCH_MEM_SLP (RNP_SWITCH_BASE + 0xf02c)
@@ -960,22 +1019,22 @@
 /* ==================== RNP-TCAM Global Registers ==================== */
 #define RNP_TCAM_BASE (0xc0000)
 
-#define RNP_TCAM_SDPQF(n)                                                      \
+#define RNP_TCAM_SDPQF(n) \
 	(RNP_TCAM_BASE + 0x00 + 0x40 * (n / 2) + 0x10 * (n % 2))
-#define RNP_TCAM_DAQF(n)                                                       \
+#define RNP_TCAM_DAQF(n) \
 	(RNP_TCAM_BASE + 0x04 + 0x40 * (n / 2) + 0x10 * (n % 2))
-#define RNP_TCAM_SAQF(n)                                                       \
+#define RNP_TCAM_SAQF(n) \
 	(RNP_TCAM_BASE + 0x08 + 0x40 * (n / 2) + 0x10 * (n % 2))
-#define RNP_TCAM_APQF(n)                                                       \
+#define RNP_TCAM_APQF(n) \
 	(RNP_TCAM_BASE + 0x0c + 0x40 * (n / 2) + 0x10 * (n % 2))
 
-#define RNP_TCAM_SDPQF_MASK(n)                                                 \
+#define RNP_TCAM_SDPQF_MASK(n) \
 	(RNP_TCAM_BASE + 0x20 + 0x40 * (n / 2) + 0x10 * (n % 2))
-#define RNP_TCAM_DAQF_MASK(n)                                                  \
+#define RNP_TCAM_DAQF_MASK(n) \
 	(RNP_TCAM_BASE + 0x24 + 0x40 * (n / 2) + 0x10 * (n % 2))
-#define RNP_TCAM_SAQF_MASK(n)                                                  \
+#define RNP_TCAM_SAQF_MASK(n) \
 	(RNP_TCAM_BASE + 0x28 + 0x40 * (n / 2) + 0x10 * (n % 2))
-#define RNP_TCAM_APQF_MASK(n)                                                  \
+#define RNP_TCAM_APQF_MASK(n) \
 	(RNP_TCAM_BASE + 0x2c + 0x40 * (n / 2) + 0x10 * (n % 2))
 
 #define RNP_TCAM_MODE (RNP_TCAM_BASE + 0x20000)
@@ -989,12 +1048,12 @@
 //=====  PF-VF Functions ====
 #define VF_NUM_REG 0xa3000
 // 8bit: 7:vf_actiove 6:fun0/fun1 [5:0]:vf_num
-#define VF_NUM(vfnum, fun) ((1 << 7) | (((fun)&0x1) << 6) | ((vfnum)&0x3f))
-#define PF_NUM(fun) (((fun)&0x1) << 6)
-#define IS_VF(vfnum)       (((vfnum) & (1 << 7)) ? 1 : 0)
+#define VF_NUM(vfnum, fun) \
+	((1 << 7) | (((fun) & 0x1) << 6) | ((vfnum) & 0x3f))
+#define PF_BIT 6
+#define PF_NUM(fun) (((fun) & 0x1) << 6)
+#define IS_VF(vfnum) (((vfnum) & (1 << 7)) ? 1 : 0)
 
-// 8bit: 7:vf_actiove [6:5]:fun0/fun1 [4:0]:vf_num
-#define PF_NUM_N500(fun) (((fun)&0x3) << 5)
 /* PFC Flow Control*/
 enum NIC_MODE {
 	MODE_NIC_MODE_2PORT_40G = 0,

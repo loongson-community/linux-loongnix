@@ -19,4 +19,11 @@
 #include <linux/mm_types.h>
 #define VMEMMAP_SIZE	(sizeof(struct page) * (1UL << (cpu_pabits + 1 - PAGE_SHIFT)))
 #endif
+
+#define INIT_MEMBLOCK_RESERVED_REGIONS (INIT_MEMBLOCK_REGIONS + NR_CPUS)
+
+#ifdef CONFIG_EFI
+#define INIT_MEMBLOCK_MEMORY_REGIONS    (INIT_MEMBLOCK_REGIONS * 8)
+#endif
+
 #endif /* _LOONGARCH_SPARSEMEM_H */

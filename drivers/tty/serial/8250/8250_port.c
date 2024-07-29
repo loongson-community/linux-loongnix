@@ -308,8 +308,16 @@ static const struct serial8250_config uart_config[] = {
 		.rxtrig_bytes	= {1, 4, 8, 14},
 		.flags		= UART_CAP_FIFO,
 	},
-	[PORT_LOONGSON] = {
-		.name		= "Loongson 16550",
+	[PORT_LOONGSON_NODE] = {
+		.name		= "Loongson-node 16550",
+		.fifo_size	= 16,
+		.tx_loadsz	= 16,
+		.fcr		= UART_FCR_ENABLE_FIFO | UART_FCR_R_TRIG_10,
+		.rxtrig_bytes	= {1, 4, 8, 14},
+		.flags		= UART_CAP_FIFO,
+	},
+	[PORT_LOONGSON_MISC] = {
+		.name		= "Loongson-misc 16550",
 		.fifo_size	= 16,
 		.tx_loadsz	= 16,
 		.fcr		= UART_FCR_ENABLE_FIFO | UART_FCR_R_TRIG_10,
@@ -408,7 +416,7 @@ static unsigned int serial_in_fixup(struct uart_port *p, unsigned int offset, un
 {
 	if (offset == UART_MCR)
 		val ^= (UART_MCR_RTS|UART_MCR_DTR);
-	if (offset == UART_MSR)
+	if ((offset == UART_MSR) && (p->type == PORT_LOONGSON_MISC))
 		val ^= (UART_MSR_DSR|UART_MSR_CTS);
 	return val;
 }
@@ -425,14 +433,14 @@ static unsigned int mem_serial_in(struct uart_port *p, int offset)
 	unsigned int val, offset0 = offset;
 	offset = offset << p->regshift;
 	val = readb(p->membase + offset);
-	if (p->type == PORT_LOONGSON)
+	if ((p->type == PORT_LOONGSON_NODE) || (p->type == PORT_LOONGSON_MISC))
 		val = serial_in_fixup(p, offset0, val);
 	return val;
 }
 
 static void mem_serial_out(struct uart_port *p, int offset, int value)
 {
-	if (p->type == PORT_LOONGSON)
+	if ((p->type == PORT_LOONGSON_NODE) || (p->type == PORT_LOONGSON_MISC))
 		value = serial_out_fixup(p, offset, value);
 	offset = offset << p->regshift;
 	writeb(value, p->membase + offset);

@@ -88,7 +88,7 @@ struct dc_timing_info {
 	s32 vtotal;
 	u32 stride;
 	u32 depth;
-	u32 use_dma32;
+	u32 use_dma;
 };
 
 struct dc_cursor_move {

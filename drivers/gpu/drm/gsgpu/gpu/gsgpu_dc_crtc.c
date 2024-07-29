@@ -134,7 +134,7 @@ bool dc_crtc_timing_set(struct gsgpu_dc_crtc *crtc, struct dc_timing_info *timin
 		timing->hdisplay, timing->hsync_start, timing->hsync_end, timing->htotal);
 	DRM_DEBUG_DRIVER("vdisplay %d, vsync_start %d, vsync_end %d, vtotal %d\n",
 		timing->vdisplay, timing->vsync_start, timing->vsync_end, timing->vtotal);
-	DRM_DEBUG_DRIVER("depth %d, use_dma32 %d\n", timing->depth, timing->use_dma32);
+	DRM_DEBUG_DRIVER("depth %d, use_dma %d\n", timing->depth, timing->use_dma);
 
 	link = crtc->resource->base.link;
 	if (link >= DC_DVO_MAXLINK)
@@ -158,8 +158,8 @@ bool dc_crtc_timing_set(struct gsgpu_dc_crtc *crtc, struct dc_timing_info *timin
 	}
 
 	value &= ~CRTC_CFG_DMA_MASK;
-	if (timing->use_dma32)
-		value |= CRTC_CFG_DMA_32;
+	if (timing->use_dma)
+		value |= timing->use_dma;
 	else if (!(timing->hdisplay % 64))
 		value |= CRTC_CFG_DMA_256;
 	else if (!(timing->hdisplay % 32))
@@ -484,6 +484,10 @@ static enum drm_mode_status gsgpu_dc_mode_valid(struct drm_crtc *crtc,
 		if (mode->hdisplay > 4096)
 			return MODE_BAD;
 		if (mode->vdisplay > 2160)
+			return MODE_BAD;
+		if (mode->hdisplay == 1680)
+			return MODE_BAD;
+		if (mode->hdisplay == 1440)
 			return MODE_BAD;
 		break;
 	case dev_2k2000:

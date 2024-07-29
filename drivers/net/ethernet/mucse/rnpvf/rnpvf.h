@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: GPL-2.0 */
+/* Copyright(c) 1999 - 2022 Intel Corporation. */
+
 #ifndef _RNPVF_H_
 #define _RNPVF_H_
 
@@ -7,9 +10,28 @@
 #include <linux/io.h>
 #include <linux/netdevice.h>
 #include <linux/if_vlan.h>
-#include <linux/u64_stats_sync.h>
+//#include <linux/u64_stats_sync.h>
 
 #include "vf.h"
+
+#define RNPVF_ALLOC_PAGE_ORDER 0
+
+#define RNPVF_PAGE_BUFFER_NUMS(ring) \
+	(((1 << RNPVF_ALLOC_PAGE_ORDER) * PAGE_SIZE) >> 11)
+
+#ifdef HAVE_STRUCT_DMA_ATTRS
+#define RNPVF_RX_DMA_ATTR NULL
+#else
+#define RNPVF_RX_DMA_ATTR (DMA_ATTR_SKIP_CPU_SYNC | DMA_ATTR_WEAK_ORDERING)
+#endif
+
+#if defined(CONFIG_MXGBEVF_FIX_VF_BUG) && !defined(FIX_VF_BUG)
+#define FIX_VF_BUG
+#endif
+
+#if defined(CONFIG_MXGBEVF_FIX_MAC_PADDIN) && !defined(FIX_MAC_PADDIN)
+#define FIX_MAC_PADDIN
+#endif
 
 struct rnpvf_queue_stats {
 	u64 packets;
@@ -36,6 +58,7 @@ struct rnpvf_rx_queue_stats {
 	u64 non_eop_descs;
 	u64 alloc_rx_page_failed;
 	u64 alloc_rx_buff_failed;
+	u64 alloc_rx_page;
 	u64 csum_err;
 	u64 csum_good;
 	u64 poll_again_count;
@@ -55,6 +78,8 @@ struct rnpvf_tx_buffer {
 	struct sk_buff *skb;
 	unsigned int bytecount;
 	unsigned short gso_segs;
+	bool gso_need_padding;
+
 	__be16 protocol;
 	DEFINE_DMA_UNMAP_ADDR(dma);
 	DEFINE_DMA_UNMAP_LEN(len);
@@ -90,9 +115,35 @@ struct rnpvf_tx_buffer {
 struct rnpvf_rx_buffer {
 	struct sk_buff *skb;
 	dma_addr_t dma;
+#ifndef CONFIG_IXGBE_DISABLE_PACKET_SPLIT
 	struct page *page;
-	unsigned int page_offset;
+#if (BITS_PER_LONG > 32) || (PAGE_SIZE >= 65536)
+	__u32 page_offset;
+#else
+	__u16 page_offset;
+#endif
+	__u16 pagecnt_bias;
+#endif
 };
+
+enum rnpvf_ring_state_t {
+#ifndef CONFIG_IXGBE_DISABLE_PACKET_SPLIT
+	__RNPVF_RX_3K_BUFFER,
+	__RNPVF_RX_BUILD_SKB_ENABLED,
+#endif
+	__RNPVF_TX_FDIR_INIT_DONE,
+	__RNPVF_TX_XPS_INIT_DONE,
+	__RNPVF_TX_DETECT_HANG,
+	__RNPVF_HANG_CHECK_ARMED,
+	//__RNP_RX_RSC_ENABLED,
+	__RNPVF_RX_CSUM_UDP_ZERO_ERR,
+	__RNPVF_RX_FCOE,
+};
+
+#ifndef CONFIG_RNP_DISABLE_PACKET_SPLIT
+#define ring_uses_build_skb(ring) \
+	test_bit(__RNPVF_RX_BUILD_SKB_ENABLED, &(ring)->state)
+#endif
 
 /* now tx max 4k for one desc */
 #define RNPVF_MAX_TXD_PWR 12
@@ -113,6 +164,7 @@ struct rnpvf_ring {
 	};
 	unsigned long last_rx_timestamp;
 	unsigned long state;
+	u8 __iomem *ring_addr;
 	u8 __iomem *hw_addr;
 	u8 __iomem *tail;
 	u8 __iomem *dma_int_stat;
@@ -120,7 +172,22 @@ struct rnpvf_ring {
 	u8 __iomem *dma_int_clr;
 	dma_addr_t dma; /* phys. address of descriptor ring */
 	unsigned int size; /* length in bytes */
+	u32 ring_flags;
+#define RNPVF_RING_FLAG_DELAY_SETUP_RX_LEN ((u32)(1 << 0))
+#define RNPVF_RING_FLAG_CHANGE_RX_LEN ((u32)(1 << 1))
+#define RNPVF_RING_FLAG_DO_RESET_RX_LEN ((u32)(1 << 2))
+#define RNPVF_RING_SKIP_TX_START ((u32)(1 << 3))
+#define RNPVF_RING_NO_TUNNEL_SUPPORT ((u32)(1 << 4))
+#define RNPVF_RING_SIZE_CHANGE_FIX ((u32)(1 << 5))
+#define RNPVF_RING_SCATER_SETUP ((u32)(1 << 6))
+#define RNPVF_RING_STAGS_SUPPORT ((u32)(1 << 7))
+#define RNPVF_RING_DOUBLE_VLAN_SUPPORT ((u32)(1 << 8))
+#define RNPVF_RING_VEB_MULTI_FIX ((u32)(1 << 9))
+#define RNPVF_RING_IRQ_MISS_FIX ((u32)(1 << 10))
+#define RNPVF_RING_CHKSM_FIX ((u32)(1 << 11))
+
 	u8 vfnum;
+	u8 rnpvf_msix_off;
 
 	u16 count; /* amount of descriptors */
 
@@ -132,9 +199,18 @@ struct rnpvf_ring {
 	u16 next_to_clean; //soft-saved-head
 
 	u16 device_id;
-
+#ifdef OPTM_WITH_LPAGE
+	u16 rx_page_buf_nums;
+	u32 rx_per_buf_mem;
+	struct sk_buff *skb;
+#endif
 	union {
-		u16 next_to_alloc; //RX
+#ifdef CONFIG_RNP_DISABLE_PACKET_SPLIT
+		u16 rx_buf_len;
+#else
+		u16 next_to_alloc;
+#endif
+		// u16 next_to_alloc; //RX
 		struct {
 			u8 atr_sample_rate;
 			u8 atr_count;
@@ -143,12 +219,22 @@ struct rnpvf_ring {
 
 	u8 dcb_tc;
 	struct rnpvf_queue_stats stats;
+#ifdef HAVE_NDO_GET_STATS64
 	struct u64_stats_sync syncp;
+#endif
 	union {
 		struct rnpvf_tx_queue_stats tx_stats;
 		struct rnpvf_rx_queue_stats rx_stats;
 	};
 } ____cacheline_internodealigned_in_smp;
+
+#define RNPVF_ITR_ADAPTIVE_MIN_INC 2
+#define RNPVF_ITR_ADAPTIVE_MIN_USECS 5
+#define RNPVF_ITR_ADAPTIVE_MAX_USECS 800
+#define RNPVF_ITR_ADAPTIVE_LATENCY 0x400
+#define RNPVF_ITR_ADAPTIVE_BULK 0x00
+#define RNPVF_ITR_ADAPTIVE_MASK_USECS \
+	(RNPVF_ITR_ADAPTIVE_LATENCY - RNPVF_ITR_ADAPTIVE_MIN_INC)
 
 /* How many Rx Buffers do we bundle into one write to the hardware ? */
 #define RNPVF_RX_BUFFER_WRITE 16 /* Must be power of 2 */
@@ -169,34 +255,51 @@ struct rnpvf_ring {
 
 #ifndef RNPVF_TX_PKT_POLL_BUDGET
 #define RNPVF_TX_PKT_POLL_BUDGET 0x30
-#endif  
-        
+#endif
+
 #ifndef RNPVF_PKT_TIMEOUT_TX
 #define RNPVF_PKT_TIMEOUT_TX 100
 #endif
 
+#define RNPVF_MIN_RX_WORK (32)
+#define RNPVF_DEFAULT_RX_WORK (64)
+#define RNPVF_MAX_RX_WORK (512)
+#define RNPVF_WORK_ALIGN (2)
+#define RNPVF_MIN_TX_FRAME (1)
+#define RNPVF_MAX_TX_FRAME (256)
+#define RNPVF_MIN_TX_USEC (30)
+#define RNPVF_MAX_TX_USEC (10000)
+
+#define RNPVF_MIN_RX_FRAME (1)
+#define RNPVF_MAX_RX_FRAME (256)
+#define RNPVF_MIN_RX_USEC (10)
+#define RNPVF_MAX_RX_USEC (10000)
+
+#define RNPVF_MIN_TX_WORK (32)
+#define RNPVF_MAX_TX_WORK (512)
 #define RNPVF_DEFAULT_TX_WORK 256
 #define RNPVF_DEFAULT_TXD 512
 #define RNPVF_DEFAULT_RXD 512
 #define RNPVF_MAX_TXD 4096
-#define RNPVF_MIN_TXD			 256
+#define RNPVF_MIN_TXD 256
 #define RNPVF_MAX_RXD 4096
-#define RNPVF_MIN_RXD			 256
+#define RNPVF_MIN_RXD 256
 
 #ifndef TSRN10_RX_DEFAULT_BURST
 #define TSRN10_RX_DEFAULT_BURST 16
 #endif
-        
+
 #ifndef TSRN10_RX_DEFAULT_LINE
 #define TSRN10_RX_DEFAULT_LINE 64
-#endif 
+#endif
 
 #define TSRN10_TX_DEFAULT_BURST 8
-
 
 /* Supported Rx Buffer Sizes */
 #define RNPVF_RXBUFFER_256 256 /* Used for packet split */
 #define RNPVF_RXBUFFER_2K 2048
+#define RNPVF_RXBUFFER_1536 1536
+#define RNPVF_RXBUFFER_3K 3072
 #define RNPVF_RXBUFFER_4K 4096
 #define RNPVF_RXBUFFER_8K 8192
 #define RNPVF_RXBUFFER_10K 10240
@@ -205,38 +308,47 @@ struct rnpvf_ring {
 
 #define MAXIMUM_ETHERNET_VLAN_SIZE (VLAN_ETH_FRAME_LEN + ETH_FCS_LEN)
 
-#define RNPVF_TX_FLAGS_CSUM (u32)(1)
-#define RNPVF_TX_FLAGS_VLAN (u32)(1 << 1)
-#define RNPVF_TX_FLAGS_TSO (u32)(1 << 2)
-#define RNPVF_TX_FLAGS_IPV4 (u32)(1 << 3)
-#define RNPVF_TX_FLAGS_FCOE (u32)(1 << 4)
-#define RNPVF_TX_FLAGS_FSO (u32)(1 << 5)
+#define RNPVF_TX_FLAGS_CSUM ((u32)(1))
+#define RNPVF_TX_FLAGS_VLAN ((u32)(1 << 1))
+#define RNPVF_TX_FLAGS_TSO ((u32)(1 << 2))
+#define RNPVF_TX_FLAGS_IPV4 ((u32)(1 << 3))
+#define RNPVF_TX_FLAGS_FCOE ((u32)(1 << 4))
+#define RNPVF_TX_FLAGS_FSO ((u32)(1 << 5))
 #define RNPVF_TX_FLAGS_VLAN_MASK 0xffff0000
 #define RNPVF_TX_FLAGS_VLAN_PRIO_MASK 0x0000e000
 #define RNPVF_TX_FLAGS_VLAN_SHIFT 16
 
 #ifdef NETIF_F_GSO_PARTIAL
-#define RNPVF_GSO_PARTIAL_FEATURES                                             \
-	(NETIF_F_GSO_GRE | NETIF_F_GSO_GRE_CSUM | NETIF_F_GSO_UDP_TUNNEL |     \
-	 NETIF_F_GSO_UDP_TUNNEL_CSUM)
+#define RNPVF_GSO_PARTIAL_FEATURES                \
+	(NETIF_F_GSO_GRE | NETIF_F_GSO_GRE_CSUM | \
+	 NETIF_F_GSO_UDP_TUNNEL | NETIF_F_GSO_UDP_TUNNEL_CSUM)
 #endif /* NETIF_F_GSO_PARTIAL */
 
 struct rnpvf_ring_container {
 	struct rnpvf_ring *ring; /* pointer to linked list of rings */
+	unsigned long next_update; /* jiffies value of last update */
 	unsigned int total_bytes; /* total bytes processed this int */
 	unsigned int total_packets; /* total packets processed this int */
+	unsigned int total_packets_old;
 	u8 count; /* total number of rings in vector */
 	u8 itr; /* current ITR setting for ring */
+	u16 add_itr;
 };
 
 /* iterator for handling rings in ring container */
-#define rnpvf_for_each_ring(pos, head)                                         \
+#define rnpvf_for_each_ring(pos, head) \
 	for (pos = (head).ring; pos != NULL; pos = pos->next)
 
 /* MAX_MSIX_Q_VECTORS of these are allocated,
  * but we only use one per queue-specific vector.
  */
 struct rnpvf_q_vector {
+	int old_rx_count;
+	int new_rx_count;
+	int large_times;
+	int small_times;
+	int too_small_times;
+	int middle_time;
 	struct rnpvf_adapter *adapter;
 	u16 v_idx;
 	/* index of q_vector within array, also used for
@@ -248,8 +360,13 @@ struct rnpvf_q_vector {
 	struct napi_struct napi;
 	cpumask_t affinity_mask;
 	int numa_node;
-	int itr;
+	u16 itr_rx;
+	u16 itr_tx;
 	struct rcu_head rcu; /* to avoid race with update stats on free */
+	u32 vector_flags;
+#define RNPVF_QVECTOR_FLAG_IRQ_MISS_CHECK ((u32)(1 << 0))
+#define RNPVF_QVECTOR_FLAG_ITR_FEATURE ((u32)(1 << 1))
+#define RNPVF_QVECTOR_FLAG_REDUCE_TX_IRQ_MISS ((u32)(1 << 2))
 
 	int irq_check_usecs;
 	struct hrtimer irq_miss_check_timer;
@@ -265,6 +382,12 @@ static inline __le16 rnpvf_test_staterr(union rnp_rx_desc *rx_desc,
 					const u16 stat_err_bits)
 {
 	return rx_desc->wb.cmd & cpu_to_le16(stat_err_bits);
+}
+
+static inline __le16 rnpvf_get_stat(union rnp_rx_desc *rx_desc,
+				    const u16 stat_mask)
+{
+	return rx_desc->wb.cmd & cpu_to_le16(stat_mask);
 }
 
 static inline u16 rnpvf_desc_unused(struct rnpvf_ring *ring)
@@ -289,23 +412,27 @@ static inline u16 rnpvf_desc_unused(struct rnpvf_ring *ring)
  * And yes, it's the same math going both ways.  The lowest value
  * supported by all of the rnp hardware is 8.
  */
-#define EITR_INTS_PER_SEC_TO_REG(_eitr)                                        \
-	((_eitr) ? (1000000000 / ((_eitr)*256)) : 8)
+#define EITR_INTS_PER_SEC_TO_REG(_eitr) \
+	((_eitr) ? (1000000000 / ((_eitr) * 256)) : 8)
 #define EITR_REG_TO_INTS_PER_SEC EITR_INTS_PER_SEC_TO_REG
 
-#define RNPVF_DESC_UNUSED(R)                                                   \
-	((((R)->next_to_clean > (R)->next_to_use) ? 0 : (R)->count) +          \
+#define RNPVF_DESC_UNUSED(R)                                          \
+	((((R)->next_to_clean > (R)->next_to_use) ? 0 : (R)->count) + \
 	 (R)->next_to_clean - (R)->next_to_use - 1)
 
 #define RNPVF_RX_DESC(R, i) (&(((union rnp_rx_desc *)((R)->desc))[i]))
 #define RNPVF_TX_DESC(R, i) (&(((struct rnp_tx_desc *)((R)->desc))[i]))
-#define RNPVF_TX_CTXTDESC(R, i) (&(((struct rnp_tx_ctx_desc *)((R)->desc))[i]))
+#define RNPVF_TX_CTXTDESC(R, i) \
+	(&(((struct rnp_tx_ctx_desc *)((R)->desc))[i]))
 
-#define RNPVF_MAX_JUMBO_FRAME_SIZE 9590 /* Maximum Supported Size 9.5KB */
+#define RNPVF_N10_MAX_JUMBO_FRAME_SIZE \
+	9590 /* Maximum Supported Size 9.5KB */
+#define RNPVF_N500_MAX_JUMBO_FRAME_SIZE \
+	9722 /* Maximum Supported Size 9.5KB */
 #define RNPVF_MIN_MTU 68
 
 #define MAX_MSIX_VECTORS 4
-#define OTHER_VECTOR	 1
+#define OTHER_VECTOR 1
 #define NON_Q_VECTORS (OTHER_VECTOR)
 
 #define MAX_MSIX_Q_VECTORS 2
@@ -336,7 +463,12 @@ struct rnpvf_hw {
 	u16 subsystem_device_id;
 	u16 subsystem_vendor_id;
 
+	enum rnp_board_type board_type;
+
 	u32 dma_version;
+	u16 min_length;
+	u16 max_length;
+
 	u16 queue_ring_base;
 	u32 tx_items_count;
 	u32 rx_items_count;
@@ -346,6 +478,7 @@ struct rnpvf_hw {
 	u16 link;
 	u16 speed;
 
+	struct rnpvf_hw_operations ops;
 	struct rnp_mac_info mac;
 	struct rnp_fc_info fc;
 	struct rnp_mbx_info mbx;
@@ -355,25 +488,36 @@ struct rnpvf_hw {
 	int fw_version;
 	int usecstocount;
 #define PF_FEATURE_VLAN_FILTER BIT(0)
+#define PF_NCSI_EN BIT(1)
 	u32 pf_feature;
 
 	int mode;
-#define RNPVF_NET_FEATURE_SG			   (u32)(1 << 0)
-#define RNPVF_NET_FEATURE_TX_CHECKSUM	   (u32)(1 << 1)
-#define RNPVF_NET_FEATURE_RX_CHECKSUM	   (u32)(1 << 2)
-#define RNPVF_NET_FEATURE_TSO			   (u32)(1 << 3)
-#define RNPVF_NET_FEATURE_TX_UDP_TUNNEL	   (1 << 4)
-#define RNPVF_NET_FEATURE_VLAN_FILTER	   (1 << 5)
-#define RNPVF_NET_FEATURE_VLAN_OFFLOAD	   (1 << 6)
+#define RNPVF_NET_FEATURE_SG ((u32)(1 << 0))
+#define RNPVF_NET_FEATURE_TX_CHECKSUM ((u32)(1 << 1))
+#define RNPVF_NET_FEATURE_RX_CHECKSUM ((u32)(1 << 2))
+#define RNPVF_NET_FEATURE_TSO ((u32)(1 << 3))
+#define RNPVF_NET_FEATURE_TX_UDP_TUNNEL (1 << 4)
+#define RNPVF_NET_FEATURE_VLAN_FILTER (1 << 5)
+#define RNPVF_NET_FEATURE_VLAN_OFFLOAD (1 << 6)
 #define RNPVF_NET_FEATURE_RX_NTUPLE_FILTER (1 << 7)
-#define RNPVF_NET_FEATURE_TCAM			   (1 << 8)
-#define RNPVF_NET_FEATURE_RX_HASH		   (1 << 9)
-#define RNPVF_NET_FEATURE_RX_FCS		   (1 << 10)
+#define RNPVF_NET_FEATURE_TCAM (1 << 8)
+#define RNPVF_NET_FEATURE_RX_HASH (1 << 9)
+#define RNPVF_NET_FEATURE_RX_FCS (1 << 10)
+#define RNPVF_NET_FEATURE_HW_TC (1 << 11)
+#define RNPVF_NET_FEATURE_USO (1 << 12)
+#define RNPVF_NET_FEATURE_STAG_FILTER (1 << 13)
+#define RNPVF_NET_FEATURE_STAG_OFFLOAD (1 << 14)
 
 	u32 feature_flags;
 };
+//fixme in n500
+#define VFNUM(mbx, num) ((num) & mbx->vf_num_mask)
 
-#define VFNUM(num) ((num)&VF_NUM_MASK)
+enum irq_mode_enum {
+	irq_mode_msix,
+	irq_mode_msi,
+	irq_mode_legency,
+};
 
 /* board specific private data structure */
 struct rnpvf_adapter {
@@ -411,7 +555,8 @@ struct rnpvf_adapter {
 	u32 napi_budge;
 	u32 tx_work_limit;
 	/* TX */
-	struct rnpvf_ring *tx_ring[MAX_TX_QUEUES] ____cacheline_aligned_in_smp;
+	struct rnpvf_ring
+		*tx_ring[MAX_TX_QUEUES] ____cacheline_aligned_in_smp;
 	int tx_ring_item_count;
 	int num_q_vectors;
 	int num_tx_queues;
@@ -436,6 +581,7 @@ struct rnpvf_adapter {
 
 	int vector_off;
 	int num_other_vectors;
+	int irq_mode;
 	struct rnpvf_q_vector *q_vector[MAX_MSIX_VECTORS];
 
 	int num_msix_vectors;
@@ -447,18 +593,27 @@ struct rnpvf_adapter {
 	 * thus the additional *_CAPABLE flags.
 	 */
 	u32 flags;
-#define RNPVF_FLAG_IN_WATCHDOG_TASK (u32)(1)
-#define RNPVF_FLAG_IN_NETPOLL (u32) (1 << 1)
-#define RNPVF_FLAG_PF_SET_VLAN (u32) (1 << 2)
-#define RNPVF_FLAG_PF_UPDATE_MTU (u32) (1 << 3)
-#define RNPVF_FLAG_PF_UPDATE_MAC (u32) (1 << 4)
-#define RNPVF_FLAG_PF_UPDATE_VLAN (u32) (1 << 5)
-#define RNPVF_FLAG_PF_RESET (u32) (1 << 6)
-#define RNPVF_FLAG_PF_RESET_REQ (u32) (1 << 7)
+#define RNPVF_FLAG_IN_WATCHDOG_TASK ((u32)(1))
+#define RNPVF_FLAG_IN_NETPOLL ((u32)(1 << 1))
+#define RNPVF_FLAG_PF_SET_VLAN ((u32)(1 << 2))
+#define RNPVF_FLAG_PF_UPDATE_MTU ((u32)(1 << 3))
+#define RNPVF_FLAG_PF_UPDATE_MAC ((u32)(1 << 4))
+#define RNPVF_FLAG_PF_UPDATE_VLAN ((u32)(1 << 5))
+#define RNPVF_FLAG_PF_RESET ((u32)(1 << 6))
+#define RNPVF_FLAG_PF_RESET_REQ ((u32)(1 << 7))
+#define RNPVF_FLAG_MSI_CAPABLE ((u32)(1 << 8))
+#define RNPVF_FLAG_MSI_ENABLED ((u32)(1 << 9))
+#define RNPVF_FLAG_MSIX_CAPABLE ((u32)(1 << 10))
+#define RNPVF_FLAG_MSIX_ENABLED ((u32)(1 << 11))
+#define RNPVF_FLAG_RX_CHKSUM_ENABLED ((u32)(1 << 12))
+#define RNPVF_FLAG_TX_VLAN_OFFLOAD ((u32)(1 << 13))
+#define RNPVF_FLAG_RX_VLAN_OFFLOAD ((u32)(1 << 14))
 
 	u32 priv_flags;
 #define RNPVF_PRIV_FLAG_FT_PADDING BIT(0)
-#define RNPVF_PRIV_FLAG_FCS_ON BIT(1)
+#define RNPVF_PRIV_FLAG_PADDING_DEBUG BIT(1)
+#define RNPVF_PRIV_FLAG_FCS_ON BIT(2)
+#define RNPVF_PRIV_FLAG_TX_PADDING BIT(3)
 
 	/* OS defined structs */
 
@@ -490,13 +645,13 @@ struct rnpvf_adapter {
 	char name[60];
 };
 
-enum ixbgevf_state_t
-{ 
+enum ixbgevf_state_t {
 	__RNPVF_TESTING,
 	__RNPVF_RESETTING,
 	__RNPVF_DOWN,
 	__RNPVF_REMOVE,
-	__RNPVF_MBX_POLLING
+	__RNPVF_MBX_POLLING,
+	__RNPVF_LINK_DOWN
 };
 
 struct rnpvf_cb {
@@ -513,7 +668,8 @@ struct rnpvf_cb {
 #define RING2ADAPT(ring) netdev_priv((ring)->netdev)
 
 enum rnpvf_boards {
-	board_n10_vu440_2x40G,
+	board_n10,
+	board_n500,
 };
 
 extern const struct rnpvf_info rnpvf_82599_vf_info;
@@ -521,7 +677,7 @@ extern const struct rnpvf_info rnpvf_X540_vf_info;
 extern const struct rnp_mbx_operations rnpvf_mbx_ops;
 
 /* needed by ethtool.c */
-extern const char rnpvf_driver_name[];
+extern char rnpvf_driver_name[];
 extern const char rnpvf_driver_version[];
 
 extern void rnpvf_up(struct rnpvf_adapter *adapter);
@@ -539,7 +695,9 @@ extern void rnpvf_free_tx_resources(struct rnpvf_adapter *,
 				    struct rnpvf_ring *);
 extern void rnpvf_update_stats(struct rnpvf_adapter *adapter);
 extern int ethtool_ioctl(struct ifreq *ifr);
+extern void remove_mbx_irq(struct rnpvf_adapter *adapter);
 extern void rnpvf_clear_interrupt_scheme(struct rnpvf_adapter *adapter);
+extern int register_mbx_irq(struct rnpvf_adapter *adapter);
 extern int rnpvf_init_interrupt_scheme(struct rnpvf_adapter *adapter);
 extern int rnpvf_close(struct net_device *netdev);
 extern int rnpvf_open(struct net_device *netdev);
@@ -552,14 +710,11 @@ extern void rnpvf_sysfs_exit(struct net_device *ndev);
 
 static inline int rnpvf_is_pf1(struct pci_dev *pdev)
 {
-	return ((pdev->devfn) ? 1: 0);
-	/*
-	return ((pdev->device != RNP_DEV_ID_N10_PF0_VF) && 
-			(pdev->device != RNP_DEV_ID_N10_PF0_VF_N)) ? 1 : 0;
-	*/
+	return ((pdev->devfn) ? 1 : 0);
 }
 
-static inline struct netdev_queue *txring_txq(const struct rnpvf_ring *ring)
+static inline struct netdev_queue *
+txring_txq(const struct rnpvf_ring *ring)
 {
 	return netdev_get_tx_queue(ring->netdev, ring->queue_index);
 }
@@ -571,7 +726,7 @@ static inline struct netdev_queue *txring_txq(const struct rnpvf_ring *ring)
 static inline unsigned int rnpvf_rx_bufsz(struct rnpvf_ring *ring)
 {
 	// 1 rx-desc trans max half page(2048), for jumbo frame sg is needed
-	return RNPVF_RXBUFFER_2K;
+	return RNPVF_RXBUFFER_1536;
 }
 
 // SG , 1 rx-desc use one page
@@ -584,10 +739,8 @@ static inline unsigned int rnpvf_rx_pg_order(struct rnpvf_ring *ring)
 static inline u32 rnpvf_rx_desc_used_hw(struct rnpvf_hw *hw,
 					struct rnpvf_ring *rx_ring)
 {
-	u32 head = rd32(hw,
-			RNP_DMA_REG_RX_DESC_BUF_HEAD(rx_ring->rnpvf_queue_idx));
-	u32 tail = rd32(hw,
-			RNP_DMA_REG_RX_DESC_BUF_TAIL(rx_ring->rnpvf_queue_idx));
+	u32 head = ring_rd32(rx_ring, RNP_DMA_REG_RX_DESC_BUF_HEAD);
+	u32 tail = ring_rd32(rx_ring, RNP_DMA_REG_RX_DESC_BUF_TAIL);
 	u16 count = rx_ring->count;
 
 	return ((tail >= head) ? (count - tail + head) : (head - tail));
@@ -596,10 +749,8 @@ static inline u32 rnpvf_rx_desc_used_hw(struct rnpvf_hw *hw,
 static inline u32 rnpvf_tx_desc_unused_hw(struct rnpvf_hw *hw,
 					  struct rnpvf_ring *tx_ring)
 {
-	u32 head = rd32(hw,
-			RNP_DMA_REG_TX_DESC_BUF_HEAD(tx_ring->rnpvf_queue_idx));
-	u32 tail = rd32(hw,
-			RNP_DMA_REG_TX_DESC_BUF_TAIL(tx_ring->rnpvf_queue_idx));
+	u32 head = ring_rd32(tx_ring, RNP_DMA_REG_TX_DESC_BUF_HEAD);
+	u32 tail = ring_rd32(tx_ring, RNP_DMA_REG_TX_DESC_BUF_TAIL);
 	u16 count = tx_ring->count;
 
 	return ((tail > head) ? (count - tail + head) : (head - tail));

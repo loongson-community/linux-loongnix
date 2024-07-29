@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: GPL-2.0 */
+/* Copyright(c) 2022 - 2023 Mucse Corporation. */
+
 #ifndef __RNP_DCB_H__
 #define __RNP_DCB_H__
 #include "rnp.h"

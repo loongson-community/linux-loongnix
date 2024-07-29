@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-2.0
+/* Copyright(c) 2022 - 2023 Mucse Corporation. */
 #ifndef MBX_FW_CMD_H
 #define MBX_FW_CMD_H
 
@@ -8,6 +10,8 @@
 #ifndef _PACKED_ALIGN4
 #define _PACKED_ALIGN4 __attribute__((packed, aligned(4)))
 #endif
+
+#define RNPM_MBX_ERR_IN_REMOVING (-200)
 
 struct mbx_fw_cmd_reply;
 typedef void (*cookie_cb)(struct mbx_fw_cmd_reply *reply, void *priv);
@@ -26,51 +30,57 @@ struct mbx_req_cookie {
 	char priv[0];
 };
 
-enum GENERIC_CMD
-{
+enum GENERIC_CMD {
 	/* generat */
 	GET_VERSION = 0x0001,
-	READ_REG = 0xFF03,
-	WRITE_REG = 0xFF04,
-	MODIFY_REG = 0xFF07,
+	READ_REG	= 0xFF03,
+	WRITE_REG	= 0xFF04,
+	MODIFY_REG	= 0xFF07,
 
 	/* virtualization */
-	IFUP_DOWN = 0x0800,
-	PTP_EVENT = 0x0801,
-	// SEND_TO_PF = 0x0801,
-	// SEND_TO_VF = 0x0802,
+	IFUP_DOWN	   = 0x0800,
+	PTP_EVENT	   = 0x0801,
+	DRIVER_INSMOD  = 0x0803,
+	SYSTEM_SUSPUSE = 0x0804,
 
 	/* link configuration admin commands */
-	GET_PHY_ABALITY = 0x0601,
-	GET_MAC_ADDRES = 0x0602,
-	RESET_PHY = 0x0603,
-	LED_SET = 0x0604,
-	GET_LINK_STATUS = 0x0607,
-	LINK_STATUS_EVENT = 0x0608,
-	SET_LANE_FUN = 0x0609,
-	GET_LANE_STATUS = 0x0610,
-	SET_EVENT_MASK = 0x0613,
-	SET_LOOPBACK_MODE = 0x0618,
-	SET_PHY_REG = 0x0628,
-	GET_PHY_REG = 0x0629,
-	PHY_LINK_SET = 0x0630,
-	GET_PHY_STATISTICS = 0x0631,
+	GET_PHY_ABALITY			= 0x0601,
+	GET_MAC_ADDRES			= 0x0602,
+	RESET_PHY				= 0x0603,
+	LED_SET					= 0x0604,
+	GET_LINK_STATUS			= 0x0607,
+	LINK_STATUS_EVENT		= 0x0608,
+	SET_LANE_FUN			= 0x0609,
+	GET_LANE_STATUS			= 0x0610,
+	SFP_SPEED_CHANGED_EVENT = 0x0611,
+	SET_PF_EVENT_MASK		= 0x0613,
+	SET_LANE_EVENT_EN		= 0x0614,
+	SET_LOOPBACK_MODE		= 0x0618,
+	PLUG_EVENT				= 0x0620,
+	SET_PHY_REG				= 0x0628,
+	GET_PHY_REG				= 0x0629,
+	PHY_LINK_SET			= 0x0630,
+	GET_PHY_STATISTICS		= 0x0631,
 
 	/*sfp-module*/
-	SFP_MODULE_READ = 0x0900,
+	SFP_MODULE_READ	 = 0x0900,
 	SFP_MODULE_WRITE = 0x0901,
 
 	/* fw update */
-	FW_UPDATE = 0x0700,
+	FW_UPDATE	= 0x0700,
 	FW_MAINTAIN = 0x0701,
-	WOL_EN = 0x0910,
+	EMI_SYNC	= 0x0706,
+
+	WOL_EN	 = 0x0910,
 	GET_DUMP = 0x0a00,
 	SET_DUMP = 0x0a10,
 	GET_TEMP = 0x0a11,
+	SET_WOL	 = 0x0a12,
+
+	LLDP_TX_CTL = 0x0a13,
 };
 
-enum link_event_mask
-{
+enum link_event_mask {
 	EVT_LINK_UP = 1,
 	EVT_NO_MEDIA = 2,
 	EVT_LINK_FAULT = 3,
@@ -82,11 +92,34 @@ enum link_event_mask
 	EVT_PORT_TX_SUSPEND = 9,
 };
 
-enum pma_type
-{
+#define PMA_UNKNOWN		0b111111 // 0x3f
+#define PMA_1000BASE_KX 0b001101
+#define PMA_1000BASE_T	0b001100
+#define PMA_10GBASE_KR	0b001011
+#define PMA_10GBASE_KX4 0b001010
+#define PMA_10GBASE_T	0b001001
+#define PMA_10GBASE_LRM 0b001000
+#define PMA_10GBASE_SR	0b000111
+#define PMA_10GBASE_LR	0b000110
+#define PMA_10GBASE_ER	0b000101
+#define PMA_10GBASE_LX4 0b000100
+#define PMA_10GBASE_SW	0b000011
+#define PMA_10GBASE_LW	0b000010
+#define PMA_10GBASE_EW	0b000001
+#define PMA_10GBASE_CX4 0b000000
+#define PMA_5BASE_KR	0b111100
+#define PMA_2_5GBASE_KX 0b111011
+#define PMA_40GBASE_ER4 0b100101
+#define PMA_40GBASE_FR	0b100100
+#define PMA_40GBASE_LR4 0b100011
+#define PMA_40GBASE_SR4 0b100010
+#define PMA_40GBASE_CR4 0b100001
+#define PMA_40GBASE_KR4 0b100000
+
+enum phy_type {
 	PHY_TYPE_NONE = 0,
 	PHY_TYPE_1G_BASE_KX,
-	PHY_TYPE_RGMII,
+	PHY_TYPE_SGMII,
 	PHY_TYPE_10G_BASE_KR,
 	PHY_TYPE_25G_BASE_KR,
 	PHY_TYPE_40G_BASE_KR4,
@@ -113,31 +146,50 @@ struct phy_abilities {
 		unsigned int port_ids;
 	};
 	unsigned int fw_uid;
+	unsigned int phy_id;
+	int wol_status;
+
+	union {
+		unsigned int ext_ablity;
+		struct {
+			unsigned int valid				   : 1; /* 0 */
+			unsigned int wol_en				   : 1; /* 1 */
+			unsigned int pci_preset_runtime_en : 1; /* 2 */
+			unsigned int smbus_en			   : 1; /* 3 */
+			unsigned int ncsi_en			   : 1; /* 4 */
+			unsigned int rpu_en				   : 1; /* 5 */
+			unsigned int v2					   : 1; /* 6 */
+			unsigned int pxe_en				   : 1; /* 7 */
+			unsigned int mctp_en			   : 1; /* 8 */
+			unsigned int yt8614				   : 1; /* 9 */
+			unsigned int pci_ext_reset		   : 1; /* 10 */
+			unsigned int rpu_availble		   : 1; /* 11 */
+			unsigned int fw_lldp_ablity		   : 1; /* 12 */
+			unsigned int lldp_enabled		   : 1; /* 13 */
+			unsigned int only_1g			   : 1; /* 14 */
+		};
+	};
 } _PACKED_ALIGN4;
 
-enum LOOPBACK_LEVEL
-{
+enum LOOPBACK_LEVEL {
 	LOOPBACK_DISABLE = 0,
 	LOOPBACK_MAC = 1,
 	LOOPBACK_PCS = 5,
 	LOOPBACK_EXTERNAL = 6,
 };
-enum LOOPBACK_TYPE
-{
+enum LOOPBACK_TYPE {
 	/* Tx->Rx */
 	LOOPBACK_TYPE_LOCAL = 0x0,
 };
 
-enum LOOPBACK_FORCE_SPEED
-{
+enum LOOPBACK_FORCE_SPEED {
 	LOOPBACK_FORCE_SPEED_NONE = 0x0,
 	LOOPBACK_FORCE_SPEED_1GBS = 0x1,
 	LOOPBACK_FORCE_SPEED_10GBS = 0x2,
 	LOOPBACK_FORCE_SPEED_40_25GBS = 0x3,
 };
 
-enum PHY_INTERFACE
-{
+enum PHY_INTERFACE {
 	PHY_INTERNAL_PHY = 0,
 	PHY_EXTERNAL_PHY_MDIO = 1,
 };
@@ -215,7 +267,7 @@ struct link_stat_data {
 } _PACKED_ALIGN4;
 
 struct port_stat {
-	u8 phyid;
+	u8 phy_addr;
 
 	u8 duplex  : 1;
 	u8 autoneg : 1;
@@ -244,9 +296,10 @@ struct lane_stat_data {
 #define LINK_RX_FAULT	  BIT(2)
 #define LINK_REMOTE_FAULT BIT(3)
 	u16 is_backplane : 1;
+	u16 tp_mdx		 : 2;
 
 	union {
-		u8 phyid;
+		u8 phy_addr;
 		struct {
 			u8 mod_abs : 1;
 			u8 fault   : 1;
@@ -254,7 +307,7 @@ struct lane_stat_data {
 			u8 los	   : 1;
 		} sfp;
 	};
-	u8 rev;
+	u8 sfp_connector;
 	u32 speed;
 
 	u32 si_main;
@@ -262,29 +315,31 @@ struct lane_stat_data {
 	u32 si_post;
 	u32 si_tx_boost;
 	u32 supported_link;
+	u32 phy_id;
+	u32 advertised_link;
 } __attribute__((packed));
 
 struct yt_phy_statistics {
-    u32 pkg_ib_valid; /* rx crc good and length 64-1518 */
-    u32 pkg_ib_os_good; /* rx crc good and length >1518 */
-    u32 pkg_ib_us_good; /* rx crc good and length <64 */
-    u16 pkg_ib_err; /* rx crc wrong and length 64-1518 */
-    u16 pkg_ib_os_bad; /* rx crc wrong and length >1518 */
-    u16 pkg_ib_frag; /* rx crc wrong and length <64 */
-    u16 pkg_ib_nosfd; /* rx sfd missed */
-    u32 pkg_ob_valid; /* tx crc good and length 64-1518 */
-    u32 pkg_ob_os_good; /* tx crc good and length >1518 */
-    u32 pkg_ob_us_good; /* tx crc good and length <64 */
-    u16 pkg_ob_err; /* tx crc wrong and length 64-1518 */
-    u16 pkg_ob_os_bad; /* tx crc wrong and length >1518 */
-    u16 pkg_ob_frag; /* tx crc wrong and length <64 */
-    u16 pkg_ob_nosfd; /* tx sfd missed */
+	u32 pkg_ib_valid;	/* rx crc good and length 64-1518 */
+	u32 pkg_ib_os_good; /* rx crc good and length >1518 */
+	u32 pkg_ib_us_good; /* rx crc good and length <64 */
+	u16 pkg_ib_err;		/* rx crc wrong and length 64-1518 */
+	u16 pkg_ib_os_bad;	/* rx crc wrong and length >1518 */
+	u16 pkg_ib_frag;	/* rx crc wrong and length <64 */
+	u16 pkg_ib_nosfd;	/* rx sfd missed */
+	u32 pkg_ob_valid;	/* tx crc good and length 64-1518 */
+	u32 pkg_ob_os_good; /* tx crc good and length >1518 */
+	u32 pkg_ob_us_good; /* tx crc good and length <64 */
+	u16 pkg_ob_err;		/* tx crc wrong and length 64-1518 */
+	u16 pkg_ob_os_bad;	/* tx crc wrong and length >1518 */
+	u16 pkg_ob_frag;	/* tx crc wrong and length <64 */
+	u16 pkg_ob_nosfd;	/* tx sfd missed */
 } __attribute__((packed));
 
 struct phy_statistics {
-    union {
-	struct yt_phy_statistics yt;
-    };
+	union {
+		struct yt_phy_statistics yt;
+	};
 } __attribute__((packed));
 /* == flags == */
 #define FLAGS_DD  BIT(0) /* driver clear 0, FW must set 1 */
@@ -334,8 +389,8 @@ struct mbx_fw_cmd_req {
 
 		struct {
 			unsigned int addr;
-			unsigned int data;
 			unsigned int bytes;
+			unsigned int data[4];
 		} w_reg;
 
 		struct {
@@ -346,6 +401,25 @@ struct mbx_fw_cmd_req {
 			int lane;
 			int up;
 		} ifup;
+
+		struct {
+			int nr_lane;
+#define LLDP_TX_ALL_LANES 0xFF
+			int op;
+#define LLDP_TX_SET 0x0
+#define LLDP_TX_GET 0x1
+			int enable;
+		} lldp_tx;
+
+		struct {
+			int lane;
+			int status;
+		} ifinsmod;
+
+		struct {
+			int lane;
+			int status;
+		} ifsuspuse;
 
 		struct {
 			int nr_lane;
@@ -361,6 +435,7 @@ struct mbx_fw_cmd_req {
 #define LANE_FUN_SFP_TX_DISABLE 4
 #define LANE_FUN_PCI_LANE		5
 #define LANE_FUN_PRBS			6
+#define LANE_FUN_SPEED_CHANGE	7
 
 			int value0;
 			int value1;
@@ -372,6 +447,11 @@ struct mbx_fw_cmd_req {
 			int flag;
 			int nr_lane;
 		} set_dump;
+
+		struct {
+			int lane;
+			int enable;
+		} wol;
 
 		struct {
 			unsigned int bytes;
@@ -401,6 +481,11 @@ struct mbx_fw_cmd_req {
 		} phy_link_set;
 
 		struct {
+			unsigned int pause_mode;
+			int nr_lane;
+		} phy_pause_set;
+
+		struct {
 			unsigned int nr_lane;
 			unsigned int sfp_adr; // 0xa0 or 0xa2
 			unsigned int reg;
@@ -425,10 +510,37 @@ struct mbx_fw_cmd_req {
 			struct port_stat st[4];
 		} link_stat; // FW->RC
 
+		struct plugin_s {
+			int nr_lane;
+			int action;
+#define PLUGIN_ACT_IN  0
+#define PLUGIN_ACT_OFF 1
+		} plugin_out; // FW -> RC
+
 		struct {
 			unsigned short enable_stat;
 			unsigned short event_mask; //  enum link_event_mask
-		} stat_event_mask;
+		} stat_pf_event_mask;
+
+		struct stat_lane_evt_t {
+			int nr_lane;
+			union {
+				u8 v;
+				struct {
+					u8 link_change : 1;
+					u8 plugin	   : 1;
+					u8 plugout	   : 1;
+				};
+			} evt;
+			union {
+				u8 v;
+				struct {
+					u8 link_change_en : 1;
+					u8 plugin_en	  : 1;
+					u8 plugout_en	  : 1;
+				};
+			} value;
+		} stat_lane_evt;
 
 		struct { /* set loopback */
 			unsigned char loopback_level;
@@ -481,15 +593,24 @@ struct mbx_fw_cmd_req {
 			char nr_lane;
 		} get_phy_reg;
 
-	struct {
-		unsigned int nr_lane;
-	} phy_statistics;
+		struct {
+			unsigned int nr_lane;
+		} phy_statistics;
+
 		struct {
 			char paration;
 			unsigned int bytes;
 			unsigned int bin_phy_lo;
 			unsigned int bin_phy_hi;
 		} fw_update;
+
+		struct emi_sync_st {
+			unsigned int offset;
+			unsigned int bytes;
+			unsigned int bin_phy_lo;
+			unsigned int bin_phy_hi;
+			unsigned int op;
+		} emi_sync;
 	};
 } _PACKED_ALIGN4;
 
@@ -518,13 +639,21 @@ struct mbx_fw_cmd_reply {
 		} version;
 
 		struct {
-			unsigned int value;
+			unsigned int value[4];
 		} r_reg;
+
+		struct {
+			unsigned int new_value;
+		} modify_reg;
 
 		struct get_temp {
 			int temp;
 			int volatage;
 		} get_temp;
+
+		struct lldp_stat {
+			int enable_stat;
+		} lldp;
 
 		struct {
 #define MBX_SFP_READ_MAX_CNT 32
@@ -539,6 +668,7 @@ struct mbx_fw_cmd_reply {
 				 */
 				unsigned char mac[8];
 			} addrs[4];
+			unsigned int ccode;
 		} mac_addr;
 
 		struct get_dump_reply {
@@ -547,10 +677,6 @@ struct mbx_fw_cmd_reply {
 			int bytes;
 			int data[4];
 		} get_dump;
-
-		struct { /* modify_reg */
-			unsigned int modified_new_value;
-		} modify_reg;
 
 		struct lane_stat_data lanestat;
 		struct link_stat_data linkstat;
@@ -660,30 +786,22 @@ build_readreg_req(struct mbx_fw_cmd_req *req, int reg_addr, void *cookie)
 	req->cookie = cookie;
 	req->reply_lo = 0;
 	req->reply_hi = 0;
-	req->r_reg.addr = reg_addr;
+	req->r_reg.addr = reg_addr & ~3;
 	req->r_reg.bytes = 4;
 
 	return;
 }
-/*
-	@ret:
-		0   : succes
-		!=0 : error
- */
-__maybe_unused static int cmd_get_readreg_value(struct mbx_fw_cmd_reply *reply,
-												int *value)
+
+static inline void build_mbx_wol_set(struct mbx_fw_cmd_req *req, unsigned nr_lane, u32 mode)
 {
-	if (!reply->flags & FLAGS_DD) {
-		return -EINVAL;
-	}
-	if (reply->flags & FLAGS_ERR)
-		return -reply->error_code;
-	if (reply->opcode != READ_REG) {
-		return -EINVAL;
-	}
-	if (value)
-		*value = reply->r_reg.value;
-	return 0;
+	req->flags = 0;
+	req->opcode = SET_WOL;
+	req->datalen = sizeof(req->sfp_write);
+	req->cookie = NULL;
+	req->reply_lo = 0;
+	req->reply_hi = 0;
+	req->wol.lane = nr_lane;
+	req->wol.enable = mode;
 }
 
 static inline void mbx_fw_req_set_reply(struct mbx_fw_cmd_req *req,
@@ -697,17 +815,21 @@ static inline void mbx_fw_req_set_reply(struct mbx_fw_cmd_req *req,
 static inline void build_writereg_req(struct mbx_fw_cmd_req *req,
 									  void *cookie,
 									  int reg_addr,
-									  int value)
+									  int bytes,
+									  int value[4])
 {
+	int i;
 	req->flags = 0;
 	req->opcode = WRITE_REG;
 	req->datalen = sizeof(req->w_reg);
 	req->cookie = cookie;
 	req->reply_lo = 0;
 	req->reply_hi = 0;
-	req->w_reg.addr = reg_addr;
-	req->w_reg.data = value;
-	req->w_reg.bytes = 4;
+	req->w_reg.addr = reg_addr & ~3;
+	req->w_reg.bytes = bytes;
+	for (i = 0; i < bytes / 4; i++) {
+		req->w_reg.data[i] = value[i];
+	}
 }
 
 /* 7.10.11.10 modify egister admin command */
@@ -872,6 +994,32 @@ build_ifup_down(struct mbx_fw_cmd_req *req, unsigned int nr_lane, int up)
 	req->ifup.up = up;
 }
 
+static inline void
+build_ifinsmod(struct mbx_fw_cmd_req *req, unsigned int nr_lane, int status)
+{
+	req->flags = 0;
+	req->opcode = DRIVER_INSMOD;
+	req->datalen = sizeof(req->ifinsmod);
+	req->cookie = NULL;
+	req->reply_lo = 0;
+	req->reply_hi = 0;
+	req->ifinsmod.lane = nr_lane;
+	req->ifinsmod.status = status;
+}
+
+static inline void
+build_ifsuspuse(struct mbx_fw_cmd_req *req, unsigned int nr_lane, int status)
+{
+	req->flags = 0;
+	req->opcode = SYSTEM_SUSPUSE;
+	req->datalen = sizeof(req->ifsuspuse);
+	req->cookie = NULL;
+	req->reply_lo = 0;
+	req->reply_hi = 0;
+	req->ifinsmod.lane = nr_lane;
+	req->ifinsmod.status = status;
+}
+
 static inline void build_mbx_sfp_read(struct mbx_fw_cmd_req *req,
 									  unsigned nr_lane,
 									  int sfp_addr,
@@ -914,13 +1062,78 @@ static inline void build_link_set_event_mask(struct mbx_fw_cmd_req *req,
 											 void *cookie)
 {
 	req->flags = 0;
-	req->opcode = SET_EVENT_MASK;
-	req->datalen = sizeof(req->stat_event_mask);
+	req->opcode = SET_PF_EVENT_MASK;
+	req->datalen = sizeof(req->stat_pf_event_mask);
 	req->cookie = cookie;
 	req->reply_lo = 0;
 	req->reply_hi = 0;
-	req->stat_event_mask.event_mask = event_mask;
-	req->stat_event_mask.enable_stat = enable;
+	req->stat_pf_event_mask.event_mask = event_mask;
+	req->stat_pf_event_mask.enable_stat = enable;
+}
+
+static inline void build_pluginout_evt_notify(struct mbx_fw_cmd_req *req,
+											  int nr_lane,
+											  int dir_plugin,
+											  int enable,
+											  void *cookie)
+{
+	req->flags = 0;
+	req->opcode = SET_LANE_EVENT_EN;
+	req->datalen = sizeof(req->stat_lane_evt);
+	req->cookie = cookie;
+	req->reply_lo = 0;
+	req->reply_hi = 0;
+	req->stat_lane_evt.nr_lane = nr_lane;
+	if (dir_plugin) {
+		req->stat_lane_evt.evt.plugin = 1;
+		req->stat_lane_evt.value.plugin_en = !!enable;
+	} else {
+		req->stat_lane_evt.value.plugout_en = !!enable;
+		req->stat_lane_evt.evt.plugout = 1;
+	}
+}
+
+static inline void build_lldp_ctrl_set(struct mbx_fw_cmd_req *req, int nr_lane, int enable)
+{
+	req->flags	  = 0;
+	req->opcode	  = LLDP_TX_CTL;
+	req->datalen  = sizeof(req->lldp_tx);
+	req->cookie	  = NULL;
+	req->reply_lo = 0;
+	req->reply_hi = 0;
+
+	req->lldp_tx.op		 = LLDP_TX_SET;
+	req->lldp_tx.nr_lane = nr_lane;
+	req->lldp_tx.enable	 = enable;
+}
+
+static inline void build_lldp_ctrl_get(struct mbx_fw_cmd_req *req, int nr_lane, void *cookie)
+{
+	req->flags	  = 0;
+	req->opcode	  = LLDP_TX_CTL;
+	req->datalen  = sizeof(req->lldp_tx);
+	req->cookie	  = cookie;
+	req->reply_lo = 0;
+	req->reply_hi = 0;
+
+	req->lldp_tx.op		 = LLDP_TX_GET;
+	req->lldp_tx.nr_lane = nr_lane;
+}
+
+static inline void build_lane_link_change_notify(struct mbx_fw_cmd_req *req,
+												 int nr_lane,
+												 int enable,
+												 void *cookie)
+{
+	req->flags = 0;
+	req->opcode = SET_LANE_EVENT_EN;
+	req->datalen = sizeof(req->stat_lane_evt);
+	req->cookie = cookie;
+	req->reply_lo = 0;
+	req->reply_hi = 0;
+	req->stat_lane_evt.nr_lane = nr_lane;
+	req->stat_lane_evt.evt.link_change = 1;
+	req->stat_lane_evt.value.link_change_en = !!enable;
 }
 
 static inline void
@@ -999,8 +1212,9 @@ static inline void build_get_phy_reg(struct mbx_fw_cmd_req *req,
 	req->get_phy_reg.phy_reg_addr = reg;
 }
 
-static inline void
-build_get_phy_statistics_req(struct mbx_fw_cmd_req *req, char nr_lane, void *cookie)
+static inline void build_get_phy_statistics_req(struct mbx_fw_cmd_req *req,
+												char nr_lane,
+												void *cookie)
 {
 	req->flags = 0;
 	req->opcode = GET_PHY_STATISTICS;
@@ -1011,12 +1225,38 @@ build_get_phy_statistics_req(struct mbx_fw_cmd_req *req, char nr_lane, void *coo
 	req->phy_statistics.nr_lane = nr_lane;
 }
 
-int rnpm_mbx_phy_write(struct rnpm_hw *hw, int reg, int val);
-int rnpm_mbx_phy_read(struct rnpm_hw *hw, int reg, int *val);
+static inline void build_comm_sdram_req(struct mbx_fw_cmd_req *req,
+										void *cookie,
+										u32 op,
+										u32 offset,
+										u32 fw_bin_phy_lo,
+										u32 fw_bin_phy_hi,
+										u32 bytes)
+{
+	req->flags = 0;
+	req->opcode = EMI_SYNC;
+	req->datalen = sizeof(req->emi_sync);
+	req->cookie = NULL;
+	req->reply_lo = 0;
+	req->reply_hi = 0;
+	req->emi_sync.op = op;
+	req->emi_sync.bytes = bytes;
+	req->emi_sync.offset = offset;
+	req->emi_sync.bin_phy_lo = fw_bin_phy_lo;
+	req->emi_sync.bin_phy_hi = fw_bin_phy_hi;
+}
+
+int rnpm_mbx_phy_write(struct rnpm_hw *hw, u32 reg, u32 val);
+int rnpm_mbx_phy_read(struct rnpm_hw *hw, u32 reg, u32 *val);
+int rnpm_mbx_sdram_simm(struct rnpm_hw *hw,
+						u32 flags,
+						u32 offset,
+						void *dma_buf,
+						dma_addr_t dma_phy,
+						u32 len);
 
 /* =========== errcode======= */
-enum MBX_ERR
-{
+enum MBX_ERR {
 	MBX_OK = 0,
 	MBX_ERR_NO_PERM,
 	MBX_ERR_INVAL_OPCODE,

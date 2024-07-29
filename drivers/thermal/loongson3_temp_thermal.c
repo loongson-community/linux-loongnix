@@ -860,8 +860,7 @@ static int loongson3_thermal_probe(struct platform_device *pdev)
 			loongson3_thermal_cpufreq_is_init = 1;
 	}
 
-	nr_packages = loongson_sysconf.nr_cpus /
-		loongson_sysconf.cores_per_package;
+	nr_packages = topology_max_packages();
 
 	thsens_reg = kzalloc(sizeof(struct loongson3_thsens_reg), GFP_KERNEL);
 	if (!thsens_reg)

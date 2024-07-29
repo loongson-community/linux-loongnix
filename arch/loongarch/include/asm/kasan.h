@@ -65,6 +65,9 @@ static inline void *kasan_mem_to_shadow(const void *addr)
 		unsigned long xrange = (maddr >> XRANGE_SHIFT) & 0xffff;
 		unsigned long offset = 0;
 
+		if (maddr >= FIXADDR_START)
+			return (void *)(kasan_zero_page);
+
 		maddr &= XXXRANGE_SHADOW_MASK;
 		switch (xrange) {
 		case XKPRANGE_CC_SEG:

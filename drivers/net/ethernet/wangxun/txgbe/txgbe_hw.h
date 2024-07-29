@@ -34,10 +34,10 @@
 #define SPI_CMD_WRITE_DWORD                0  // SPI write a dword command
 #define SPI_CMD_READ_DWORD                 1  // SPI read a dword command
 #define SPI_CMD_USER_CMD                   5  // SPI user command
-
+				
 #define SPI_CLK_CMD_OFFSET                28  // SPI command field offset in Command register
 #define SPI_CLK_DIV_OFFSET                25  // SPI clock divide field offset in Command register
-
+				
 #define SPI_TIME_OUT_VALUE             10000
 #define SPI_SECTOR_SIZE          (4 * 1024)  // FLASH sector size is 64KB
 #define SPI_H_CMD_REG_ADDR           0x10104  // SPI Command register address
@@ -155,6 +155,9 @@ s32 txgbe_enable_mc(struct txgbe_hw *hw);
 s32 txgbe_disable_mc(struct txgbe_hw *hw);
 s32 txgbe_disable_sec_rx_path(struct txgbe_hw *hw);
 s32 txgbe_enable_sec_rx_path(struct txgbe_hw *hw);
+s32 txgbe_disable_sec_tx_path(struct txgbe_hw *hw);
+s32 txgbe_enable_sec_tx_path(struct txgbe_hw *hw);
+
 
 s32 txgbe_fc_enable(struct txgbe_hw *hw);
 bool txgbe_device_supports_autoneg_fc(struct txgbe_hw *hw);
@@ -213,7 +216,7 @@ s32 txgbe_setup_mac_link_multispeed_fiber(struct txgbe_hw *hw,
 					  bool autoneg_wait_to_complete);
 int txgbe_check_flash_load(struct txgbe_hw *hw, u32 check_bit);
 
-#if defined(TXGBE_SUPPORT_KYLIN_FT)
+#if 0
 void txgbe_disable_fdir(struct txgbe_hw *hw);
 #endif
 
@@ -296,12 +299,18 @@ u32 rd32_ephy(struct txgbe_hw *hw, u32 addr);
 s32 txgbe_upgrade_flash_hostif(struct txgbe_hw *hw,  u32 region,
 				const u8 *data, u32 size);
 
+s32 txgbe_close_notify(struct txgbe_hw *hw);
+s32 txgbe_open_notify(struct txgbe_hw *hw);
+
 s32 txgbe_set_link_to_kr(struct txgbe_hw *hw, bool autoneg);
 s32 txgbe_set_link_to_kx4(struct txgbe_hw *hw, bool autoneg);
 
 s32 txgbe_set_link_to_kx(struct txgbe_hw *hw,
 			       u32 speed,
 			       bool autoneg);
+int txgbe_flash_read_dword(struct txgbe_hw *hw, u32 addr, u32 *data);
+s32 txgbe_hic_write_lldp(struct txgbe_hw *hw,u32 open);
+int txgbe_is_lldp(struct txgbe_hw *hw);
 
 
 #endif /* _TXGBE_HW_H_ */

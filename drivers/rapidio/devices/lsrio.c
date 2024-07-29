@@ -39,9 +39,8 @@ MODULE_PARM_DESC(dbg_level, "Debugging output level (default 0 = none)");
 
 /* fixup hbdidlcsr */
 #define LSRIO_HBDIDLCSR_DEF	0xffff
+static bool lsrio_hbdidlcsr_fix = true;
 static u32 lsrio_hbdidlcsr_local = LSRIO_HBDIDLCSR_DEF;
-static u32 lsrio_hbdidlcsr_hop[32];
-static u32 lsrio_hbdidlcsr_id[0x100];
 
 static void lsrio_omsg_handler(struct lsrio_device *priv, int ch);
 static void lsrio_imsg_handler(struct lsrio_device *priv, int ch);
@@ -198,7 +197,7 @@ static int lsrio_lcread(struct rio_mport *mport, int index, u32 offset,
 	if (len != sizeof(u32))
 		return -EINVAL; /* only 32-bit access is supported */
 
-	if (offset == RIO_HOST_DID_LOCK_CSR) {
+	if (offset == RIO_HOST_DID_LOCK_CSR && lsrio_hbdidlcsr_fix) {
 		*data = lsrio_hbdidlcsr_local;
 		return 0;
 	}
@@ -227,7 +226,7 @@ static int lsrio_lcwrite(struct rio_mport *mport, int index, u32 offset,
 	if (len != sizeof(u32))
 		return -EINVAL; /* only 32-bit access is supported */
 
-	if (offset == RIO_HOST_DID_LOCK_CSR) {
+	if (offset == RIO_HOST_DID_LOCK_CSR && lsrio_hbdidlcsr_fix) {
 		if (lsrio_hbdidlcsr_local == LSRIO_HBDIDLCSR_DEF)
 			lsrio_hbdidlcsr_local = data;
 		else if (lsrio_hbdidlcsr_local == data)
@@ -260,17 +259,6 @@ static int lsrio_cread(struct rio_mport *mport, int index, u16 destid,
 	struct lsrio_device *priv = mport->priv;
 	u32 win_size = priv->ob_win[0].size;
 	u32 reg_val;
-
-	if (offset == RIO_HOST_DID_LOCK_CSR) {
-		if (hopcount == 0xff)
-			*data = lsrio_hbdidlcsr_id[destid];
-		else if (hopcount <= 31)
-			*data = lsrio_hbdidlcsr_hop[hopcount];
-		else
-			return -EFAULT;
-
-		return 0;
-	}
 
 	/* Clear status */
 	reg_val = lsrio_apb_readl(priv, LSRIO_RAB_APIO_STAT);
@@ -314,27 +302,6 @@ static int lsrio_cwrite(struct rio_mport *mport, int index, u16 destid,
 	struct lsrio_device *priv = mport->priv;
 	u32 win_size = priv->ob_win[0].size;
 	u32 reg_val;
-
-	if (offset == RIO_DID_CSR)
-		lsrio_hbdidlcsr_id[data] = lsrio_hbdidlcsr_hop[hopcount];
-
-	if (offset == RIO_HOST_DID_LOCK_CSR) {
-		u32 *lsrio_hbdidlcsr;
-
-		if (hopcount == 0xff)
-			lsrio_hbdidlcsr = &lsrio_hbdidlcsr_id[destid];
-		else if (hopcount <= 31)
-			lsrio_hbdidlcsr = &lsrio_hbdidlcsr_hop[hopcount];
-		else
-			return -EFAULT;
-
-		if (*lsrio_hbdidlcsr == LSRIO_HBDIDLCSR_DEF)
-			*lsrio_hbdidlcsr = data;
-		else if (*lsrio_hbdidlcsr == data)
-			*lsrio_hbdidlcsr = LSRIO_HBDIDLCSR_DEF;
-
-		return 0;
-	}
 
 	/* Clear status */
 	reg_val = lsrio_apb_readl(priv, LSRIO_RAB_APIO_STAT);
@@ -1506,6 +1473,28 @@ static void lsrio_amap_remove(struct lsrio_device *priv)
 	lsrio_close_inb_win(priv);
 }
 
+static bool lsrio_hbdidlcsr_need_fix(struct lsrio_device *priv)
+{
+	u32 hdid = 0;
+	u32 reg_val;
+
+	reg_val = lsrio_apb_readl(priv, RIO_HOST_DID_LOCK_CSR);
+	if ((reg_val & 0xffff) != LSRIO_HBDIDLCSR_DEF)
+		return true;
+
+	lsrio_apb_writel(priv, RIO_HOST_DID_LOCK_CSR, hdid);
+	reg_val = lsrio_apb_readl(priv, RIO_HOST_DID_LOCK_CSR);
+	if ((reg_val & 0xffff) != hdid)
+		return true;
+
+	lsrio_apb_writel(priv, RIO_HOST_DID_LOCK_CSR, hdid);
+	reg_val = lsrio_apb_readl(priv, RIO_HOST_DID_LOCK_CSR);
+	if ((reg_val & 0xffff) != LSRIO_HBDIDLCSR_DEF)
+		return true;
+
+	return false;
+}
+
 static struct rio_ops lsrio_rio_ops = {
 	.lcread			= lsrio_lcread,
 	.lcwrite		= lsrio_lcwrite,
@@ -1594,7 +1583,7 @@ static int lsrio_probe(struct pci_dev *pdev,
 				  const struct pci_device_id *id)
 {
 	struct lsrio_device *priv;
-	int err, i;
+	int err;
 
 	priv = kzalloc(sizeof(struct lsrio_device), GFP_KERNEL);
 	if (!priv) {
@@ -1640,13 +1629,11 @@ static int lsrio_probe(struct pci_dev *pdev,
 	spin_lock_init(&priv->apb_lock);
 	lsrio_disable_ints(priv);
 
-	/* Fixup hbdidlcsr */
-	for (i = 0; i < 32; i++)
-		lsrio_hbdidlcsr_hop[i] = LSRIO_HBDIDLCSR_DEF;
-
 	lsrio_amap_init(priv);
 	lsrio_doorbell_init(priv);
 	lsrio_messages_init(priv);
+
+	lsrio_hbdidlcsr_fix = lsrio_hbdidlcsr_need_fix(priv);
 
 	err = lsrio_setup_mport(priv);
 	if (err)

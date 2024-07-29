@@ -249,13 +249,15 @@ static bool txgbe_cache_ring_vmdq(struct txgbe_adapter *adapter)
  **/
 static bool txgbe_cache_ring_rss(struct txgbe_adapter *adapter)
 {
-	u16 i;
+	int i, reg_idx;
 
-	for (i = 0; i < adapter->num_rx_queues; i++)
+	for (i = 0; i < adapter->num_rx_queues; i++) {
 		adapter->rx_ring[i]->reg_idx = i;
-
-	for (i = 0; i < adapter->num_tx_queues; i++)
-		adapter->tx_ring[i]->reg_idx = i;
+	}
+	for (i = 0, reg_idx = 0; i < adapter->num_tx_queues; i++, reg_idx++)
+		adapter->tx_ring[i]->reg_idx = reg_idx;
+	for (i = 0; i < adapter->num_xdp_queues; i++, reg_idx++)
+		adapter->xdp_ring[i]->reg_idx = reg_idx;
 
 	return true;
 }
@@ -476,6 +478,17 @@ static bool txgbe_set_dcb_queues(struct txgbe_adapter *adapter)
 }
 #endif
 
+static u16 txgbe_xdp_queues(struct txgbe_adapter *adapter)
+{
+#ifdef HAVE_XDP_SUPPORT
+	u16 queues = min_t(int, MAX_XDP_QUEUES, nr_cpu_ids);
+
+	return adapter->xdp_prog ? queues : 0;
+#else
+	return 0;
+#endif
+}
+
 /**
  * txgbe_set_vmdq_queues: Allocate queues for VMDq devices
  * @adapter: board private structure to initialize
@@ -506,7 +519,7 @@ static bool txgbe_set_vmdq_queues(struct txgbe_adapter *adapter)
 
 	/* 64 pool mode with 2 queues per pool, or
 	 * 16/32/64 pool mode with 1 queue per pool */
-	if ((vmdq_i > 32) || (rss_i < 4)) {
+	if ((vmdq_i > 32) || (rss_i < 4) || adapter->vf_mode == 63) {
 		vmdq_m = TXGBE_VMDQ_2Q_MASK;
 		rss_m = TXGBE_RSS_2Q_MASK;
 		rss_i = min_t(u16, rss_i, 2);
@@ -543,6 +556,7 @@ static bool txgbe_set_vmdq_queues(struct txgbe_adapter *adapter)
 #else
 	adapter->num_tx_queues = vmdq_i;
 #endif /* HAVE_TX_MQ */
+	adapter->num_xdp_queues = 0;
 
 	/* disable ATR as it is not supported when VMDq is enabled */
 	adapter->flags &= ~TXGBE_FLAG_FDIR_HASH_CAPABLE;
@@ -659,7 +673,7 @@ static bool txgbe_set_rss_queues(struct txgbe_adapter *adapter)
 #ifdef HAVE_TX_MQ
 	adapter->num_tx_queues = rss_i;
 #endif
-
+	adapter->num_xdp_queues = txgbe_xdp_queues(adapter);
 	return true;
 }
 
@@ -715,17 +729,15 @@ static int txgbe_acquire_msix_vectors(struct txgbe_adapter *adapter)
 
 	/* We start by asking for one vector per queue pair */
 	vectors = max(adapter->num_rx_queues, adapter->num_tx_queues);
+	vectors = max(vectors, adapter->num_xdp_queues);
 
 	/* It is easy to be greedy for MSI-X vectors. However, it really
 	 * doesn't do much good if we have a lot more vectors than CPUs. We'll
 	 * be somewhat conservative and only ask for (roughly) the same number
 	 * of vectors as there are CPUs.
 	 */
-#ifndef SIMULATION_DEBUG
 	vectors = min_t(int, vectors, num_online_cpus());
-#else
-	vectors = min_t(int, vectors, 8);
-#endif
+
 	/* Some vectors are necessary for non-queue interrupts */
 	vectors += NON_Q_VECTORS;
 
@@ -803,6 +815,7 @@ static void txgbe_add_ring(struct txgbe_ring *ring,
 static int txgbe_alloc_q_vector(struct txgbe_adapter *adapter,
 				unsigned int v_count, unsigned int v_idx,
 				unsigned int txr_count, unsigned int txr_idx,
+				unsigned int xdp_count, unsigned int xdp_idx,
 				unsigned int rxr_count, unsigned int rxr_idx)
 {
 	struct txgbe_q_vector *q_vector;
@@ -815,7 +828,7 @@ static int txgbe_alloc_q_vector(struct txgbe_adapter *adapter,
 	int ring_count, size;
 
 	/* note this will allocate space for the ring structure as well! */
-	ring_count = txr_count + rxr_count;
+	ring_count = txr_count + rxr_count + xdp_count;
 	size = sizeof(struct txgbe_q_vector) +
 	       (sizeof(struct txgbe_ring) * ring_count);
 
@@ -855,8 +868,13 @@ static int txgbe_alloc_q_vector(struct txgbe_adapter *adapter,
 
 #endif
 	/* initialize NAPI */
+#ifdef HAVE_NOT_NAPI_WEIGHT
+	netif_napi_add(adapter->netdev, &q_vector->napi,
+		       txgbe_poll);
+#else
 	netif_napi_add(adapter->netdev, &q_vector->napi,
 		       txgbe_poll, 64);
+#endif
 #ifndef HAVE_NETIF_NAPI_ADD_CALLS_NAPI_HASH_ADD
 #ifdef HAVE_NDO_BUSY_POLL
 	napi_hash_add(&q_vector->napi);
@@ -913,7 +931,7 @@ static int txgbe_alloc_q_vector(struct txgbe_adapter *adapter,
 				txr_idx % adapter->queues_per_pool;
 		else
 			ring->queue_index = txr_idx;
-
+		clear_ring_xdp(ring);
 		/* assign ring to adapter */
 		adapter->tx_ring[txr_idx] = ring;
 
@@ -925,6 +943,34 @@ static int txgbe_alloc_q_vector(struct txgbe_adapter *adapter,
 		ring++;
 	}
 
+	while (xdp_count) {
+		/* assign generic ring traits */
+		ring->dev = pci_dev_to_dev(adapter->pdev);
+		ring->netdev = adapter->netdev;
+
+		/* configure backlink on ring */
+		ring->q_vector = q_vector;
+
+		/* update q_vector Tx values */
+		txgbe_add_ring(ring, &q_vector->tx);
+
+		/* apply Tx specific ring traits */
+		ring->count = adapter->tx_ring_count;
+		ring->queue_index = xdp_idx;
+		set_ring_xdp(ring);
+
+		spin_lock_init(&ring->tx_lock);
+
+		/* assign ring to adapter */
+		adapter->xdp_ring[xdp_idx] = ring;
+
+		/* update count and index */
+		xdp_count--;
+		xdp_idx++;
+
+		/* push pointer to next ring */
+		ring++;
+	}
 	while (rxr_count) {
 		/* assign generic ring traits */
 		ring->dev = pci_dev_to_dev(adapter->pdev);
@@ -984,9 +1030,16 @@ static void txgbe_free_q_vector(struct txgbe_adapter *adapter, int v_idx)
 	struct txgbe_q_vector *q_vector = adapter->q_vector[v_idx];
 	struct txgbe_ring *ring;
 
-	txgbe_for_each_ring(ring, q_vector->tx)
-		adapter->tx_ring[ring->queue_index] = NULL;
-
+	txgbe_for_each_ring(ring, q_vector->tx){
+		if (ring_is_xdp(ring))
+			adapter->xdp_ring[ring->queue_index] = NULL;
+		else
+			adapter->tx_ring[ring->queue_index] = NULL;
+	}
+#ifdef HAVE_XDP_SUPPORT
+	if (static_key_enabled((struct static_key *)&txgbe_xdp_locking_key))
+		static_branch_dec(&txgbe_xdp_locking_key);
+#endif
 	txgbe_for_each_ring(ring, q_vector->rx)
 		adapter->rx_ring[ring->queue_index] = NULL;
 
@@ -1013,13 +1066,14 @@ static int txgbe_alloc_q_vectors(struct txgbe_adapter *adapter)
 	unsigned int q_vectors = adapter->num_q_vectors;
 	unsigned int rxr_remaining = adapter->num_rx_queues;
 	unsigned int txr_remaining = adapter->num_tx_queues;
-	unsigned int rxr_idx = 0, txr_idx = 0, v_idx = 0;
+	unsigned int xdp_remaining = adapter->num_xdp_queues;
+	unsigned int rxr_idx = 0, txr_idx = 0, xdp_idx = 0, v_idx = 0;
 	int err;
 
-	if (q_vectors >= (rxr_remaining + txr_remaining)) {
+	if (q_vectors >= (rxr_remaining + txr_remaining + xdp_remaining)) {
 		for (; rxr_remaining; v_idx++) {
 			err = txgbe_alloc_q_vector(adapter, q_vectors, v_idx,
-						   0, 0, 1, rxr_idx);
+						   0, 0, 0, 0, 1, rxr_idx);
 			if (err)
 				goto err_out;
 
@@ -1032,8 +1086,10 @@ static int txgbe_alloc_q_vectors(struct txgbe_adapter *adapter)
 	for (; v_idx < q_vectors; v_idx++) {
 		int rqpv = DIV_ROUND_UP(rxr_remaining, q_vectors - v_idx);
 		int tqpv = DIV_ROUND_UP(txr_remaining, q_vectors - v_idx);
+		int xqpv = DIV_ROUND_UP(xdp_remaining, q_vectors - v_idx);
 		err = txgbe_alloc_q_vector(adapter, q_vectors, v_idx,
 					   tqpv, txr_idx,
+					   xqpv, xdp_idx,
 					   rqpv, rxr_idx);
 
 		if (err)
@@ -1042,8 +1098,10 @@ static int txgbe_alloc_q_vectors(struct txgbe_adapter *adapter)
 		/* update counts and index */
 		rxr_remaining -= rqpv;
 		txr_remaining -= tqpv;
+		xdp_remaining -= xqpv;
 		rxr_idx++;
 		txr_idx++;
+		xdp_idx += xqpv;
 	}
 
 	return 0;
@@ -1051,6 +1109,7 @@ static int txgbe_alloc_q_vectors(struct txgbe_adapter *adapter)
 err_out:
 	adapter->num_tx_queues = 0;
 	adapter->num_rx_queues = 0;
+	adapter->num_xdp_queues = 0;
 	adapter->num_q_vectors = 0;
 
 	while (v_idx--)
@@ -1073,6 +1132,7 @@ static void txgbe_free_q_vectors(struct txgbe_adapter *adapter)
 
 	adapter->num_tx_queues = 0;
 	adapter->num_rx_queues = 0;
+	adapter->num_xdp_queues = 0;
 	adapter->num_q_vectors = 0;
 
 	while (v_idx--)

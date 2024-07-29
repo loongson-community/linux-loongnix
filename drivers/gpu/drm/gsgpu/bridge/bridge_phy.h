@@ -289,4 +289,6 @@ int bridge_phy_ncs8805_init(struct gsgpu_dc_bridge *dc_bridge);
 void bridge_phy_mode_set(struct gsgpu_bridge_phy *phy,
 				struct drm_display_mode *mode,
 				struct drm_display_mode *adj_mode);
+void gsgpu_bridge_suspend(struct gsgpu_device *adev);
+void gsgpu_bridge_resume(struct gsgpu_device *adev);
 #endif /* __BRIDGE_PHY_H__ */

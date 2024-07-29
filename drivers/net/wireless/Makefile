@@ -25,6 +25,7 @@ obj-$(CONFIG_RTL8188GU)       	+= rtl8188gu/
 obj-$(CONFIG_RTL8192CU)       	+= rtl8192cu/
 obj-$(CONFIG_RTL8812AU_8821AU)       	+= rtl8812au/
 obj-$(CONFIG_RTL8822BU)       	+= rtl8822bu/
+obj-$(CONFIG_RTL8852BE)       	+= rtl8852be/
 
 # 16-bit wireless PCMCIA client drivers
 obj-$(CONFIG_PCMCIA_RAYCS)	+= ray_cs.o

@@ -157,8 +157,8 @@ NGBE_PARAM(VEPA, "VEPA Bridge Mode: 0 = VEB (default), 1 = VEPA");
  *
  * Default Value: 1
  */
-#define DEFAULT_ITR             ((NGBE_STATIC_ITR == 0) || \
-	(NGBE_STATIC_ITR == 1)?NGBE_STATIC_ITR:(u16)((1000000/NGBE_STATIC_ITR) << 2))
+#define DEFAULT_ITR             (NGBE_STATIC_ITR == 0) || \
+	(NGBE_STATIC_ITR == 1)?NGBE_STATIC_ITR:(u16)((1000000/NGBE_STATIC_ITR) << 2)
 
 NGBE_PARAM(InterruptThrottleRate, "Maximum interrupts per second, per vector, "
 	    "(0,1,980-500000), default 1");
@@ -473,7 +473,8 @@ void __devinit ngbe_check_options(struct ngbe_adapter *adapter)
 		};
 		u32 rss = RSS[bd];
 		/* adjust Max allowed RSS queues based on MAC type */
-		opt.arg.r.max = ngbe_max_rss_indices(adapter);
+		opt.arg.r.max = min_t(int, ngbe_max_rss_indices(adapter),
+						     num_online_cpus());
 
 #ifdef module_param_array
 		if (num_RSS > bd) {
@@ -823,10 +824,10 @@ void __devinit ngbe_check_options(struct ngbe_adapter *adapter)
 			.name = "LRO - Large Receive Offload",
 			.err  = "defaulting to Disabled",
 /* lro switch to ON when run on SW and FT platform */
-/* emerald temp setting */
+/* emerald temp setting */            
 #if defined(TXGBE_SUPPORT_DEEPIN_SW) || \
 	defined(TXGBE_SUPPORT_KYLIN_SW) || \
-	defined(TXGBE_SUPPORT_KYLIN_FT)
+	defined(TXGBE_SUPPORT_KYLIN_FT)			
 			.def  = OPTION_ENABLED
 #else
             .def  = OPTION_DISABLED

@@ -30,6 +30,12 @@
 #define TXGBE_I2C_EEPROM_DEV_ADDR2      0xA2
 #define TXGBE_I2C_EEPROM_BANK_LEN       0xFF
 
+/*fiber to copper module inter reg i2c addr */
+#define TXGBE_I2C_EEPROM_DEV_ADDR3      0xAC
+#define TXGBE_I2C_PHY_LOCAL_RX_STATUS   BIT(12)
+#define TXGBE_I2C_PHY_REMOTE_RX_STATUS  BIT(13)
+#define TXGBE_I2C_10G_SFP_LINK_STATUS   BIT(10)
+
 /* EEPROM byte offsets */
 #define TXGBE_SFF_IDENTIFIER            0x0
 #define TXGBE_SFF_IDENTIFIER_SFP        0x3
@@ -40,6 +46,7 @@
 #define TXGBE_SFF_10GBE_COMP_CODES      0x3
 #define TXGBE_SFF_CABLE_TECHNOLOGY      0x8
 #define TXGBE_SFF_CABLE_SPEC_COMP       0x3C
+#define TXGBE_SFF_DDM_IMPLEMENTED		0x40
 #define TXGBE_SFF_SFF_8472_SWAP         0x5C
 #define TXGBE_SFF_SFF_8472_COMP         0x5E
 #define TXGBE_SFF_SFF_8472_OSCB         0x6E
@@ -53,6 +60,9 @@
 #define TXGBE_SFF_QSFP_1GBE_COMP        0x86
 #define TXGBE_SFF_QSFP_CABLE_LENGTH     0x92
 #define TXGBE_SFF_QSFP_DEVICE_TECH      0x93
+#define TXGBE_SFF_CABLE_VENDOR_NAME1    0x14
+#define TXGBE_SFF_CABLE_VENDOR_NAME2    0x15
+#define TXGBE_SFF_CABLE_VENDOR_NAME3    0x16
 
 /* Bitmasks */
 #define TXGBE_SFF_DA_PASSIVE_CABLE      0x4
@@ -164,6 +174,9 @@ s32 txgbe_clear_i2c(struct txgbe_hw *hw);
 s32 txgbe_switch_i2c_slave_addr(struct txgbe_hw *hw, u8 dev_addr);
 s32 txgbe_read_i2c_byte(struct txgbe_hw *hw, u8 byte_offset,
 				u8 dev_addr, u8 *data);
+s32 txgbe_read_i2c_word(struct txgbe_hw *hw, u16 byte_offset,
+				u8 dev_addr, u16 *data);
+
 
 s32 txgbe_write_i2c_byte(struct txgbe_hw *hw, u8 byte_offset,
 				 u8 dev_addr, u8 data);
@@ -173,6 +186,9 @@ s32 txgbe_write_i2c_eeprom(struct txgbe_hw *hw, u8 byte_offset,
 				   u8 eeprom_data);
 s32 txgbe_read_i2c_sff8472(struct txgbe_hw *hw, u8 byte_offset,
 							u8 *sff8472_data);
+s32 txgbe_read_i2c_sfp_phy(struct txgbe_hw *hw, u16 byte_offset,
+					  u16 *data);
+
 s32 txgbe_init_external_phy(struct txgbe_hw *hw);
 s32 txgbe_uninit_external_phy(struct txgbe_hw *hw);
 s32 txgbe_set_phy_pause_advertisement(struct txgbe_hw *hw, u32 pause_bit);

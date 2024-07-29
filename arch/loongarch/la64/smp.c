@@ -26,6 +26,7 @@
 #include <linux/syscore_ops.h>
 #include <linux/acpi.h>
 #include <linux/tracepoint.h>
+#include <linux/irq_work.h>
 #include <asm/processor.h>
 #include <asm/time.h>
 #include <asm/tlbflush.h>
@@ -46,11 +47,13 @@ static void (*ipi_write_action)(int cpu, u32 action);
 enum ipi_msg_type {
 	IPI_RESCHEDULE,
 	IPI_CALL_FUNC,
+	IPI_IRQ_WORK,
 };
 
 static const char *ipi_types[NR_IPI] __tracepoint_string = {
 	[IPI_RESCHEDULE] = "Rescheduling interrupts",
 	[IPI_CALL_FUNC] = "Call Function interrupts",
+	[IPI_IRQ_WORK] = "IRQ work interrupts",
 };
 
 void show_ipi_list(struct seq_file *p, int prec)
@@ -155,6 +158,12 @@ void loongson3_ipi_interrupt(int irq)
 		generic_smp_call_function_interrupt();
 		irq_exit();
 	}
+
+	if (action & SMP_IRQ_WORK) {
+		__inc_irq_stat(cpu, ipi_irqs[IPI_IRQ_WORK]);
+		irq_work_run();
+	}
+
 }
 
 /*

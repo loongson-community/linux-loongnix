@@ -46,13 +46,13 @@ static inline bool acpi_has_cpu_in_madt(void)
 }
 
 extern struct list_head acpi_wakeup_device_list;
+extern struct acpi_madt_core_pic cpu_madt_core_pic[NR_CPUS];
 
 extern int pptt_enabled;
 
-struct acpi_madt_core_pic *acpi_cpu_get_madt_core_pic(int cpu);
 static inline u32 get_acpi_id_for_cpu(unsigned int cpu)
 {
-	return acpi_cpu_get_madt_core_pic(cpu)->processor_id;
+	return cpu_madt_core_pic[cpu_logical_map(cpu)].processor_id;
 }
 
 #endif /* !CONFIG_ACPI */

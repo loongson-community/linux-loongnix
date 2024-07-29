@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-2.0
+/* Copyright(c) 2022 - 2023 Mucse Corporation. */
 #include <linux/pci.h>
 #include <linux/delay.h>
 #include <linux/sched.h>
@@ -5,10 +7,10 @@
 
 #include "rnpm_common.h"
 #include "rnpm_phy.h"
+#include "rnpm_mbx_fw.h"
 
-
-#define RNPM_PHY_REVISION_MASK        0xFFFFFFF0
-#define RNPM_MAX_PHY_ADDR             32
+#define RNPM_PHY_REVISION_MASK 0xFFFFFFF0
+#define RNPM_MAX_PHY_ADDR	   32
 
 static void rnpm_i2c_start(struct rnpm_hw *hw);
 static void rnpm_i2c_stop(struct rnpm_hw *hw);
@@ -85,13 +87,13 @@ __maybe_unused static s32 rnpm_get_phy_id(struct rnpm_hw *hw)
 	u16 phy_id_high = 0;
 	u16 phy_id_low = 0;
 
-	status = hw->phy.ops.read_reg(hw, MDIO_DEVID1, MDIO_MMD_PMAPMD,
-			&phy_id_high);
+	status =
+		hw->phy.ops.read_reg(hw, MDIO_DEVID1, MDIO_MMD_PMAPMD, &phy_id_high);
 
 	if (status == 0) {
 		hw->phy.id = (u32)(phy_id_high << 16);
-		status = hw->phy.ops.read_reg(hw, MDIO_DEVID2, MDIO_MMD_PMAPMD,
-				&phy_id_low);
+		status =
+			hw->phy.ops.read_reg(hw, MDIO_DEVID2, MDIO_MMD_PMAPMD, &phy_id_low);
 		hw->phy.id |= (u32)(phy_id_low & RNPM_PHY_REVISION_MASK);
 		hw->phy.revision = (u32)(phy_id_low & ~RNPM_PHY_REVISION_MASK);
 	}
@@ -170,97 +172,17 @@ out:
  *  @reg_addr: 32 bit address of PHY register to read
  *  @phy_data: Pointer to read data from PHY register
  **/
-s32 rnpm_read_phy_reg_generic(struct rnpm_hw *hw, u32 reg_addr,
-		u32 device_type, u16 *phy_data)
+s32 rnpm_read_phy_reg_generic(struct rnpm_hw *hw,
+							  u32 reg_addr,
+							  u32 device_type,
+							  u16 *phy_data)
 {
 	s32 status = 0;
-#if 0
-	u32 command;
-	u32 i;
-	u32 data;
-	u16 gssr;
+	u32 data = 0;
 
-	if (RNPM_READ_REG(hw, RNPM_STATUS) & RNPM_STATUS_LAN_ID_1)
-		gssr = RNPM_GSSR_PHY1_SM;
-	else
-		gssr = RNPM_GSSR_PHY0_SM;
+	status = rnpm_mbx_phy_read(hw, reg_addr, &data);
+	*phy_data = data & 0xffff;
 
-	if (hw->mac.ops.acquire_swfw_sync(hw, gssr) != 0)
-		status = RNPM_ERR_SWFW_SYNC;
-
-	if (status == 0) {
-		/* Setup and write the address cycle command */
-		command = ((reg_addr << RNPM_MSCA_NP_ADDR_SHIFT)  |
-				(device_type << RNPM_MSCA_DEV_TYPE_SHIFT) |
-				(hw->phy.mdio.prtad << RNPM_MSCA_PHY_ADDR_SHIFT) |
-				(RNPM_MSCA_ADDR_CYCLE | RNPM_MSCA_MDI_COMMAND));
-
-		RNPM_WRITE_REG(hw, RNPM_MSCA, command);
-
-		/*
-		 * Check every 10 usec to see if the address cycle completed.
-		 * The MDI Command bit will clear when the operation is
-		 * complete
-		 */
-		for (i = 0; i < RNPM_MDIO_COMMAND_TIMEOUT; i++) {
-			udelay(10);
-
-			command = RNPM_READ_REG(hw, RNPM_MSCA);
-
-			if ((command & RNPM_MSCA_MDI_COMMAND) == 0)
-				break;
-		}
-
-		if ((command & RNPM_MSCA_MDI_COMMAND) != 0) {
-			hw_dbg(hw, "PHY address command did not complete.\n");
-			status = RNPM_ERR_PHY;
-		}
-
-		if (status == 0) {
-			/*
-			 * Address cycle complete, setup and write the read
-			 * command
-			 */
-			command = ((reg_addr << RNPM_MSCA_NP_ADDR_SHIFT)  |
-					(device_type << RNPM_MSCA_DEV_TYPE_SHIFT) |
-					(hw->phy.mdio.prtad <<
-					 RNPM_MSCA_PHY_ADDR_SHIFT) |
-					(RNPM_MSCA_READ | RNPM_MSCA_MDI_COMMAND));
-
-			RNPM_WRITE_REG(hw, RNPM_MSCA, command);
-
-			/*
-			 * Check every 10 usec to see if the address cycle
-			 * completed. The MDI Command bit will clear when the
-			 * operation is complete
-			 */
-			for (i = 0; i < RNPM_MDIO_COMMAND_TIMEOUT; i++) {
-				udelay(10);
-
-				command = RNPM_READ_REG(hw, RNPM_MSCA);
-
-				if ((command & RNPM_MSCA_MDI_COMMAND) == 0)
-					break;
-			}
-
-			if ((command & RNPM_MSCA_MDI_COMMAND) != 0) {
-				hw_dbg(hw, "PHY read command didn't complete\n");
-				status = RNPM_ERR_PHY;
-			} else {
-				/*
-				 * Read operation is complete.  Get the data
-				 * from MSRWD
-				 */
-				data = RNPM_READ_REG(hw, RNPM_MSRWD);
-				data >>= RNPM_MSRWD_READ_DATA_SHIFT;
-				*phy_data = (u16)(data);
-			}
-		}
-
-		hw->mac.ops.release_swfw_sync(hw, gssr);
-	}
-
-#endif
 	return status;
 }
 
@@ -271,91 +193,15 @@ s32 rnpm_read_phy_reg_generic(struct rnpm_hw *hw, u32 reg_addr,
  *  @device_type: 5 bit device type
  *  @phy_data: Data to write to the PHY register
  **/
-s32 rnpm_write_phy_reg_generic(struct rnpm_hw *hw, u32 reg_addr,
-		u32 device_type, u16 phy_data)
+s32 rnpm_write_phy_reg_generic(struct rnpm_hw *hw,
+							   u32 reg_addr,
+							   u32 device_type,
+							   u16 phy_data)
 {
 	s32 status = 0;
-#if 0
-	u32 command;
-	u32 i;
-	u16 gssr;
 
-	if (RNPM_READ_REG(hw, RNPM_STATUS) & RNPM_STATUS_LAN_ID_1)
-		gssr = RNPM_GSSR_PHY1_SM;
-	else
-		gssr = RNPM_GSSR_PHY0_SM;
+	status = rnpm_mbx_phy_write(hw, reg_addr, (u32)phy_data);
 
-	if (hw->mac.ops.acquire_swfw_sync(hw, gssr) != 0)
-		status = RNPM_ERR_SWFW_SYNC;
-
-	if (status == 0) {
-		/* Put the data in the MDI single read and write data register*/
-		RNPM_WRITE_REG(hw, RNPM_MSRWD, (u32)phy_data);
-
-		/* Setup and write the address cycle command */
-		command = ((reg_addr << RNPM_MSCA_NP_ADDR_SHIFT)  |
-				(device_type << RNPM_MSCA_DEV_TYPE_SHIFT) |
-				(hw->phy.mdio.prtad << RNPM_MSCA_PHY_ADDR_SHIFT) |
-				(RNPM_MSCA_ADDR_CYCLE | RNPM_MSCA_MDI_COMMAND));
-
-		RNPM_WRITE_REG(hw, RNPM_MSCA, command);
-
-		/*
-		 * Check every 10 usec to see if the address cycle completed.
-		 * The MDI Command bit will clear when the operation is
-		 * complete
-		 */
-		for (i = 0; i < RNPM_MDIO_COMMAND_TIMEOUT; i++) {
-			udelay(10);
-
-			command = RNPM_READ_REG(hw, RNPM_MSCA);
-
-			if ((command & RNPM_MSCA_MDI_COMMAND) == 0)
-				break;
-		}
-
-		if ((command & RNPM_MSCA_MDI_COMMAND) != 0) {
-			hw_dbg(hw, "PHY address cmd didn't complete\n");
-			status = RNPM_ERR_PHY;
-		}
-
-		if (status == 0) {
-			/*
-			 * Address cycle complete, setup and write the write
-			 * command
-			 */
-			command = ((reg_addr << RNPM_MSCA_NP_ADDR_SHIFT)  |
-					(device_type << RNPM_MSCA_DEV_TYPE_SHIFT) |
-					(hw->phy.mdio.prtad <<
-					 RNPM_MSCA_PHY_ADDR_SHIFT) |
-					(RNPM_MSCA_WRITE | RNPM_MSCA_MDI_COMMAND));
-
-			RNPM_WRITE_REG(hw, RNPM_MSCA, command);
-
-			/*
-			 * Check every 10 usec to see if the address cycle
-			 * completed. The MDI Command bit will clear when the
-			 * operation is complete
-			 */
-			for (i = 0; i < RNPM_MDIO_COMMAND_TIMEOUT; i++) {
-				udelay(10);
-
-				command = RNPM_READ_REG(hw, RNPM_MSCA);
-
-				if ((command & RNPM_MSCA_MDI_COMMAND) == 0)
-					break;
-			}
-
-			if ((command & RNPM_MSCA_MDI_COMMAND) != 0) {
-				hw_dbg(hw, "PHY address cmd didn't complete\n");
-				status = RNPM_ERR_PHY;
-			}
-		}
-
-		hw->mac.ops.release_swfw_sync(hw, gssr);
-	}
-
-#endif
 	return status;
 }
 
@@ -463,31 +309,167 @@ s32 rnpm_setup_phy_link_generic(struct rnpm_hw *hw)
  *  @speed: new link speed
  **/
 s32 rnpm_setup_phy_link_speed_generic(struct rnpm_hw *hw,
-		rnpm_link_speed speed,
-		bool autoneg_wait_to_complete)
+									  rnpm_link_speed speed,
+									  bool autoneg_wait_to_complete)
 {
+	struct rnpm_adapter *adpt = hw->back;
+	u32 value = 0;
+	u32 value_r4 = 0;
+	u32 value_r9 = 0;
 
+	rnpm_logd(LOG_PHY,
+			  "%s setup phy: phy_addr=%d speed=%d duplex=%d autoneg=%d "
+			  "is_backplane=%d is_sgmii=%d mdix=%d\n",
+			  __func__,
+			  adpt->phy_addr,
+			  speed,
+			  hw->mac.duplex,
+			  hw->mac.autoneg,
+			  hw->is_backplane,
+			  hw->is_sgmii,
+			  hw->phy.mdix);
+
+	if (hw->is_backplane) {
+		/* Backplane type, support AN, unsupport set speed */
+		return rnpm_set_lane_fun(hw, LANE_FUN_AN, hw->mac.autoneg, 0, 0, 0);
+	}
+
+	/* Fiber only support force speed 1G/10G*/
+	if (!hw->is_sgmii) {
+		if (adpt->pf_adapter->force_10g_1g_speed_ablity) {
+			rnpm_mbx_force_speed(hw, speed);
+			/* Update port link info when firber is absent */
+			set_bit(RNPM_PF_LINK_CHANGE, &adpt->pf_adapter->flags);
+		}
+		return 0;
+	}
+
+	/* Set MDI/MDIX mode */
+	rnpm_mbx_phy_read(hw, RNPM_YT8531_PHY_SPEC_CTRL, &value);
+	value &= ~RNPM_YT8531_PHY_SPEC_CTRL_MDIX_CFG_MASK;
+	/* Options: 0: Auto (default)  1: MDI mode  2: MDI-X mode */
+	switch (hw->phy.mdix) {
+	case 1:
+		break;
+	case 2:
+		value |= RNPM_YT8531_PHY_SPEC_CTRL_FORCE_MDIX;
+		break;
+	case 0:
+	default:
+		value |= RNPM_YT8531_PHY_SPEC_CTRL_AUTO_MDI_MDIX;
+		break;
+	}
+	rnpm_mbx_phy_write(hw, RNPM_YT8531_PHY_SPEC_CTRL, value);
+
+	if (speed == RNPM_LINK_SPEED_UNKNOWN) {
+		rnpm_mbx_phy_read(hw, 0x0, &value);
+		value |= RNPM_MDI_PHY_RESET;
+		rnpm_mbx_phy_write(hw, 0x0, value);
+		goto skip_an;
+	}
 	/*
 	 * Clear autoneg_advertised and set new values based on input link
 	 * speed.
 	 */
-	hw->phy.autoneg_advertised = 0;
+	hw->phy.autoneg_advertised = speed;
 
-	if (speed & RNPM_LINK_SPEED_10_FULL)
-		hw->phy.autoneg_advertised |= RNPM_LINK_SPEED_10_FULL;
+	if (!hw->mac.autoneg) {
+		switch (speed) {
+		case RNPM_LINK_SPEED_1GB_FULL:
+		case RNPM_LINK_SPEED_1GB_HALF:
+			value = RNPM_MDI_PHY_SPEED_SELECT1;
+			// if (hw->phy.id == RNPM_YT8531_PHY_ID) {
+			speed = RNPM_LINK_SPEED_1GB_FULL;
+			goto out;
+			// }
+			break;
+		case RNPM_LINK_SPEED_100_FULL:
+		case RNPM_LINK_SPEED_100_HALF:
+			value = RNPM_MDI_PHY_SPEED_SELECT0;
+			break;
+		case RNPM_LINK_SPEED_10_FULL:
+		case RNPM_LINK_SPEED_10_HALF:
+			value = 0;
+			break;
+		default:
+			value = RNPM_MDI_PHY_SPEED_SELECT0 |
+				RNPM_MDI_PHY_SPEED_SELECT1;
+			hw_dbg(hw, "unknown speed = 0x%x.\n", speed);
+			break;
+		}
+		/* duplex full */
+		if (hw->mac.duplex)
+			value |= RNPM_MDI_PHY_DUPLEX;
+		value |= RNPM_MDI_PHY_RESET;
+		value &= ~RNPM_MDI_PHY_ANE;
+		rnpm_mbx_phy_write(hw, 0x0, value);
 
-	if (speed & RNPM_LINK_SPEED_100_FULL)
-		hw->phy.autoneg_advertised |= RNPM_LINK_SPEED_100_FULL;
+		goto skip_an;
+	}
 
-	if (speed & RNPM_LINK_SPEED_1GB_FULL)
+	// start_an:
+	value_r4 = 0x1E0;
+	value_r9 = 0x300;
+	/*disable 100/10base-T Self-negotiation ability*/
+	rnpm_mbx_phy_read(hw, 0x4, &value);
+	value &= ~value_r4;
+	rnpm_mbx_phy_write(hw, 0x4, value);
+
+	/*disable 1000base-T Self-negotiation ability*/
+	rnpm_mbx_phy_read(hw, 0x9, &value);
+	value &= ~value_r9;
+	rnpm_mbx_phy_write(hw, 0x9, value);
+
+	value_r4 = 0x0;
+	value_r9 = 0x0;
+
+	if (speed & RNPM_LINK_SPEED_1GB_FULL) {
 		hw->phy.autoneg_advertised |= RNPM_LINK_SPEED_1GB_FULL;
+		value_r9 |= 0x200;
+	}
+	if (speed & RNPM_LINK_SPEED_100_FULL) {
+		hw->phy.autoneg_advertised |= RNPM_LINK_SPEED_100_FULL;
+		value_r4 |= 0x100;
+	}
+	if (speed & RNPM_LINK_SPEED_10_FULL) {
+		hw->phy.autoneg_advertised |= RNPM_LINK_SPEED_10_FULL;
+		value_r4 |= 0x40;
+	}
 
-	if (speed & RNPM_LINK_SPEED_10GB_FULL)
-		hw->phy.autoneg_advertised |= RNPM_LINK_SPEED_10GB_FULL;
+	if (speed & RNPM_LINK_SPEED_1GB_HALF) {
+		hw->phy.autoneg_advertised |= RNPM_LINK_SPEED_1GB_HALF;
+		value_r9 |= 0x100;
+	}
+	if (speed & RNPM_LINK_SPEED_100_HALF) {
+		hw->phy.autoneg_advertised |= RNPM_LINK_SPEED_100_HALF;
+		value_r4 |= 0x80;
+	}
+	if (speed & RNPM_LINK_SPEED_10_HALF) {
+		hw->phy.autoneg_advertised |= RNPM_LINK_SPEED_10_HALF;
+		value_r4 |= 0x20;
+	}
 
-	/* Setup link based on the new speed settings */
-	hw->phy.ops.setup_link(hw);
+	/* enable 1000base-T Self-negotiation ability */
+	rnpm_mbx_phy_read(hw, 0x9, &value);
+	value |= value_r9;
+	rnpm_mbx_phy_write(hw, 0x9, value);
 
+	/* enable 100/10base-T Self-negotiation ability */
+	rnpm_mbx_phy_read(hw, 0x4, &value);
+	value |= value_r4;
+	rnpm_mbx_phy_write(hw, 0x4, value);
+
+	/* software reset to make the above configuration take effect*/
+	rnpm_mbx_phy_read(hw, 0x0, &value);
+	value |= 0x9200;
+	rnpm_mbx_phy_write(hw, 0x0, value);
+skip_an:
+	/* power on in UTP mode */
+	rnpm_mbx_phy_read(hw, 0x0, &value);
+	value &= ~0x800;
+	rnpm_mbx_phy_write(hw, 0x0, value);
+
+out:
 	return 0;
 }
 
@@ -500,8 +482,8 @@ s32 rnpm_setup_phy_link_speed_generic(struct rnpm_hw *hw,
  * Determines the link capabilities by reading the AUTOC register.
  */
 s32 rnpm_get_copper_link_capabilities_generic(struct rnpm_hw *hw,
-		rnpm_link_speed *speed,
-		bool *autoneg)
+											  rnpm_link_speed *speed,
+											  bool *autoneg)
 {
 	s32 status = RNPM_ERR_LINK_SETUP;
 	u16 speed_ability;
@@ -672,8 +654,7 @@ s32 rnpm_setup_phy_link_tnx(struct rnpm_hw *hw)
  *  @hw: pointer to hardware structure
  *  @firmware_version: pointer to the PHY Firmware Version
  **/
-s32 rnpm_get_phy_firmware_version_tnx(struct rnpm_hw *hw,
-				       u16 *firmware_version)
+s32 rnpm_get_phy_firmware_version_tnx(struct rnpm_hw *hw, u16 *firmware_version)
 {
 	s32 status = 0;
 #if 0
@@ -690,7 +671,7 @@ s32 rnpm_get_phy_firmware_version_tnx(struct rnpm_hw *hw,
  *  @firmware_version: pointer to the PHY Firmware Version
  **/
 s32 rnpm_get_phy_firmware_version_generic(struct rnpm_hw *hw,
-					   u16 *firmware_version)
+										  u16 *firmware_version)
 {
 	s32 status = 0;
 #if 0
@@ -1091,8 +1072,8 @@ err_read_i2c_eeprom:
  *  so it returns the offsets to the phy init sequence block.
  **/
 s32 rnpm_get_sfp_init_sequence_offsets(struct rnpm_hw *hw,
-		u16 *list_offset,
-		u16 *data_offset)
+									   u16 *list_offset,
+									   u16 *data_offset)
 {
 #if 0
 	u16 sfp_id;
@@ -1171,11 +1152,14 @@ s32 rnpm_get_sfp_init_sequence_offsets(struct rnpm_hw *hw,
  *
  *  Performs byte read operation to SFP module's EEPROM over I2C interface.
  **/
-s32 rnpm_read_i2c_eeprom_generic(struct rnpm_hw *hw, u8 byte_offset,
-		u8 *eeprom_data)
+s32 rnpm_read_i2c_eeprom_generic(struct rnpm_hw *hw,
+								 u8 byte_offset,
+								 u8 *eeprom_data)
 {
-	// return hw->phy.ops.read_i2c_byte(hw, byte_offset, RNPM_I2C_EEPROM_DEV_ADDR, eeprom_data);
-	//  *eeprom_data = rnpm_mbx_sfp_read(hw, RNPM_I2C_EEPROM_DEV_ADDR, byte_offset);
+	// return hw->phy.ops.read_i2c_byte(hw, byte_offset,
+	// RNPM_I2C_EEPROM_DEV_ADDR, eeprom_data);
+	//  *eeprom_data = rnpm_mbx_sfp_read(hw, RNPM_I2C_EEPROM_DEV_ADDR,
+	//  byte_offset);
 	return -EIO;
 }
 
@@ -1187,11 +1171,13 @@ s32 rnpm_read_i2c_eeprom_generic(struct rnpm_hw *hw, u8 byte_offset,
  *
  *  Performs byte read operation to SFP module's SFF-8472 data over I2C
  **/
-s32 rnpm_read_i2c_sff8472_generic(struct rnpm_hw *hw, u8 byte_offset,
-				   u8 *sff8472_data)
+s32 rnpm_read_i2c_sff8472_generic(struct rnpm_hw *hw,
+								  u8 byte_offset,
+								  u8 *sff8472_data)
 {
-	// *sff8472_data = rnpm_mbx_sfp_read(hw, RNPM_I2C_EEPROM_DEV_ADDR2, byte_offset);
-	// return hw->phy.ops.read_i2c_byte(hw, byte_offset, RNPM_I2C_EEPROM_DEV_ADDR2, sff8472_data);
+	// *sff8472_data = rnpm_mbx_sfp_read(hw, RNPM_I2C_EEPROM_DEV_ADDR2,
+	// byte_offset); return hw->phy.ops.read_i2c_byte(hw, byte_offset,
+	// RNPM_I2C_EEPROM_DEV_ADDR2, sff8472_data);
 	return -EIO;
 }
 
@@ -1203,10 +1189,12 @@ s32 rnpm_read_i2c_sff8472_generic(struct rnpm_hw *hw, u8 byte_offset,
  *
  *  Performs byte write operation to SFP module's EEPROM over I2C interface.
  **/
-s32 rnpm_write_i2c_eeprom_generic(struct rnpm_hw *hw, u8 byte_offset,
-		u8 eeprom_data)
+s32 rnpm_write_i2c_eeprom_generic(struct rnpm_hw *hw,
+								  u8 byte_offset,
+								  u8 eeprom_data)
 {
-	//return hw->phy.ops.write_i2c_byte(hw, byte_offset, RNPM_I2C_EEPROM_DEV_ADDR, eeprom_data);
+	// return hw->phy.ops.write_i2c_byte(hw, byte_offset,
+	// RNPM_I2C_EEPROM_DEV_ADDR, eeprom_data);
 	return -EIO;
 }
 
@@ -1219,8 +1207,10 @@ s32 rnpm_write_i2c_eeprom_generic(struct rnpm_hw *hw, u8 byte_offset,
  *  Performs byte read operation to SFP module's EEPROM over I2C interface at
  *  a specified device address.
  **/
-s32 rnpm_read_i2c_byte_generic(struct rnpm_hw *hw, u8 byte_offset,
-		u8 dev_addr, u8 *data)
+s32 rnpm_read_i2c_byte_generic(struct rnpm_hw *hw,
+							   u8 byte_offset,
+							   u8 dev_addr,
+							   u8 *data)
 {
 	s32 status = 0;
 #if 0
@@ -1242,7 +1232,7 @@ s32 rnpm_read_i2c_byte_generic(struct rnpm_hw *hw, u8 byte_offset,
 
 		rnpm_i2c_start(hw);
 
-		/* Device Address and write indication */
+		/* Device Address and 3rite indication */
 		status = rnpm_clock_out_i2c_byte(hw, dev_addr);
 		if (status != 0)
 			goto fail;
@@ -1309,8 +1299,10 @@ read_byte_out:
  *  Performs byte write operation to SFP module's EEPROM over I2C interface at
  *  a specified device address.
  **/
-s32 rnpm_write_i2c_byte_generic(struct rnpm_hw *hw, u8 byte_offset,
-		u8 dev_addr, u8 data)
+s32 rnpm_write_i2c_byte_generic(struct rnpm_hw *hw,
+								u8 byte_offset,
+								u8 dev_addr,
+								u8 data)
 {
 	s32 status = 0;
 #if 0
@@ -1379,8 +1371,7 @@ write_byte_out:
  *
  *  Sets I2C start condition (High -> Low on SDA while SCL is High)
  **/
-__maybe_unused
-static void rnpm_i2c_start(struct rnpm_hw *hw)
+__maybe_unused static void rnpm_i2c_start(struct rnpm_hw *hw)
 {
 #if 0
 	u32 i2cctl = RNPM_READ_REG(hw, RNPM_I2CCTL);
@@ -1410,8 +1401,7 @@ static void rnpm_i2c_start(struct rnpm_hw *hw)
  *
  *  Sets I2C stop condition (Low -> High on SDA while SCL is High)
  **/
-__maybe_unused
-static void rnpm_i2c_stop(struct rnpm_hw *hw)
+__maybe_unused static void rnpm_i2c_stop(struct rnpm_hw *hw)
 {
 #if 0
 	u32 i2cctl = RNPM_READ_REG(hw, RNPM_I2CCTL);
@@ -1437,8 +1427,7 @@ static void rnpm_i2c_stop(struct rnpm_hw *hw)
  *
  *  Clocks in one byte data via I2C data/clock
  **/
-__maybe_unused
-static s32 rnpm_clock_in_i2c_byte(struct rnpm_hw *hw, u8 *data)
+__maybe_unused static s32 rnpm_clock_in_i2c_byte(struct rnpm_hw *hw, u8 *data)
 {
 	s32 i;
 	bool bit = false;
@@ -1458,8 +1447,7 @@ static s32 rnpm_clock_in_i2c_byte(struct rnpm_hw *hw, u8 *data)
  *
  *  Clocks out one byte data via I2C data/clock
  **/
-__maybe_unused
-static s32 rnpm_clock_out_i2c_byte(struct rnpm_hw *hw, u8 data)
+__maybe_unused static s32 rnpm_clock_out_i2c_byte(struct rnpm_hw *hw, u8 data)
 {
 	s32 status = 0;
 #if 0
@@ -1485,8 +1473,7 @@ static s32 rnpm_clock_out_i2c_byte(struct rnpm_hw *hw, u8 data)
  *
  *  Clocks in/out one bit via I2C data/clock
  **/
-__maybe_unused
-static s32 rnpm_get_i2c_ack(struct rnpm_hw *hw)
+__maybe_unused static s32 rnpm_get_i2c_ack(struct rnpm_hw *hw)
 {
 	s32 status = 0;
 #if 0
@@ -1532,8 +1519,7 @@ static s32 rnpm_get_i2c_ack(struct rnpm_hw *hw)
  *
  *  Clocks in one bit via I2C data/clock
  **/
-__maybe_unused
-static s32 rnpm_clock_in_i2c_bit(struct rnpm_hw *hw, bool *data)
+__maybe_unused static s32 rnpm_clock_in_i2c_bit(struct rnpm_hw *hw, bool *data)
 {
 #if 0
 	u32 i2cctl = RNPM_READ_REG(hw, RNPM_I2CCTL);
@@ -1561,8 +1547,7 @@ static s32 rnpm_clock_in_i2c_bit(struct rnpm_hw *hw, bool *data)
  *
  *  Clocks out one bit via I2C data/clock
  **/
-__maybe_unused
-static s32 rnpm_clock_out_i2c_bit(struct rnpm_hw *hw, bool data)
+__maybe_unused static s32 rnpm_clock_out_i2c_bit(struct rnpm_hw *hw, bool data)
 {
 	s32 status = 0;
 #if 0
@@ -1595,8 +1580,7 @@ static s32 rnpm_clock_out_i2c_bit(struct rnpm_hw *hw, bool data)
  *
  *  Raises the I2C clock line '0'->'1'
  **/
-__maybe_unused
-static void rnpm_raise_i2c_clk(struct rnpm_hw *hw, u32 *i2cctl)
+__maybe_unused static void rnpm_raise_i2c_clk(struct rnpm_hw *hw, u32 *i2cctl)
 {
 #if 0
 	u32 i = 0;
@@ -1624,8 +1608,7 @@ static void rnpm_raise_i2c_clk(struct rnpm_hw *hw, u32 *i2cctl)
  *
  *  Lowers the I2C clock line '1'->'0'
  **/
-__maybe_unused
-static void rnpm_lower_i2c_clk(struct rnpm_hw *hw, u32 *i2cctl)
+__maybe_unused static void rnpm_lower_i2c_clk(struct rnpm_hw *hw, u32 *i2cctl)
 {
 #if 0
 	*i2cctl &= ~RNPM_I2C_CLK_OUT;
@@ -1646,8 +1629,8 @@ static void rnpm_lower_i2c_clk(struct rnpm_hw *hw, u32 *i2cctl)
  *
  *  Sets the I2C data bit
  **/
-__maybe_unused
-static s32 rnpm_set_i2c_data(struct rnpm_hw *hw, u32 *i2cctl, bool data)
+__maybe_unused static s32
+rnpm_set_i2c_data(struct rnpm_hw *hw, u32 *i2cctl, bool data)
 {
 	s32 status = 0;
 #if 0
@@ -1679,8 +1662,7 @@ static s32 rnpm_set_i2c_data(struct rnpm_hw *hw, u32 *i2cctl, bool data)
  *
  *  Returns the I2C data bit value
  **/
-__maybe_unused
-static bool rnpm_get_i2c_data(u32 *i2cctl)
+__maybe_unused static bool rnpm_get_i2c_data(u32 *i2cctl)
 {
 	bool data = false;
 #if 0
@@ -1699,8 +1681,7 @@ static bool rnpm_get_i2c_data(u32 *i2cctl)
  *  Clears the I2C bus by sending nine clock pulses.
  *  Used when data line is stuck low.
  **/
-__maybe_unused
-static void rnpm_i2c_bus_clear(struct rnpm_hw *hw)
+__maybe_unused static void rnpm_i2c_bus_clear(struct rnpm_hw *hw)
 {
 #if 0
 	u32 i2cctl = RNPM_READ_REG(hw, RNPM_I2CCTL);

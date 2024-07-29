@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0
 obj-$(CONFIG_RNPVF) := rnpvf.o
 rnpvf-objs :=   \
 				vf.o \
